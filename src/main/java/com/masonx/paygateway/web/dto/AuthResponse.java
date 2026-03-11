@@ -1,18 +1,28 @@
 package com.masonx.paygateway.web.dto;
 
+import com.masonx.paygateway.domain.organization.OrganizationRole;
+
+import java.util.List;
 import java.util.UUID;
 
 public record AuthResponse(
         String accessToken,
         String refreshToken,
         String tokenType,
-        UUID merchantId
+        UUID userId,
+        String email,
+        List<OrgMembership> memberships
 ) {
-    public AuthResponse(String accessToken, String refreshToken) {
-        this(accessToken, refreshToken, "Bearer", null);
-    }
+    public record OrgMembership(
+            UUID organizationId,
+            String organizationName,
+            OrganizationRole orgRole,
+            List<MerchantMembership> merchants
+    ) {}
 
-    public AuthResponse(String accessToken, String refreshToken, UUID merchantId) {
-        this(accessToken, refreshToken, "Bearer", merchantId);
-    }
+    public record MerchantMembership(
+            UUID merchantId,
+            String merchantName,
+            String role
+    ) {}
 }

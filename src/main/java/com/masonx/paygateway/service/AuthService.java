@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.merchant.*;
+import com.masonx.paygateway.domain.organization.*;
 import com.masonx.paygateway.domain.user.*;
 import com.masonx.paygateway.security.MerchantUserDetails;
 import com.masonx.paygateway.security.jwt.JwtService;
@@ -16,18 +17,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 @Transactional
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final OrganizationRepository organizationRepository;
+    private final OrganizationUserRepository organizationUserRepository;
     private final MerchantRepository merchantRepository;
     private final MerchantUserRepository merchantUserRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -39,6 +43,8 @@ public class AuthService {
     private long refreshTokenExpiryMs;
 
     public AuthService(UserRepository userRepository,
+                       OrganizationRepository organizationRepository,
+                       OrganizationUserRepository organizationUserRepository,
                        MerchantRepository merchantRepository,
                        MerchantUserRepository merchantUserRepository,
                        RefreshTokenRepository refreshTokenRepository,
@@ -46,6 +52,8 @@ public class AuthService {
                        JwtService jwtService,
                        AuthenticationManager authenticationManager) {
         this.userRepository = userRepository;
+        this.organizationRepository = organizationRepository;
+        this.organizationUserRepository = organizationUserRepository;
         this.merchantRepository = merchantRepository;
         this.merchantUserRepository = merchantUserRepository;
         this.refreshTokenRepository = refreshTokenRepository;
@@ -55,7 +63,7 @@ public class AuthService {
     }
 
     /**
-     * Self-register: creates User + Merchant + OWNER MerchantUser in one transaction.
+     * Self-register: creates User → Organization → Merchant → OrgUser(ORG_OWNER) → MerchantUser(OWNER)
      */
     public AuthResponse register(RegisterRequest req) {
         if (userRepository.existsByEmail(req.email())) {
@@ -67,9 +75,21 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(req.password()));
         user = userRepository.save(user);
 
+        Organization org = new Organization();
+        org.setName(req.merchantName());
+        org = organizationRepository.save(org);
+
         Merchant merchant = new Merchant();
+        merchant.setOrganizationId(org.getId());
         merchant.setName(req.merchantName());
         merchant = merchantRepository.save(merchant);
+
+        OrganizationUser orgUser = new OrganizationUser();
+        orgUser.setUser(user);
+        orgUser.setOrganization(org);
+        orgUser.setRole(OrganizationRole.ORG_OWNER);
+        orgUser.setStatus("ACTIVE");
+        organizationUserRepository.save(orgUser);
 
         MerchantUser mu = new MerchantUser();
         mu.setUser(user);
@@ -78,7 +98,7 @@ public class AuthService {
         mu.setStatus(MerchantUserStatus.ACTIVE);
         merchantUserRepository.save(mu);
 
-        return issueTokens(user, merchant.getId());
+        return issueTokens(user);
     }
 
     public AuthResponse login(LoginRequest req) {
@@ -86,7 +106,7 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(req.email(), req.password()));
         MerchantUserDetails principal = (MerchantUserDetails) auth.getPrincipal();
         User user = userRepository.findByEmail(principal.getUsername()).orElseThrow();
-        return issueTokens(user, null);
+        return issueTokens(user);
     }
 
     public AuthResponse refresh(String rawRefreshToken) {
@@ -98,11 +118,10 @@ public class AuthService {
             throw new IllegalArgumentException("Refresh token expired or revoked");
         }
 
-        // Rotate: revoke old, issue new
         stored.setRevoked(true);
         refreshTokenRepository.save(stored);
 
-        return issueTokens(stored.getUser(), null);
+        return issueTokens(stored.getUser());
     }
 
     public void logout(String rawRefreshToken) {
@@ -115,7 +134,7 @@ public class AuthService {
 
     // --- helpers ---
 
-    private AuthResponse issueTokens(User user, UUID merchantId) {
+    private AuthResponse issueTokens(User user) {
         MerchantUserDetails details = new MerchantUserDetails(user);
         String accessToken = jwtService.generateAccessToken(details);
         String rawRefresh = generateSecureToken();
@@ -126,7 +145,28 @@ public class AuthService {
         refreshToken.setExpiresAt(Instant.now().plusMillis(refreshTokenExpiryMs));
         refreshTokenRepository.save(refreshToken);
 
-        return new AuthResponse(accessToken, rawRefresh, merchantId);
+        List<AuthResponse.OrgMembership> memberships = buildMemberships(user.getId());
+
+        return new AuthResponse(accessToken, rawRefresh, "Bearer", user.getId(), user.getEmail(), memberships);
+    }
+
+    public List<AuthResponse.OrgMembership> buildMemberships(UUID userId) {
+        return organizationUserRepository.findActiveByUserId(userId).stream()
+                .map(ou -> {
+                    Organization org = ou.getOrganization();
+                    List<AuthResponse.MerchantMembership> merchants =
+                            merchantRepository.findAllByOrganizationId(org.getId()).stream()
+                                    .flatMap(m -> merchantUserRepository
+                                            .findByUser_IdAndMerchant_Id(userId, m.getId())
+                                            .filter(mu -> mu.getStatus() == MerchantUserStatus.ACTIVE)
+                                            .map(mu -> new AuthResponse.MerchantMembership(
+                                                    m.getId(), m.getName(), mu.getRole().name()))
+                                            .stream())
+                                    .toList();
+                    return new AuthResponse.OrgMembership(
+                            org.getId(), org.getName(), ou.getRole(), merchants);
+                })
+                .toList();
     }
 
     private String generateSecureToken() {

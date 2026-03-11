@@ -25,3 +25,5 @@ TestResults.xml
 /.env
 /.claude/
 /sdk/node/node_modules/
+/dashboard/node_modules/
+/dashboard/.next/

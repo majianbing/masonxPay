@@ -13,6 +13,9 @@ public class Merchant {
     private UUID id;
 
     @Column(nullable = false)
+    private UUID organizationId;
+
+    @Column(nullable = false)
     private String name;
 
     @Column(nullable = false, length = 20)
@@ -32,6 +35,9 @@ public class Merchant {
     // Getters & setters
 
     public UUID getId() { return id; }
+
+    public UUID getOrganizationId() { return organizationId; }
+    public void setOrganizationId(UUID organizationId) { this.organizationId = organizationId; }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

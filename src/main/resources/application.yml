@@ -31,6 +31,8 @@ spring:
             enable: true
 
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   jwt:
     secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-256-bits-long-secret-key}
     access-token-expiry-ms: 86400000      # 24h
