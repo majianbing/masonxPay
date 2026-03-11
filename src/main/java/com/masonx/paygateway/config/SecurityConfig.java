@@ -1,6 +1,7 @@
 package com.masonx.paygateway.config;
 
 import com.masonx.paygateway.security.MerchantUserDetailsService;
+import com.masonx.paygateway.security.apikey.ApiKeyAuthFilter;
 import com.masonx.paygateway.security.jwt.JwtAuthFilter;
 import com.masonx.paygateway.security.rbac.GatewayPermissionEvaluator;
 import org.springframework.context.annotation.Bean;
@@ -27,13 +28,16 @@ import org.springframework.security.access.expression.method.MethodSecurityExpre
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final ApiKeyAuthFilter apiKeyAuthFilter;
     private final MerchantUserDetailsService userDetailsService;
     private final GatewayPermissionEvaluator permissionEvaluator;
 
     public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          ApiKeyAuthFilter apiKeyAuthFilter,
                           MerchantUserDetailsService userDetailsService,
                           GatewayPermissionEvaluator permissionEvaluator) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.apiKeyAuthFilter = apiKeyAuthFilter;
         this.userDetailsService = userDetailsService;
         this.permissionEvaluator = permissionEvaluator;
     }
@@ -51,7 +55,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtAuthFilter, ApiKeyAuthFilter.class)
                 .build();
     }
 

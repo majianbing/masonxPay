@@ -76,6 +76,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Stripe SDK -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>24.3.0</version>
+        </dependency>
+
         <!-- Dotenv -->
         <dependency>
             <groupId>me.paulschwarz</groupId>

@@ -1,5 +1,9 @@
 package com.masonx.paygateway.web;
 
+import com.stripe.exception.StripeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -10,6 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
@@ -54,8 +60,26 @@ public class GlobalExceptionHandler {
         return pd;
     }
 
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Conflict");
+        pd.setDetail("A resource with this identifier already exists");
+        return pd;
+    }
+
+    @ExceptionHandler(StripeException.class)
+    public ProblemDetail handleStripe(StripeException ex) {
+        log.error("Stripe API error: {} — {}", ex.getCode(), ex.getMessage());
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_GATEWAY);
+        pd.setTitle("Payment provider error");
+        pd.setDetail(ex.getMessage());
+        return pd;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGeneric(Exception ex) {
+        log.error("Unhandled exception", ex);
         ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
         pd.setTitle("Internal server error");
         pd.setDetail("An unexpected error occurred");

@@ -38,3 +38,5 @@ app:
   invite:
     token-expiry-ms: 172800000            # 48h
     base-url: ${APP_BASE_URL:http://localhost:8080}
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY:}

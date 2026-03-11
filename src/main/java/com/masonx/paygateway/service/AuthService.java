@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -77,15 +78,15 @@ public class AuthService {
         mu.setStatus(MerchantUserStatus.ACTIVE);
         merchantUserRepository.save(mu);
 
-        return issueTokens(user);
+        return issueTokens(user, merchant.getId());
     }
 
     public AuthResponse login(LoginRequest req) {
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(req.email(), req.password()));
         MerchantUserDetails principal = (MerchantUserDetails) auth.getPrincipal();
-        return issueTokens(userRepository.findByEmail(principal.getUsername())
-                .orElseThrow());
+        User user = userRepository.findByEmail(principal.getUsername()).orElseThrow();
+        return issueTokens(user, null);
     }
 
     public AuthResponse refresh(String rawRefreshToken) {
@@ -101,7 +102,7 @@ public class AuthService {
         stored.setRevoked(true);
         refreshTokenRepository.save(stored);
 
-        return issueTokens(stored.getUser());
+        return issueTokens(stored.getUser(), null);
     }
 
     public void logout(String rawRefreshToken) {
@@ -114,7 +115,7 @@ public class AuthService {
 
     // --- helpers ---
 
-    private AuthResponse issueTokens(User user) {
+    private AuthResponse issueTokens(User user, UUID merchantId) {
         MerchantUserDetails details = new MerchantUserDetails(user);
         String accessToken = jwtService.generateAccessToken(details);
         String rawRefresh = generateSecureToken();
@@ -125,7 +126,7 @@ public class AuthService {
         refreshToken.setExpiresAt(Instant.now().plusMillis(refreshTokenExpiryMs));
         refreshTokenRepository.save(refreshToken);
 
-        return new AuthResponse(accessToken, rawRefresh);
+        return new AuthResponse(accessToken, rawRefresh, merchantId);
     }
 
     private String generateSecureToken() {
