@@ -21,3 +21,5 @@ rad.json
 #Test results file
 TestResults.xml
 /.idea/
+/target/
+/.env
