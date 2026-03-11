@@ -8,7 +8,7 @@ Make sure it's quite easy for user to deploy to in modern infrastructure. Let's 
 
 ## Cloudflare
 
-Minimum usage
+Minimum usage, approaching to free plan
 
 ## AWS
 
