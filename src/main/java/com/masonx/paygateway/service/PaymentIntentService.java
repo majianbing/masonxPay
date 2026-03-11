@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.StripePaymentProviderService;
@@ -11,6 +12,7 @@ import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,17 +31,20 @@ public class PaymentIntentService {
     private final RoutingEngine routingEngine;
     private final StripePaymentProviderService stripeProvider;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
                                 RoutingEngine routingEngine,
                                 StripePaymentProviderService stripeProvider,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                ApplicationEventPublisher eventPublisher) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine = routingEngine;
         this.stripeProvider = stripeProvider;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     public PaymentIntentResponse create(ApiKeyAuthentication auth, CreatePaymentIntentRequest req) {
@@ -126,7 +131,12 @@ public class PaymentIntentService {
         } else {
             intent.setStatus(PaymentIntentStatus.FAILED);
         }
-        return toResponse(paymentIntentRepository.save(intent));
+        PaymentIntentResponse response = toResponse(paymentIntentRepository.save(intent));
+
+        String eventType = result.success() ? "payment_intent.succeeded" : "payment_intent.failed";
+        publishEvent(intent, eventType, response);
+
+        return response;
     }
 
     public PaymentIntentResponse cancel(ApiKeyAuthentication auth, UUID intentId) {
@@ -139,7 +149,9 @@ public class PaymentIntentService {
         }
 
         intent.setStatus(PaymentIntentStatus.CANCELED);
-        return toResponse(paymentIntentRepository.save(intent));
+        PaymentIntentResponse response = toResponse(paymentIntentRepository.save(intent));
+        publishEvent(intent, "payment_intent.canceled", response);
+        return response;
     }
 
     // --- helpers ---
@@ -158,6 +170,16 @@ public class PaymentIntentService {
     private PaymentIntentResponse toResponse(PaymentIntent intent) {
         List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
         return PaymentIntentResponse.from(intent, attempts, objectMapper);
+    }
+
+    private void publishEvent(PaymentIntent intent, String eventType, PaymentIntentResponse payload) {
+        try {
+            String json = objectMapper.writeValueAsString(payload);
+            eventPublisher.publishEvent(
+                    new PaymentGatewayEvent(this, intent.getMerchantId(), eventType, intent.getId(), json));
+        } catch (JsonProcessingException e) {
+            // non-critical — log and move on
+        }
     }
 
     @SuppressWarnings("unchecked")

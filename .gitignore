@@ -23,3 +23,5 @@ TestResults.xml
 /.idea/
 /target/
 /.env
+/.claude/
+/sdk/node/node_modules/
