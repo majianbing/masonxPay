@@ -1,0 +1,28 @@
+{
+  "name": "@gateway/node",
+  "version": "0.1.0",
+  "description": "Official Node.js / TypeScript SDK for the Gateway payment API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "payments",
+    "gateway",
+    "sdk"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.4.0"
+  }
+}
