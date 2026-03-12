@@ -1,0 +1,89 @@
+package com.masonx.paygateway.web;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.service.RefundService;
+import com.masonx.paygateway.web.dto.CreateRefundRequest;
+import com.masonx.paygateway.web.dto.PaymentIntentResponse;
+import com.masonx.paygateway.web.dto.RefundResponse;
+import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Dashboard-facing (JWT-authenticated) read/refund endpoints for payment intents.
+ * SDK-facing create/confirm/cancel live in PaymentIntentController (API-key auth).
+ */
+@RestController
+@RequestMapping("/api/v1/merchants/{merchantId}/payment-intents")
+public class DashboardPaymentController {
+
+    private final PaymentIntentRepository paymentIntentRepository;
+    private final PaymentRequestRepository paymentRequestRepository;
+    private final RefundService refundService;
+    private final ObjectMapper objectMapper;
+
+    public DashboardPaymentController(PaymentIntentRepository paymentIntentRepository,
+                                      PaymentRequestRepository paymentRequestRepository,
+                                      RefundService refundService,
+                                      ObjectMapper objectMapper) {
+        this.paymentIntentRepository = paymentIntentRepository;
+        this.paymentRequestRepository = paymentRequestRepository;
+        this.refundService = refundService;
+        this.objectMapper = objectMapper;
+    }
+
+    @GetMapping
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Page<PaymentIntentResponse>> list(
+            @PathVariable UUID merchantId,
+            @RequestParam(required = false) String status,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        Page<PaymentIntent> page;
+        if (status != null && !status.isBlank()) {
+            PaymentIntentStatus statusEnum = PaymentIntentStatus.valueOf(status.toUpperCase());
+            page = paymentIntentRepository.findByMerchantIdAndStatus(merchantId, statusEnum, pageable);
+        } else {
+            page = paymentIntentRepository.findByMerchantId(merchantId, pageable);
+        }
+
+        return ResponseEntity.ok(page.map(intent -> {
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
+            return PaymentIntentResponse.from(intent, attempts, objectMapper);
+        }));
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<PaymentIntentResponse> get(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID id) {
+
+        PaymentIntent intent = paymentIntentRepository.findByIdAndMerchantId(id, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+
+        List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
+        return ResponseEntity.ok(PaymentIntentResponse.from(intent, attempts, objectMapper));
+    }
+
+    @PostMapping("/{id}/refunds")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'REFUND', 'CREATE')")
+    public ResponseEntity<RefundResponse> refund(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateRefundRequest req) {
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(refundService.createRefund(merchantId, id, req));
+    }
+}

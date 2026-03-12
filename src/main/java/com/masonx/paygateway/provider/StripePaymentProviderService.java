@@ -3,8 +3,10 @@ package com.masonx.paygateway.provider;
 import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.Refund;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.RefundCreateParams;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +64,36 @@ public class StripePaymentProviderService implements PaymentProviderService {
         } catch (StripeException e) {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
             return new ChargeResult(false, null, null, e.getCode(), e.getMessage());
+        }
+    }
+
+    @Override
+    public RefundResult refund(RefundRequest req) {
+        if (secretKey == null || secretKey.isBlank()) {
+            return new RefundResult(false, null, "STRIPE_SECRET_KEY is not set");
+        }
+
+        try {
+            RefundCreateParams params = RefundCreateParams.builder()
+                    .setPaymentIntent(req.providerPaymentId())
+                    .setAmount(req.amount())
+                    .build();
+
+            RequestOptions options = RequestOptions.builder()
+                    .setIdempotencyKey("refund-" + req.refundId())
+                    .build();
+
+            Refund refund = Refund.create(params, options);
+            boolean succeeded = "succeeded".equals(refund.getStatus());
+
+            return new RefundResult(
+                    succeeded,
+                    refund.getId(),
+                    succeeded ? null : refund.getFailureReason()
+            );
+        } catch (StripeException e) {
+            log.error("Stripe refund failed: {} — {}", e.getCode(), e.getMessage());
+            return new RefundResult(false, null, e.getMessage());
         }
     }
 }

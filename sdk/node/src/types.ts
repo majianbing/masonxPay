@@ -122,6 +122,29 @@ export interface RoutingRule {
   updatedAt: string;
 }
 
+// ─── Refunds ─────────────────────────────────────────────────────────────────
+
+export type RefundStatus = 'PENDING' | 'SUCCEEDED' | 'FAILED';
+export type RefundReason = 'CUSTOMER_REQUEST' | 'DUPLICATE' | 'FRAUDULENT';
+
+export interface Refund {
+  id: string;
+  paymentIntentId: string;
+  amount: number;
+  currency: string;
+  status: RefundStatus;
+  reason?: RefundReason;
+  providerRefundId?: string;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRefundParams {
+  amount?: number;
+  reason?: RefundReason;
+}
+
 // ─── Logs ────────────────────────────────────────────────────────────────────
 
 export interface GatewayLog {

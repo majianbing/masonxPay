@@ -1,5 +1,7 @@
 package com.masonx.paygateway.domain.payment;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -10,4 +12,7 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     Optional<PaymentIntent> findByIdAndMerchantId(UUID id, UUID merchantId);
     Optional<PaymentIntent> findByMerchantIdAndIdempotencyKey(UUID merchantId, String idempotencyKey);
     List<PaymentIntent> findByMerchantId(UUID merchantId);
+    Page<PaymentIntent> findByMerchantId(UUID merchantId, Pageable pageable);
+    Page<PaymentIntent> findByMerchantIdAndStatus(UUID merchantId, PaymentIntentStatus status, Pageable pageable);
+    Optional<PaymentIntent> findByProviderPaymentId(String providerPaymentId);
 }

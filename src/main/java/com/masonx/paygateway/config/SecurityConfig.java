@@ -60,7 +60,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/v1/auth/**",
-                                "/api/v1/invites/**"
+                                "/api/v1/invites/**",
+                                "/api/v1/providers/*/webhook"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

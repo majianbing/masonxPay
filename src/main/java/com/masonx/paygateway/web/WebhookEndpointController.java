@@ -1,8 +1,10 @@
 package com.masonx.paygateway.web;
 
+import com.masonx.paygateway.domain.webhook.WebhookDeliveryRepository;
 import com.masonx.paygateway.service.WebhookEndpointService;
 import com.masonx.paygateway.web.dto.CreateWebhookEndpointRequest;
 import com.masonx.paygateway.web.dto.UpdateWebhookEndpointRequest;
+import com.masonx.paygateway.web.dto.WebhookDeliveryResponse;
 import com.masonx.paygateway.web.dto.WebhookEndpointResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -12,15 +14,19 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/merchants/{merchantId}/webhook-endpoints")
 public class WebhookEndpointController {
 
     private final WebhookEndpointService webhookEndpointService;
+    private final WebhookDeliveryRepository webhookDeliveryRepository;
 
-    public WebhookEndpointController(WebhookEndpointService webhookEndpointService) {
+    public WebhookEndpointController(WebhookEndpointService webhookEndpointService,
+                                      WebhookDeliveryRepository webhookDeliveryRepository) {
         this.webhookEndpointService = webhookEndpointService;
+        this.webhookDeliveryRepository = webhookDeliveryRepository;
     }
 
     @GetMapping
@@ -56,5 +62,17 @@ public class WebhookEndpointController {
     public ResponseEntity<WebhookEndpointResponse> rotateSecret(@PathVariable UUID merchantId,
                                                                   @PathVariable UUID endpointId) {
         return ResponseEntity.ok(webhookEndpointService.rotateSecret(merchantId, endpointId));
+    }
+
+    @GetMapping("/{endpointId}/deliveries")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'READ')")
+    public ResponseEntity<List<WebhookDeliveryResponse>> listDeliveries(@PathVariable UUID merchantId,
+                                                                         @PathVariable UUID endpointId) {
+        List<WebhookDeliveryResponse> deliveries = webhookDeliveryRepository
+                .findTop50ByWebhookEndpointIdOrderByCreatedAtDesc(endpointId)
+                .stream()
+                .map(WebhookDeliveryResponse::from)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(deliveries);
     }
 }

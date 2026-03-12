@@ -3,6 +3,8 @@ import {
   PaymentIntent,
   CreatePaymentIntentParams,
   ConfirmPaymentIntentParams,
+  Refund,
+  CreateRefundParams,
 } from '../types';
 
 export class PaymentIntentsResource {
@@ -24,5 +26,13 @@ export class PaymentIntentsResource {
 
   cancel(id: string): Promise<PaymentIntent> {
     return this.http.post<PaymentIntent>(`/api/v1/payment-intents/${id}/cancel`);
+  }
+
+  createRefund(id: string, params: CreateRefundParams = {}): Promise<Refund> {
+    return this.http.post<Refund>(`/api/v1/payment-intents/${id}/refunds`, params);
+  }
+
+  listRefunds(id: string): Promise<Refund[]> {
+    return this.http.get<Refund[]>(`/api/v1/payment-intents/${id}/refunds`);
   }
 }

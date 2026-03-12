@@ -10,6 +10,7 @@ import java.util.UUID;
 public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery, UUID> {
 
     List<WebhookDelivery> findAllByGatewayEventId(UUID gatewayEventId);
+    List<WebhookDelivery> findTop50ByWebhookEndpointIdOrderByCreatedAtDesc(UUID webhookEndpointId);
 
     @Query("SELECT d FROM WebhookDelivery d WHERE d.status IN ('PENDING', 'RETRYING') AND d.nextRetryAt <= :now ORDER BY d.nextRetryAt ASC")
     List<WebhookDelivery> findDueForRetry(Instant now);
