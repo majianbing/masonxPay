@@ -3,10 +3,12 @@ import { PaymentIntentsResource } from './resources/payment-intents';
 import { WebhookEndpointsResource } from './resources/webhook-endpoints';
 import { ApiKeysResource } from './resources/api-keys';
 import { LogsResource } from './resources/logs';
+import { RoutingRulesResource } from './resources/routing-rules';
 import { WebhooksResource } from './webhooks';
 
 export { GatewayError } from './http';
 export * from './types';
+export type { CreateRoutingRuleParams, UpdateRoutingRuleParams } from './resources/routing-rules';
 
 export interface GatewayNodeOptions {
   /**
@@ -42,6 +44,7 @@ export class GatewayNode {
   readonly webhookEndpoints: WebhookEndpointsResource;
   readonly apiKeys: ApiKeysResource;
   readonly logs: LogsResource;
+  readonly routingRules: RoutingRulesResource;
   readonly webhooks: WebhooksResource;
 
   private readonly http: HttpClient;
@@ -56,6 +59,7 @@ export class GatewayNode {
     this.webhookEndpoints = new WebhookEndpointsResource(this.http, merchantId);
     this.apiKeys = new ApiKeysResource(this.http, merchantId);
     this.logs = new LogsResource(this.http, merchantId);
+    this.routingRules = new RoutingRulesResource(this.http, merchantId);
     this.webhooks = new WebhooksResource();
   }
 }
