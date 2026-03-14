@@ -12,6 +12,7 @@ import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
+import com.masonx.paygateway.service.ProviderAccountService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class PaymentIntentService {
     private final PaymentRequestRepository paymentRequestRepository;
     private final RoutingEngine routingEngine;
     private final StripePaymentProviderService stripeProvider;
+    private final ProviderAccountService providerAccountService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -37,12 +39,14 @@ public class PaymentIntentService {
                                 PaymentRequestRepository paymentRequestRepository,
                                 RoutingEngine routingEngine,
                                 StripePaymentProviderService stripeProvider,
+                                ProviderAccountService providerAccountService,
                                 ObjectMapper objectMapper,
                                 ApplicationEventPublisher eventPublisher) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine = routingEngine;
         this.stripeProvider = stripeProvider;
+        this.providerAccountService = providerAccountService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -108,11 +112,15 @@ public class PaymentIntentService {
         attempt.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
         attempt = paymentRequestRepository.save(attempt);
 
+        // Resolve merchant's connector key for the chosen provider
+        String providerSecretKey = providerAccountService.resolveSecretKey(auth.getMerchantId(), provider);
+
         // Charge
         ChargeResult result = stripeProvider.charge(new ChargeRequest(
                 intent.getId(), intent.getAmount(), intent.getCurrency(),
                 attempt.getPaymentMethodType(), req.paymentMethodId(),
-                "pi-" + intent.getId() + "-" + attempt.getId()
+                "pi-" + intent.getId() + "-" + attempt.getId(),
+                providerSecretKey
         ));
 
         // Update attempt

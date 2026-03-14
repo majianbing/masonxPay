@@ -46,3 +46,5 @@ app:
   stripe:
     secret-key: ${STRIPE_SECRET_KEY:}
     webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  encryption:
+    key: ${ENCRYPTION_KEY:}       # base64-encoded 32-byte key — generate: openssl rand -base64 32

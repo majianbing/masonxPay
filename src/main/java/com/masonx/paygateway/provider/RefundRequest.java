@@ -6,5 +6,6 @@ public record RefundRequest(
         UUID refundId,
         String providerPaymentId,
         long amount,
-        String reason
+        String reason,
+        String providerSecretKey     // merchant's own provider key, decrypted from ProviderAccount
 ) {}

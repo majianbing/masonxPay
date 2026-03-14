@@ -9,5 +9,6 @@ public enum Resource {
     ROUTING_RULE,
     LOG,
     MEMBER,
-    MERCHANT_SETTINGS
+    MERCHANT_SETTINGS,
+    CONNECTOR
 }

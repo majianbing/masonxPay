@@ -1,41 +1,31 @@
 package com.masonx.paygateway.provider;
 
-import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+/**
+ * Stripe payment provider — uses the merchant's own Stripe secret key per request.
+ * The key is decrypted from ProviderAccount and passed through ChargeRequest/RefundRequest.
+ * No global Stripe.apiKey is set; each request carries its own RequestOptions.
+ */
 @Service("stripePaymentProviderService")
 public class StripePaymentProviderService implements PaymentProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(StripePaymentProviderService.class);
 
-    @Value("${app.stripe.secret-key:}")
-    private String secretKey;
-
-    @PostConstruct
-    public void init() {
-        if (secretKey != null && !secretKey.isBlank()) {
-            Stripe.apiKey = secretKey;
-            log.info("Stripe initialized (key prefix: {})", secretKey.substring(0, Math.min(8, secretKey.length())));
-        } else {
-            log.warn("STRIPE_SECRET_KEY not set — Stripe charges will fail");
-        }
-    }
-
     @Override
     public ChargeResult charge(ChargeRequest req) {
-        if (secretKey == null || secretKey.isBlank()) {
+        if (req.providerSecretKey() == null || req.providerSecretKey().isBlank()) {
             return new ChargeResult(false, null, null,
-                    "stripe_not_configured", "STRIPE_SECRET_KEY is not set");
+                    "connector_not_configured",
+                    "No active Stripe connector found. Add one under Settings → Connectors.");
         }
 
         try {
@@ -48,6 +38,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             RequestOptions options = RequestOptions.builder()
+                    .setApiKey(req.providerSecretKey())
                     .setIdempotencyKey(req.idempotencyKey())
                     .build();
 
@@ -69,8 +60,8 @@ public class StripePaymentProviderService implements PaymentProviderService {
 
     @Override
     public RefundResult refund(RefundRequest req) {
-        if (secretKey == null || secretKey.isBlank()) {
-            return new RefundResult(false, null, "STRIPE_SECRET_KEY is not set");
+        if (req.providerSecretKey() == null || req.providerSecretKey().isBlank()) {
+            return new RefundResult(false, null, "No active Stripe connector found.");
         }
 
         try {
@@ -80,6 +71,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             RequestOptions options = RequestOptions.builder()
+                    .setApiKey(req.providerSecretKey())
                     .setIdempotencyKey("refund-" + req.refundId())
                     .build();
 

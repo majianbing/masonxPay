@@ -18,13 +18,16 @@ public class RefundService {
     private final PaymentIntentRepository paymentIntentRepository;
     private final RefundRepository refundRepository;
     private final StripePaymentProviderService stripeProvider;
+    private final ProviderAccountService providerAccountService;
 
     public RefundService(PaymentIntentRepository paymentIntentRepository,
                          RefundRepository refundRepository,
-                         StripePaymentProviderService stripeProvider) {
+                         StripePaymentProviderService stripeProvider,
+                         ProviderAccountService providerAccountService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.stripeProvider = stripeProvider;
+        this.providerAccountService = providerAccountService;
     }
 
     public RefundResponse createRefund(UUID merchantId, UUID paymentIntentId, CreateRefundRequest req) {
@@ -55,11 +58,15 @@ public class RefundService {
         }
         refund = refundRepository.save(refund);
 
+        String providerSecretKey = providerAccountService.resolveSecretKey(
+                merchantId, intent.getResolvedProvider());
+
         RefundResult result = stripeProvider.refund(new RefundRequest(
                 refund.getId(),
                 intent.getProviderPaymentId(),
                 refundAmount,
-                req.reason()
+                req.reason(),
+                providerSecretKey
         ));
 
         refund.setStatus(result.success() ? RefundStatus.SUCCEEDED : RefundStatus.FAILED);

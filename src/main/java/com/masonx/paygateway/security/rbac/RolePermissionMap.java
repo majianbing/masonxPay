@@ -16,6 +16,7 @@ public final class RolePermissionMap {
     private static final Map<MerchantRole, Set<String>> PERMISSIONS = new EnumMap<>(MerchantRole.class);
 
     static {
+        // CONNECTOR permissions — OWNER/ADMIN full, DEVELOPER read-only, FINANCE/VIEWER none
         PERMISSIONS.put(MerchantRole.OWNER, Set.of(
                 // PAYMENT
                 "PAYMENT:READ", "PAYMENT:CREATE", "PAYMENT:EXECUTE",
@@ -34,7 +35,9 @@ public final class RolePermissionMap {
                 // MEMBER
                 "MEMBER:READ", "MEMBER:CREATE", "MEMBER:UPDATE", "MEMBER:DELETE",
                 // MERCHANT_SETTINGS
-                "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE", "MERCHANT_SETTINGS:DELETE"
+                "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE", "MERCHANT_SETTINGS:DELETE",
+                // CONNECTOR
+                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.ADMIN, Set.of(
@@ -55,7 +58,9 @@ public final class RolePermissionMap {
                 // MEMBER (no DELETE of merchant itself)
                 "MEMBER:READ", "MEMBER:CREATE", "MEMBER:UPDATE", "MEMBER:DELETE",
                 // MERCHANT_SETTINGS (no DELETE)
-                "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE"
+                "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE",
+                // CONNECTOR
+                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.DEVELOPER, Set.of(
@@ -70,7 +75,9 @@ public final class RolePermissionMap {
                 // LOG
                 "LOG:READ",
                 // MERCHANT_SETTINGS - read only
-                "MERCHANT_SETTINGS:READ"
+                "MERCHANT_SETTINGS:READ",
+                // CONNECTOR - read only (devs need to know which providers are connected)
+                "CONNECTOR:READ"
         ));
 
         PERMISSIONS.put(MerchantRole.FINANCE, Set.of(
