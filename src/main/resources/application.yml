@@ -48,3 +48,5 @@ app:
     webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   encryption:
     key: ${ENCRYPTION_KEY:}       # base64-encoded 32-byte key — generate: openssl rand -base64 32
+  logs:
+    retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)

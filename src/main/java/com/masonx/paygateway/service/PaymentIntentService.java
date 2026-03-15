@@ -112,8 +112,8 @@ public class PaymentIntentService {
         attempt.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
         attempt = paymentRequestRepository.save(attempt);
 
-        // Resolve merchant's connector key for the chosen provider
-        String providerSecretKey = providerAccountService.resolveSecretKey(auth.getMerchantId(), provider);
+        // Resolve merchant's connector key for the chosen provider and mode
+        String providerSecretKey = providerAccountService.resolveSecretKey(auth.getMerchantId(), provider, auth.getMode());
 
         // Charge
         ChargeResult result = stripeProvider.charge(new ChargeRequest(

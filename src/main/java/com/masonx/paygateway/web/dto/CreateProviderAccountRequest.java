@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 public record CreateProviderAccountRequest(
         @NotNull String provider,            // STRIPE | PAYPAL
+        @NotBlank String mode,               // TEST | LIVE
         @NotBlank String label,
         @NotBlank String secretKey,          // plaintext — encrypted before storage, never returned
         String publishableKey,               // optional

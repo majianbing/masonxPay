@@ -47,8 +47,11 @@ public class ConnectorController {
 
     @GetMapping
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CONNECTOR', 'READ')")
-    public ResponseEntity<List<ProviderAccountResponse>> list(@PathVariable UUID merchantId) {
-        return ResponseEntity.ok(service.list(merchantId));
+    public ResponseEntity<List<ProviderAccountResponse>> list(
+            @PathVariable UUID merchantId,
+            @RequestParam(defaultValue = "TEST") String mode) {
+        ApiKeyMode modeEnum = ApiKeyMode.valueOf(mode.toUpperCase());
+        return ResponseEntity.ok(service.list(merchantId, modeEnum));
     }
 
     @PostMapping
@@ -96,6 +99,10 @@ public class ConnectorController {
 
         if (account.getStatus() != ProviderAccountStatus.ACTIVE) {
             throw new IllegalStateException("Connector is not active");
+        }
+
+        if (account.getMode() != ApiKeyMode.TEST) {
+            throw new IllegalStateException("Preview is only available for TEST mode connectors");
         }
 
         if (account.getProvider() != PaymentProvider.STRIPE) {

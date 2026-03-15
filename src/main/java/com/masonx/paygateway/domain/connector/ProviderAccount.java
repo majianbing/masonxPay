@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.connector;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import jakarta.persistence.*;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -39,6 +40,10 @@ public class ProviderAccount {
     private boolean primary = false;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private ApiKeyMode mode = ApiKeyMode.TEST;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ProviderAccountStatus status = ProviderAccountStatus.ACTIVE;
 
@@ -64,6 +69,8 @@ public class ProviderAccount {
     public void setSecretKeyHint(String secretKeyHint) { this.secretKeyHint = secretKeyHint; }
     public boolean isPrimary() { return primary; }
     public void setPrimary(boolean primary) { this.primary = primary; }
+    public ApiKeyMode getMode() { return mode; }
+    public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public ProviderAccountStatus getStatus() { return status; }
     public void setStatus(ProviderAccountStatus status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }

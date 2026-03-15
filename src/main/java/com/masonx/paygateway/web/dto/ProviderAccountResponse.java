@@ -9,6 +9,7 @@ public record ProviderAccountResponse(
         UUID id,
         UUID merchantId,
         String provider,
+        String mode,
         String label,
         String secretKeyHint,        // e.g. "...x4z9" — last 4 chars only
         boolean hasPublishableKey,
@@ -22,6 +23,7 @@ public record ProviderAccountResponse(
                 a.getId(),
                 a.getMerchantId(),
                 a.getProvider().name(),
+                a.getMode().name(),
                 a.getLabel(),
                 "...%s".formatted(a.getSecretKeyHint()),
                 a.getEncryptedPublishableKey() != null,

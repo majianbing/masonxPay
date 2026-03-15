@@ -59,7 +59,7 @@ public class RefundService {
         refund = refundRepository.save(refund);
 
         String providerSecretKey = providerAccountService.resolveSecretKey(
-                merchantId, intent.getResolvedProvider());
+                merchantId, intent.getResolvedProvider(), intent.getMode());
 
         RefundResult result = stripeProvider.refund(new RefundRequest(
                 refund.getId(),

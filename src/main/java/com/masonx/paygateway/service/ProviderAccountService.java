@@ -1,5 +1,6 @@
 package com.masonx.paygateway.service;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
@@ -26,8 +27,8 @@ public class ProviderAccountService {
     }
 
     @Transactional(readOnly = true)
-    public List<ProviderAccountResponse> list(UUID merchantId) {
-        return repo.findAllByMerchantIdOrderByCreatedAtDesc(merchantId)
+    public List<ProviderAccountResponse> list(UUID merchantId, ApiKeyMode mode) {
+        return repo.findAllByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
                 .stream()
                 .map(ProviderAccountResponse::from)
                 .toList();
@@ -35,14 +36,16 @@ public class ProviderAccountService {
 
     public ProviderAccountResponse create(UUID merchantId, CreateProviderAccountRequest req) {
         PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
+        ApiKeyMode mode = ApiKeyMode.valueOf(req.mode().toUpperCase());
 
         if (req.primary()) {
-            repo.clearPrimaryForProvider(merchantId, provider);
+            repo.clearPrimaryForProvider(merchantId, provider, mode);
         }
 
         ProviderAccount account = new ProviderAccount();
         account.setMerchantId(merchantId);
         account.setProvider(provider);
+        account.setMode(mode);
         account.setLabel(req.label());
         account.setEncryptedSecretKey(encryption.encrypt(req.secretKey()));
         account.setSecretKeyHint(buildHint(req.secretKey()));
@@ -75,7 +78,7 @@ public class ProviderAccountService {
 
     public ProviderAccountResponse setPrimary(UUID merchantId, UUID accountId) {
         ProviderAccount account = loadOwned(merchantId, accountId);
-        repo.clearPrimaryForProvider(merchantId, account.getProvider());
+        repo.clearPrimaryForProvider(merchantId, account.getProvider(), account.getMode());
         account.setPrimary(true);
         return ProviderAccountResponse.from(repo.save(account));
     }
@@ -85,9 +88,9 @@ public class ProviderAccountService {
      * Called internally only — never returned in HTTP responses.
      */
     @Transactional(readOnly = true)
-    public String resolveSecretKey(UUID merchantId, PaymentProvider provider) {
-        return repo.findByMerchantIdAndProviderAndPrimaryTrueAndStatus(
-                        merchantId, provider, ProviderAccountStatus.ACTIVE)
+    public String resolveSecretKey(UUID merchantId, PaymentProvider provider, ApiKeyMode mode) {
+        return repo.findByMerchantIdAndProviderAndModeAndPrimaryTrueAndStatus(
+                        merchantId, provider, mode, ProviderAccountStatus.ACTIVE)
                 .map(a -> encryption.decrypt(a.getEncryptedSecretKey()))
                 .orElse(null);
     }
