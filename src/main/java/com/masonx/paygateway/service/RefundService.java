@@ -46,6 +46,7 @@ public class RefundService {
         Refund refund = new Refund();
         refund.setPaymentIntentId(paymentIntentId);
         refund.setMerchantId(merchantId);
+        refund.setMode(intent.getMode());
         refund.setAmount(refundAmount);
         refund.setCurrency(intent.getCurrency());
         refund.setStatus(RefundStatus.PENDING);

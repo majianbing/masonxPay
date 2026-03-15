@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.payment;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -23,6 +24,10 @@ public class Refund {
 
     @Column(nullable = false, length = 10)
     private String currency;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private ApiKeyMode mode;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -61,6 +66,8 @@ public class Refund {
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }
 
+    public ApiKeyMode getMode() { return mode; }
+    public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public RefundStatus getStatus() { return status; }
     public void setStatus(RefundStatus status) { this.status = status; }
 

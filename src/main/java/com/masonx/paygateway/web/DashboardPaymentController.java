@@ -3,6 +3,7 @@ package com.masonx.paygateway.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.web.dto.RefundResponse;
 import com.masonx.paygateway.service.RefundService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
@@ -30,15 +31,18 @@ public class DashboardPaymentController {
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
+    private final RefundRepository refundRepository;
     private final RefundService refundService;
     private final ObjectMapper objectMapper;
 
     public DashboardPaymentController(PaymentIntentRepository paymentIntentRepository,
                                       PaymentRequestRepository paymentRequestRepository,
+                                      RefundRepository refundRepository,
                                       RefundService refundService,
                                       ObjectMapper objectMapper) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
+        this.refundRepository = refundRepository;
         this.refundService = refundService;
         this.objectMapper = objectMapper;
     }
@@ -82,6 +86,19 @@ public class DashboardPaymentController {
 
         List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
         return ResponseEntity.ok(PaymentIntentResponse.from(intent, attempts, objectMapper));
+    }
+
+    @GetMapping("/refunds")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'REFUND', 'READ')")
+    public ResponseEntity<Page<RefundResponse>> listRefunds(
+            @PathVariable UUID merchantId,
+            @RequestParam(required = false) String mode,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        ApiKeyMode modeEnum = (mode != null && !mode.isBlank()) ? ApiKeyMode.valueOf(mode.toUpperCase()) : ApiKeyMode.TEST;
+        return ResponseEntity.ok(
+                refundRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, modeEnum, pageable)
+                        .map(RefundResponse::from));
     }
 
     @PostMapping("/{id}/refunds")
