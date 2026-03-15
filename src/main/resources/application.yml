@@ -50,3 +50,4 @@ app:
     key: ${ENCRYPTION_KEY:}       # base64-encoded 32-byte key — generate: openssl rand -base64 32
   logs:
     retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)
+  pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs

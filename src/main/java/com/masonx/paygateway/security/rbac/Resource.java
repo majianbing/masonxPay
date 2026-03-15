@@ -10,5 +10,6 @@ public enum Resource {
     LOG,
     MEMBER,
     MERCHANT_SETTINGS,
-    CONNECTOR
+    CONNECTOR,
+    PAYMENT_LINK
 }

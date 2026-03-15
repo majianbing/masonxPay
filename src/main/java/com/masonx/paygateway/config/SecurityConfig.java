@@ -61,7 +61,8 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/**",
                                 "/api/v1/invites/**",
-                                "/api/v1/providers/*/webhook"
+                                "/api/v1/providers/*/webhook",
+                                "/pub/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
@@ -83,6 +84,7 @@ public class SecurityConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
+        source.registerCorsConfiguration("/pub/**", config);
         return source;
     }
 

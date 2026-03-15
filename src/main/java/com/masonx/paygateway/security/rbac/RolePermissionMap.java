@@ -37,7 +37,9 @@ public final class RolePermissionMap {
                 // MERCHANT_SETTINGS
                 "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE", "MERCHANT_SETTINGS:DELETE",
                 // CONNECTOR
-                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE"
+                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE",
+                // PAYMENT_LINK
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.ADMIN, Set.of(
@@ -60,7 +62,9 @@ public final class RolePermissionMap {
                 // MERCHANT_SETTINGS (no DELETE)
                 "MERCHANT_SETTINGS:READ", "MERCHANT_SETTINGS:UPDATE",
                 // CONNECTOR
-                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE"
+                "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE",
+                // PAYMENT_LINK
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.DEVELOPER, Set.of(
@@ -77,7 +81,9 @@ public final class RolePermissionMap {
                 // MERCHANT_SETTINGS - read only
                 "MERCHANT_SETTINGS:READ",
                 // CONNECTOR - read only (devs need to know which providers are connected)
-                "CONNECTOR:READ"
+                "CONNECTOR:READ",
+                // PAYMENT_LINK
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.FINANCE, Set.of(
