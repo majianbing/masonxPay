@@ -30,7 +30,7 @@ public class RoutingRuleService {
     public RoutingRuleResponse create(UUID merchantId, CreateRoutingRuleRequest req) {
         RoutingRule rule = new RoutingRule();
         rule.setMerchantId(merchantId);
-        applyRequest(rule, req.priority(), req.enabled(), req.currencies(), req.amountMin(),
+        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(), req.amountMin(),
                 req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
                 req.targetProvider(), req.fallbackProvider());
         return RoutingRuleResponse.from(routingRuleRepository.save(rule));
@@ -42,7 +42,7 @@ public class RoutingRuleService {
         if (!rule.getMerchantId().equals(merchantId)) {
             throw new IllegalArgumentException("Routing rule does not belong to this merchant");
         }
-        applyRequest(rule, req.priority(), req.enabled(), req.currencies(), req.amountMin(),
+        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(), req.amountMin(),
                 req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
                 req.targetProvider(), req.fallbackProvider());
         return RoutingRuleResponse.from(routingRuleRepository.save(rule));
@@ -57,13 +57,14 @@ public class RoutingRuleService {
         routingRuleRepository.delete(rule);
     }
 
-    private void applyRequest(RoutingRule rule, int priority, boolean enabled,
+    private void applyRequest(RoutingRule rule, int priority, boolean enabled, int weight,
                                List<String> currencies, Long amountMin, Long amountMax,
                                List<String> countryCodes, List<String> paymentMethodTypes,
                                com.masonx.paygateway.domain.payment.PaymentProvider targetProvider,
                                com.masonx.paygateway.domain.payment.PaymentProvider fallbackProvider) {
         rule.setPriority(priority);
         rule.setEnabled(enabled);
+        rule.setWeight(weight > 0 ? weight : 1);
         rule.setCurrencyList(currencies);
         rule.setAmountMin(amountMin);
         rule.setAmountMax(amountMax);

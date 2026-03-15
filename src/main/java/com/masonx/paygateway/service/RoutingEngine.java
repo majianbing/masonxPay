@@ -29,6 +29,8 @@ public class RoutingEngine {
 
     /**
      * Resolves which provider BRAND to use for a payment.
+     * Collects all matching enabled rules and picks one by weighted-random selection,
+     * so rules with higher weight receive proportionally more traffic.
      * Falls back to STRIPE if no rule matches.
      */
     public PaymentProvider resolve(UUID merchantId, long amount, String currency,
@@ -36,11 +38,23 @@ public class RoutingEngine {
         List<RoutingRule> rules =
                 routingRuleRepository.findByMerchantIdAndEnabledTrueOrderByPriorityAsc(merchantId);
 
-        return rules.stream()
+        List<RoutingRule> matching = rules.stream()
                 .filter(r -> matches(r, amount, currency, countryCode, paymentMethodType))
-                .findFirst()
-                .map(RoutingRule::getTargetProvider)
-                .orElse(PaymentProvider.STRIPE);
+                .toList();
+
+        if (matching.isEmpty()) return PaymentProvider.STRIPE;
+        if (matching.size() == 1) return matching.get(0).getTargetProvider();
+
+        int totalWeight = matching.stream().mapToInt(RoutingRule::getWeight).sum();
+        if (totalWeight <= 0) return matching.get(0).getTargetProvider();
+
+        int pick = random.nextInt(totalWeight);
+        int cumulative = 0;
+        for (RoutingRule rule : matching) {
+            cumulative += rule.getWeight();
+            if (pick < cumulative) return rule.getTargetProvider();
+        }
+        return matching.get(matching.size() - 1).getTargetProvider();
     }
 
     /**

@@ -75,6 +75,7 @@ public class PublicPaymentController {
         intent.setCurrency(link.getCurrency());
         intent.setIdempotencyKey(idempotencyKey);
         intent.setResolvedProvider(provider);
+        intent.setConnectorAccountId(account.getId());
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 

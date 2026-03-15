@@ -59,8 +59,10 @@ public class RefundService {
         }
         refund = refundRepository.save(refund);
 
-        String providerSecretKey = providerAccountService.resolveSecretKey(
-                merchantId, intent.getResolvedProvider(), intent.getMode());
+        // Use the exact connector that charged this payment — critical for multi-connector setups
+        String providerSecretKey = intent.getConnectorAccountId() != null
+                ? providerAccountService.resolveSecretKeyById(intent.getConnectorAccountId())
+                : providerAccountService.resolveSecretKey(merchantId, intent.getResolvedProvider(), intent.getMode());
 
         RefundResult result = stripeProvider.refund(new RefundRequest(
                 refund.getId(),

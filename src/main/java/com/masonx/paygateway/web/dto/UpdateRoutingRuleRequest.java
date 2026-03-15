@@ -8,6 +8,7 @@ import java.util.List;
 public record UpdateRoutingRuleRequest(
         @NotNull int priority,
         boolean enabled,
+        int weight,
         List<String> currencies,
         Long amountMin,
         Long amountMax,

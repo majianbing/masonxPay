@@ -99,6 +99,17 @@ public class ProviderAccountService {
                 .orElse(null);
     }
 
+    /**
+     * Decrypts and returns the secret key for a specific connector account by ID.
+     * Used when refunding/capturing — must use the exact same account that charged.
+     */
+    @Transactional(readOnly = true)
+    public String resolveSecretKeyById(UUID accountId) {
+        return repo.findById(accountId)
+                .map(a -> encryption.decrypt(a.getEncryptedSecretKey()))
+                .orElse(null);
+    }
+
     private ProviderAccount loadOwned(UUID merchantId, UUID accountId) {
         return repo.findByIdAndMerchantId(accountId, merchantId)
                 .orElseThrow(() -> new IllegalArgumentException("Connector not found"));

@@ -39,6 +39,9 @@ public class RoutingRule {
     @Column(name = "payment_method_types", columnDefinition = "TEXT")
     private String paymentMethodTypes;
 
+    @Column(nullable = false)
+    private int weight = 1;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "target_provider", nullable = false, length = 20)
     private PaymentProvider targetProvider;
@@ -125,6 +128,9 @@ public class RoutingRule {
 
     public PaymentProvider getFallbackProvider() { return fallbackProvider; }
     public void setFallbackProvider(PaymentProvider fallbackProvider) { this.fallbackProvider = fallbackProvider; }
+
+    public int getWeight() { return weight; }
+    public void setWeight(int weight) { this.weight = weight; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

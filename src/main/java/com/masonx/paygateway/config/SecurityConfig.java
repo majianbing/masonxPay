@@ -79,7 +79,9 @@ public class SecurityConfig {
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization"));
-        config.setAllowCredentials(true);
+        // No setAllowCredentials(true) — our API uses Authorization header (Bearer token),
+        // not cookies. allowCredentials: true forces the browser to reject the "null" origin
+        // that file:// pages send, and adds no benefit for header-based auth.
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

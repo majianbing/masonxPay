@@ -41,6 +41,9 @@ public class PaymentIntent {
     @Column(name = "resolved_provider", length = 20)
     private PaymentProvider resolvedProvider;
 
+    @Column(name = "connector_account_id")
+    private UUID connectorAccountId;
+
     @Column(name = "provider_payment_id", length = 255)
     private String providerPaymentId;
 
@@ -96,6 +99,9 @@ public class PaymentIntent {
 
     public PaymentProvider getResolvedProvider() { return resolvedProvider; }
     public void setResolvedProvider(PaymentProvider resolvedProvider) { this.resolvedProvider = resolvedProvider; }
+
+    public UUID getConnectorAccountId() { return connectorAccountId; }
+    public void setConnectorAccountId(UUID connectorAccountId) { this.connectorAccountId = connectorAccountId; }
 
     public String getProviderPaymentId() { return providerPaymentId; }
     public void setProviderPaymentId(String providerPaymentId) { this.providerPaymentId = providerPaymentId; }

@@ -1,9 +1,11 @@
 package com.masonx.paygateway.security.rbac;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.merchant.MerchantUser;
 import com.masonx.paygateway.domain.merchant.MerchantUserRepository;
 import com.masonx.paygateway.domain.merchant.MerchantUserStatus;
 import com.masonx.paygateway.security.MerchantUserDetails;
+import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import org.springframework.security.access.PermissionEvaluator;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
@@ -44,10 +46,20 @@ public class GatewayPermissionEvaluator implements PermissionEvaluator {
     @Override
     public boolean hasPermission(Authentication authentication, Serializable targetId, String targetType, Object permission) {
         if (authentication == null || !authentication.isAuthenticated()) return false;
-        if (!(authentication.getPrincipal() instanceof MerchantUserDetails principal)) return false;
 
         UUID merchantId = toUuid(targetId);
         if (merchantId == null) return false;
+
+        // API key authentication: the key is already scoped to a merchant.
+        // Secret keys have full access; publishable keys are read-only.
+        if (authentication instanceof ApiKeyAuthentication apiKeyAuth) {
+            if (!merchantId.equals(apiKeyAuth.getMerchantId())) return false;
+            if (apiKeyAuth.getType() == ApiKeyType.SECRET) return true;
+            return "READ".equals(permission.toString());
+        }
+
+        // JWT authentication: resolve role via merchant membership
+        if (!(authentication.getPrincipal() instanceof MerchantUserDetails principal)) return false;
 
         Optional<MerchantUser> membership = merchantUserRepository
                 .findByUser_IdAndMerchant_Id(principal.getUserId(), merchantId);

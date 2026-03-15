@@ -3,6 +3,7 @@ package com.masonx.paygateway.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
+import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.ChargeRequest;
@@ -95,13 +96,17 @@ public class PaymentIntentService {
                     "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
         }
 
-        // Resolve provider
+        // Resolve provider brand then pick a specific account (weighted-random)
         PaymentProvider provider = routingEngine.resolve(
                 auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
                 req.paymentMethodType() != null ? req.paymentMethodType() : "card");
 
+        ProviderAccount account = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
+                .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
+
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         intent.setResolvedProvider(provider);
+        intent.setConnectorAccountId(account.getId());
         paymentIntentRepository.save(intent);
 
         // Record the attempt
@@ -112,8 +117,8 @@ public class PaymentIntentService {
         attempt.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
         attempt = paymentRequestRepository.save(attempt);
 
-        // Resolve merchant's connector key for the chosen provider and mode
-        String providerSecretKey = providerAccountService.resolveSecretKey(auth.getMerchantId(), provider, auth.getMode());
+        // Use the pre-selected account's key — same account will be used for refunds/captures
+        String providerSecretKey = providerAccountService.resolveSecretKeyById(account.getId());
 
         // Charge
         ChargeResult result = stripeProvider.charge(new ChargeRequest(
