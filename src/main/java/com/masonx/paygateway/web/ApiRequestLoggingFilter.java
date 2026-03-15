@@ -53,14 +53,25 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         }
     }
 
+    private static final java.util.regex.Pattern MERCHANT_PATH =
+            java.util.regex.Pattern.compile("/api/v1/merchants/([^/]+)/");
+
     private void writeLog(ContentCachingRequestWrapper req, ContentCachingResponseWrapper res, long durationMs) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
         UUID merchantId = null;
         UUID apiKeyId = null;
+        com.masonx.paygateway.domain.apikey.ApiKeyMode mode = null;
         if (auth instanceof ApiKeyAuthentication ak) {
             merchantId = ak.getMerchantId();
             apiKeyId = ak.getApiKeyId();
+            mode = ak.getMode();
+        } else if (auth != null && auth.isAuthenticated()) {
+            // JWT-authenticated dashboard requests — extract merchant ID from URL path
+            java.util.regex.Matcher m = MERCHANT_PATH.matcher(req.getRequestURI());
+            if (m.find()) {
+                try { merchantId = UUID.fromString(m.group(1)); } catch (IllegalArgumentException ignored) {}
+            }
         }
 
         // Skip logging if we cannot associate the request with a merchant
@@ -69,6 +80,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         GatewayLog log = new GatewayLog();
         log.setMerchantId(merchantId);
         log.setApiKeyId(apiKeyId);
+        log.setMode(mode);
         log.setRequestId(req.getHeader("X-Request-Id"));
         log.setType(GatewayLogType.API_REQUEST);
         log.setMethod(req.getMethod());

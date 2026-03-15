@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.log;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import jakarta.persistence.*;
 
 import java.time.Instant;
@@ -42,6 +43,10 @@ public class GatewayLog {
 
     private Long durationMs;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private ApiKeyMode mode;   // TEST | LIVE — null for JWT/dashboard requests
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -69,5 +74,7 @@ public class GatewayLog {
     public void setResponseBody(String responseBody) { this.responseBody = responseBody; }
     public Long getDurationMs() { return durationMs; }
     public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
+    public ApiKeyMode getMode() { return mode; }
+    public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public Instant getCreatedAt() { return createdAt; }
 }

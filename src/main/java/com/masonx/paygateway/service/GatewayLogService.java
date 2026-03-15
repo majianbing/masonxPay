@@ -1,5 +1,6 @@
 package com.masonx.paygateway.service;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.log.GatewayLog;
 import com.masonx.paygateway.domain.log.GatewayLogRepository;
 import com.masonx.paygateway.domain.log.GatewayLogType;
@@ -32,9 +33,15 @@ public class GatewayLogService {
     }
 
     @Transactional(readOnly = true)
-    public Page<GatewayLogResponse> list(UUID merchantId, String type, Pageable pageable) {
+    public Page<GatewayLogResponse> list(UUID merchantId, String type, String mode, Pageable pageable) {
         Page<GatewayLog> page;
-        if (type != null && !type.isBlank()) {
+        ApiKeyMode modeEnum = (mode != null && !mode.isBlank()) ? ApiKeyMode.valueOf(mode.toUpperCase()) : null;
+        if (modeEnum != null && type != null && !type.isBlank()) {
+            GatewayLogType logType = GatewayLogType.valueOf(type.toUpperCase());
+            page = gatewayLogRepository.findByMerchantIdAndTypeAndModeOrNull(merchantId, logType, modeEnum, pageable);
+        } else if (modeEnum != null) {
+            page = gatewayLogRepository.findByMerchantIdAndModeOrNull(merchantId, modeEnum, pageable);
+        } else if (type != null && !type.isBlank()) {
             GatewayLogType logType = GatewayLogType.valueOf(type.toUpperCase());
             page = gatewayLogRepository.findAllByMerchantIdAndTypeOrderByCreatedAtDesc(merchantId, logType, pageable);
         } else {

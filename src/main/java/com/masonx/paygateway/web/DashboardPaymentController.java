@@ -1,6 +1,7 @@
 package com.masonx.paygateway.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.service.RefundService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
@@ -47,10 +48,17 @@ public class DashboardPaymentController {
     public ResponseEntity<Page<PaymentIntentResponse>> list(
             @PathVariable UUID merchantId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String mode,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
+        ApiKeyMode modeEnum = (mode != null && !mode.isBlank()) ? ApiKeyMode.valueOf(mode.toUpperCase()) : null;
         Page<PaymentIntent> page;
-        if (status != null && !status.isBlank()) {
+        if (modeEnum != null && status != null && !status.isBlank()) {
+            PaymentIntentStatus statusEnum = PaymentIntentStatus.valueOf(status.toUpperCase());
+            page = paymentIntentRepository.findByMerchantIdAndStatusAndMode(merchantId, statusEnum, modeEnum, pageable);
+        } else if (modeEnum != null) {
+            page = paymentIntentRepository.findByMerchantIdAndMode(merchantId, modeEnum, pageable);
+        } else if (status != null && !status.isBlank()) {
             PaymentIntentStatus statusEnum = PaymentIntentStatus.valueOf(status.toUpperCase());
             page = paymentIntentRepository.findByMerchantIdAndStatus(merchantId, statusEnum, pageable);
         } else {

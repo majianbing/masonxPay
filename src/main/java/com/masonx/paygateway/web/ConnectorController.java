@@ -1,9 +1,10 @@
 package com.masonx.paygateway.web;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
-import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.StripePaymentProviderService;
@@ -27,15 +28,21 @@ public class ConnectorController {
     private final ProviderAccountRepository providerAccountRepository;
     private final EncryptionService encryptionService;
     private final StripePaymentProviderService stripeProvider;
+    private final PaymentIntentRepository paymentIntentRepository;
+    private final PaymentRequestRepository paymentRequestRepository;
 
     public ConnectorController(ProviderAccountService service,
                                ProviderAccountRepository providerAccountRepository,
                                EncryptionService encryptionService,
-                               StripePaymentProviderService stripeProvider) {
+                               StripePaymentProviderService stripeProvider,
+                               PaymentIntentRepository paymentIntentRepository,
+                               PaymentRequestRepository paymentRequestRepository) {
         this.service = service;
         this.providerAccountRepository = providerAccountRepository;
         this.encryptionService = encryptionService;
         this.stripeProvider = stripeProvider;
+        this.paymentIntentRepository = paymentIntentRepository;
+        this.paymentRequestRepository = paymentRequestRepository;
     }
 
     @GetMapping
@@ -74,9 +81,9 @@ public class ConnectorController {
     }
 
     /**
-     * Fire a live test charge against the connector's own provider key.
+     * Fire a test charge against the connector's own provider key.
      * Uses Stripe's built-in test payment method tokens (pm_card_visa, etc.).
-     * Nothing is persisted — this is a preview only.
+     * Persisted as a TEST-mode PaymentIntent so it appears in the dashboard under TEST data.
      */
     @PostMapping("/{accountId}/preview")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CONNECTOR', 'READ')")
@@ -101,15 +108,41 @@ public class ConnectorController {
 
         String secretKey = encryptionService.decrypt(account.getEncryptedSecretKey());
 
+        UUID intentId = UUID.randomUUID();
+        String idempotencyKey = "preview-" + UUID.randomUUID();
+
         ChargeResult result = stripeProvider.charge(new ChargeRequest(
-                UUID.randomUUID(),
+                intentId,
                 req.amount(),
                 req.currency().toLowerCase(),
                 "card",
                 req.testCard(),
-                "preview-" + UUID.randomUUID(),
+                idempotencyKey,
                 secretKey
         ));
+
+        // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest
+        PaymentIntent intent = new PaymentIntent();
+        intent.setMerchantId(merchantId);
+        intent.setMode(ApiKeyMode.TEST);
+        intent.setAmount(req.amount());
+        intent.setCurrency(req.currency().toLowerCase());
+        intent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
+        intent.setResolvedProvider(account.getProvider());
+        intent.setIdempotencyKey(idempotencyKey);
+        intent.setProviderPaymentId(result.providerPaymentId());
+        PaymentIntent savedIntent = paymentIntentRepository.save(intent);
+
+        PaymentRequest paymentRequest = new PaymentRequest();
+        paymentRequest.setPaymentIntentId(savedIntent.getId());
+        paymentRequest.setAmount(req.amount());
+        paymentRequest.setCurrency(req.currency().toLowerCase());
+        paymentRequest.setPaymentMethodType("card");
+        paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+        paymentRequest.setProviderRequestId(result.providerPaymentId());
+        paymentRequest.setFailureCode(result.failureCode());
+        paymentRequest.setFailureMessage(result.failureMessage());
+        paymentRequestRepository.save(paymentRequest);
 
         return ResponseEntity.ok(new PreviewPaymentResponse(
                 result.success(),

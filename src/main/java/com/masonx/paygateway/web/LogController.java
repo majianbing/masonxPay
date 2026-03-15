@@ -26,7 +26,8 @@ public class LogController {
     public ResponseEntity<Page<GatewayLogResponse>> list(
             @PathVariable UUID merchantId,
             @RequestParam(required = false) String type,
+            @RequestParam(required = false) String mode,
             @PageableDefault(size = 50, sort = "createdAt") Pageable pageable) {
-        return ResponseEntity.ok(gatewayLogService.list(merchantId, type, pageable));
+        return ResponseEntity.ok(gatewayLogService.list(merchantId, type, mode, pageable));
     }
 }
