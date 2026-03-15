@@ -94,7 +94,7 @@ public class RoutingEngine {
                 .findAllByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
                 .stream()
                 .filter(a -> a.getStatus() == ProviderAccountStatus.ACTIVE)
-                .filter(a -> a.getEncryptedPublishableKey() != null)
+                .filter(a -> a.getEncryptedPublishableKey() != null || a.getProviderConfig() != null)
                 .map(ProviderAccount::getProvider)
                 .distinct()
                 .toList();

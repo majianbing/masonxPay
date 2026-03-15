@@ -7,8 +7,9 @@ import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
-import com.masonx.paygateway.provider.StripePaymentProviderService;
-import com.masonx.paygateway.service.EncryptionService;
+import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.provider.credentials.CredentialsCodec;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.ProviderAccountService;
 import com.masonx.paygateway.web.dto.*;
 import jakarta.validation.Valid;
@@ -26,21 +27,21 @@ public class ConnectorController {
 
     private final ProviderAccountService service;
     private final ProviderAccountRepository providerAccountRepository;
-    private final EncryptionService encryptionService;
-    private final StripePaymentProviderService stripeProvider;
+    private final CredentialsCodec credentialsCodec;
+    private final PaymentProviderDispatcher dispatcher;
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
 
     public ConnectorController(ProviderAccountService service,
                                ProviderAccountRepository providerAccountRepository,
-                               EncryptionService encryptionService,
-                               StripePaymentProviderService stripeProvider,
+                               CredentialsCodec credentialsCodec,
+                               PaymentProviderDispatcher dispatcher,
                                PaymentIntentRepository paymentIntentRepository,
                                PaymentRequestRepository paymentRequestRepository) {
         this.service = service;
         this.providerAccountRepository = providerAccountRepository;
-        this.encryptionService = encryptionService;
-        this.stripeProvider = stripeProvider;
+        this.credentialsCodec = credentialsCodec;
+        this.dispatcher = dispatcher;
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
     }
@@ -110,23 +111,21 @@ public class ConnectorController {
                     false, "UNSUPPORTED", account.getProvider().name(), account.getLabel(),
                     req.amount(), req.currency(), null,
                     "preview_unsupported",
-                    "Preview is currently only supported for Stripe connectors."));
+                    "Preview test cards are currently only supported for Stripe connectors."));
         }
 
-        String secretKey = encryptionService.decrypt(account.getEncryptedSecretKey());
-
+        ProviderCredentials creds = credentialsCodec.decode(account);
         UUID intentId = UUID.randomUUID();
         String idempotencyKey = "preview-" + UUID.randomUUID();
 
-        ChargeResult result = stripeProvider.charge(new ChargeRequest(
+        ChargeResult result = dispatcher.charge(account.getProvider(), new ChargeRequest(
                 intentId,
                 req.amount(),
                 req.currency().toLowerCase(),
                 "card",
                 req.testCard(),
-                idempotencyKey,
-                secretKey
-        ));
+                idempotencyKey
+        ), creds);
 
         // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest
         PaymentIntent intent = new PaymentIntent();
@@ -136,6 +135,7 @@ public class ConnectorController {
         intent.setCurrency(req.currency().toLowerCase());
         intent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
         intent.setResolvedProvider(account.getProvider());
+        intent.setConnectorAccountId(account.getId());
         intent.setIdempotencyKey(idempotencyKey);
         intent.setProviderPaymentId(result.providerPaymentId());
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);

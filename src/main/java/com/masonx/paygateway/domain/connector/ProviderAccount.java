@@ -26,15 +26,24 @@ public class ProviderAccount {
     @Column(nullable = false)
     private String label;
 
-    @Column(name = "encrypted_secret_key", nullable = false)
+    /** Legacy columns — kept for existing Stripe connectors created before V21. */
+    @Column(name = "encrypted_secret_key")
     private String encryptedSecretKey;
 
     @Column(name = "encrypted_publishable_key")
     private String encryptedPublishableKey;
 
-    /** Last 4 characters of the original secret key — safe to return in API responses. */
-    @Column(name = "secret_key_hint", nullable = false)
+    /** Last 4 chars of the primary secret credential — safe to display. */
+    @Column(name = "secret_key_hint")
     private String secretKeyHint;
+
+    /** New generic columns (V21). JSON blob, AES encrypted — secrets only. */
+    @Column(name = "encrypted_credentials", columnDefinition = "TEXT")
+    private String encryptedCredentials;
+
+    /** New generic columns (V21). JSON blob, plaintext — public/config identifiers. */
+    @Column(name = "provider_config", columnDefinition = "TEXT")
+    private String providerConfig;
 
     @Column(name = "is_primary", nullable = false)
     private boolean primary = false;
@@ -79,6 +88,12 @@ public class ProviderAccount {
     public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public ProviderAccountStatus getStatus() { return status; }
     public void setStatus(ProviderAccountStatus status) { this.status = status; }
+    public String getEncryptedCredentials() { return encryptedCredentials; }
+    public void setEncryptedCredentials(String encryptedCredentials) { this.encryptedCredentials = encryptedCredentials; }
+
+    public String getProviderConfig() { return providerConfig; }
+    public void setProviderConfig(String providerConfig) { this.providerConfig = providerConfig; }
+
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

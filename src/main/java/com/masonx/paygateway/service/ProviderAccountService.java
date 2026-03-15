@@ -5,6 +5,8 @@ import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.provider.credentials.CredentialsCodec;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.CreateProviderAccountRequest;
 import com.masonx.paygateway.web.dto.ProviderAccountResponse;
 import com.masonx.paygateway.web.dto.UpdateProviderAccountRequest;
@@ -19,18 +21,18 @@ import java.util.UUID;
 public class ProviderAccountService {
 
     private final ProviderAccountRepository repo;
-    private final EncryptionService encryption;
+    private final CredentialsCodec codec;
 
-    public ProviderAccountService(ProviderAccountRepository repo, EncryptionService encryption) {
+    public ProviderAccountService(ProviderAccountRepository repo, CredentialsCodec codec) {
         this.repo = repo;
-        this.encryption = encryption;
+        this.codec = codec;
     }
 
     @Transactional(readOnly = true)
     public List<ProviderAccountResponse> list(UUID merchantId, ApiKeyMode mode) {
         return repo.findAllByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
                 .stream()
-                .map(ProviderAccountResponse::from)
+                .map(a -> ProviderAccountResponse.from(a, codec.clientKeyFor(a)))
                 .toList();
     }
 
@@ -47,16 +49,13 @@ public class ProviderAccountService {
         account.setProvider(provider);
         account.setMode(mode);
         account.setLabel(req.label());
-        account.setEncryptedSecretKey(encryption.encrypt(req.secretKey()));
-        account.setSecretKeyHint(buildHint(req.secretKey()));
         account.setPrimary(req.primary());
         account.setWeight(req.weight() > 0 ? req.weight() : 1);
 
-        if (req.publishableKey() != null && !req.publishableKey().isBlank()) {
-            account.setEncryptedPublishableKey(encryption.encrypt(req.publishableKey()));
-        }
+        ProviderCredentials creds = codec.fromRequest(provider, req, mode);
+        codec.encode(creds, account);
 
-        return ProviderAccountResponse.from(repo.save(account));
+        return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
     }
 
     public ProviderAccountResponse update(UUID merchantId, UUID accountId, UpdateProviderAccountRequest req) {
@@ -72,51 +71,46 @@ public class ProviderAccountService {
             account.setWeight(req.weight());
         }
 
-        return ProviderAccountResponse.from(repo.save(account));
+        return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
     }
 
     public void delete(UUID merchantId, UUID accountId) {
-        ProviderAccount account = loadOwned(merchantId, accountId);
-        repo.delete(account);
+        repo.delete(loadOwned(merchantId, accountId));
     }
 
     public ProviderAccountResponse setPrimary(UUID merchantId, UUID accountId) {
         ProviderAccount account = loadOwned(merchantId, accountId);
         repo.clearPrimaryForProvider(merchantId, account.getProvider(), account.getMode());
         account.setPrimary(true);
-        return ProviderAccountResponse.from(repo.save(account));
+        return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
     }
 
     /**
-     * Decrypts and returns the secret key for use in provider API calls.
-     * Called internally only — never returned in HTTP responses.
+     * Loads fully-typed credentials for a specific connector account.
+     * Used by charge/refund paths.
      */
     @Transactional(readOnly = true)
-    public String resolveSecretKey(UUID merchantId, PaymentProvider provider, ApiKeyMode mode) {
+    public ProviderCredentials loadCredentials(UUID accountId) {
+        ProviderAccount account = repo.findById(accountId)
+                .orElseThrow(() -> new IllegalStateException("Connector account not found: " + accountId));
+        return codec.decode(account);
+    }
+
+    /**
+     * Legacy helper — resolves the primary connector key by brand.
+     * Still used for flows that haven't stored connectorAccountId yet.
+     */
+    @Transactional(readOnly = true)
+    public ProviderCredentials resolveCredentials(UUID merchantId, PaymentProvider provider, ApiKeyMode mode) {
         return repo.findByMerchantIdAndProviderAndModeAndPrimaryTrueAndStatus(
                         merchantId, provider, mode, ProviderAccountStatus.ACTIVE)
-                .map(a -> encryption.decrypt(a.getEncryptedSecretKey()))
-                .orElse(null);
-    }
-
-    /**
-     * Decrypts and returns the secret key for a specific connector account by ID.
-     * Used when refunding/capturing — must use the exact same account that charged.
-     */
-    @Transactional(readOnly = true)
-    public String resolveSecretKeyById(UUID accountId) {
-        return repo.findById(accountId)
-                .map(a -> encryption.decrypt(a.getEncryptedSecretKey()))
-                .orElse(null);
+                .map(codec::decode)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No active primary connector for " + provider + " / " + mode));
     }
 
     private ProviderAccount loadOwned(UUID merchantId, UUID accountId) {
         return repo.findByIdAndMerchantId(accountId, merchantId)
                 .orElseThrow(() -> new IllegalArgumentException("Connector not found"));
-    }
-
-    private String buildHint(String key) {
-        if (key == null || key.length() < 4) return key;
-        return key.substring(key.length() - 4);
     }
 }

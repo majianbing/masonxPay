@@ -7,7 +7,7 @@ import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.merchant.Merchant;
 import com.masonx.paygateway.domain.merchant.MerchantRepository;
 import com.masonx.paygateway.domain.payment.*;
-import com.masonx.paygateway.service.EncryptionService;
+import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.service.RoutingEngine;
 import com.masonx.paygateway.web.dto.CheckoutSessionResponse;
@@ -33,20 +33,20 @@ public class PublicCheckoutController {
     private final PaymentLinkRepository paymentLinkRepository;
     private final MerchantRepository merchantRepository;
     private final ProviderAccountRepository providerAccountRepository;
-    private final EncryptionService encryptionService;
+    private final CredentialsCodec credentialsCodec;
     private final RoutingEngine routingEngine;
     private final PaymentTokenService paymentTokenService;
 
     public PublicCheckoutController(PaymentLinkRepository paymentLinkRepository,
                                     MerchantRepository merchantRepository,
                                     ProviderAccountRepository providerAccountRepository,
-                                    EncryptionService encryptionService,
+                                    CredentialsCodec credentialsCodec,
                                     RoutingEngine routingEngine,
                                     PaymentTokenService paymentTokenService) {
         this.paymentLinkRepository = paymentLinkRepository;
         this.merchantRepository = merchantRepository;
         this.providerAccountRepository = providerAccountRepository;
-        this.encryptionService = encryptionService;
+        this.credentialsCodec = credentialsCodec;
         this.routingEngine = routingEngine;
         this.paymentTokenService = paymentTokenService;
     }
@@ -97,17 +97,21 @@ public class PublicCheckoutController {
 
         List<CheckoutSessionResponse.ProviderOption> options = brands.stream()
                 .map(provider -> {
-                    String pubKey = providerAccountRepository
+                    ProviderAccount account = providerAccountRepository
                             .findAllByMerchantIdAndProviderAndModeAndStatus(
                                     resolvedMerchantId, provider, resolvedMode, ProviderAccountStatus.ACTIVE)
                             .stream()
-                            .filter(a -> a.getEncryptedPublishableKey() != null)
+                            .filter(a -> a.getEncryptedPublishableKey() != null
+                                    || a.getProviderConfig() != null)
                             .findFirst()
-                            .map(a -> encryptionService.decrypt(a.getEncryptedPublishableKey()))
                             .orElse(null);
-                    return new CheckoutSessionResponse.ProviderOption(provider.name(), pubKey);
+                    if (account == null) return null;
+                    String clientKey = credentialsCodec.clientKeyFor(account);
+                    if (clientKey == null) return null;
+                    return new CheckoutSessionResponse.ProviderOption(
+                            provider.name(), clientKey, credentialsCodec.clientConfigFor(account));
                 })
-                .filter(o -> o.publishableKey() != null)
+                .filter(o -> o != null)
                 .toList();
 
         return ResponseEntity.ok(new CheckoutSessionResponse(

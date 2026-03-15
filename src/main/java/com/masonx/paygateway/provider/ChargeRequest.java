@@ -7,7 +7,6 @@ public record ChargeRequest(
         long amount,
         String currency,
         String paymentMethodType,
-        String paymentMethodId,      // provider-specific payment method ref (e.g. Stripe pm_xxx)
-        String idempotencyKey,
-        String providerSecretKey     // merchant's own provider key, decrypted from ProviderAccount
+        String paymentMethodId,   // provider-specific PM token (Stripe pm_xxx, Square sourceId, …)
+        String idempotencyKey
 ) {}

@@ -11,23 +11,24 @@ public record ProviderAccountResponse(
         String provider,
         String mode,
         String label,
-        String secretKeyHint,        // e.g. "...x4z9" — last 4 chars only
-        boolean hasPublishableKey,
+        String credentialHint,    // last 4 chars of the primary secret — safe to display
+        String clientKey,         // public key for the browser JS SDK (pk_xxx, applicationId, …)
         boolean primary,
         int weight,
         String status,
         Instant createdAt,
         Instant updatedAt
 ) {
-    public static ProviderAccountResponse from(ProviderAccount a) {
+    public static ProviderAccountResponse from(ProviderAccount a, String clientKey) {
+        String hint = a.getSecretKeyHint() != null ? "...%s".formatted(a.getSecretKeyHint()) : null;
         return new ProviderAccountResponse(
                 a.getId(),
                 a.getMerchantId(),
                 a.getProvider().name(),
                 a.getMode().name(),
                 a.getLabel(),
-                "...%s".formatted(a.getSecretKeyHint()),
-                a.getEncryptedPublishableKey() != null,
+                hint,
+                clientKey,
                 a.isPrimary(),
                 a.getWeight(),
                 a.getStatus().name(),

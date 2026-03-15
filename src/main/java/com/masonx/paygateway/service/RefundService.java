@@ -1,9 +1,10 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
-import com.masonx.paygateway.provider.StripePaymentProviderService;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.RefundResponse;
 import org.springframework.stereotype.Service;
@@ -17,16 +18,16 @@ public class RefundService {
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final RefundRepository refundRepository;
-    private final StripePaymentProviderService stripeProvider;
+    private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
 
     public RefundService(PaymentIntentRepository paymentIntentRepository,
                          RefundRepository refundRepository,
-                         StripePaymentProviderService stripeProvider,
+                         PaymentProviderDispatcher dispatcher,
                          ProviderAccountService providerAccountService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
-        this.stripeProvider = stripeProvider;
+        this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
     }
 
@@ -59,18 +60,16 @@ public class RefundService {
         }
         refund = refundRepository.save(refund);
 
-        // Use the exact connector that charged this payment — critical for multi-connector setups
-        String providerSecretKey = intent.getConnectorAccountId() != null
-                ? providerAccountService.resolveSecretKeyById(intent.getConnectorAccountId())
-                : providerAccountService.resolveSecretKey(merchantId, intent.getResolvedProvider(), intent.getMode());
+        // Load credentials for the exact connector that originally charged this payment
+        ProviderCredentials creds = intent.getConnectorAccountId() != null
+                ? providerAccountService.loadCredentials(intent.getConnectorAccountId())
+                : providerAccountService.resolveCredentials(
+                        merchantId, intent.getResolvedProvider(), intent.getMode());
 
-        RefundResult result = stripeProvider.refund(new RefundRequest(
-                refund.getId(),
-                intent.getProviderPaymentId(),
-                refundAmount,
-                req.reason(),
-                providerSecretKey
-        ));
+        RefundResult result = dispatcher.refund(
+                intent.getResolvedProvider(),
+                new RefundRequest(refund.getId(), intent.getProviderPaymentId(), refundAmount, req.reason()),
+                creds);
 
         refund.setStatus(result.success() ? RefundStatus.SUCCEEDED : RefundStatus.FAILED);
         refund.setProviderRefundId(result.providerRefundId());

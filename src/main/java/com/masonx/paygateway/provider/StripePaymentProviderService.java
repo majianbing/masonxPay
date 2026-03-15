@@ -1,5 +1,8 @@
 package com.masonx.paygateway.provider;
 
+import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
@@ -10,19 +13,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * Stripe payment provider — uses the merchant's own Stripe secret key per request.
- * The key is decrypted from ProviderAccount and passed through ChargeRequest/RefundRequest.
- * No global Stripe.apiKey is set; each request carries its own RequestOptions.
- */
-@Service("stripePaymentProviderService")
+@Service
 public class StripePaymentProviderService implements PaymentProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(StripePaymentProviderService.class);
 
     @Override
-    public ChargeResult charge(ChargeRequest req) {
-        if (req.providerSecretKey() == null || req.providerSecretKey().isBlank()) {
+    public PaymentProvider brand() {
+        return PaymentProvider.STRIPE;
+    }
+
+    @Override
+    public ChargeResult charge(ChargeRequest req, ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             return new ChargeResult(false, null, null,
                     "connector_not_configured",
                     "No active Stripe connector found. Add one under Settings → Connectors.");
@@ -38,7 +41,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             RequestOptions options = RequestOptions.builder()
-                    .setApiKey(req.providerSecretKey())
+                    .setApiKey(stripe.secretKey())
                     .setIdempotencyKey(req.idempotencyKey())
                     .build();
 
@@ -46,9 +49,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
             boolean succeeded = "succeeded".equals(pi.getStatus());
 
             return new ChargeResult(
-                    succeeded,
-                    pi.getId(),
-                    pi.toJson(),
+                    succeeded, pi.getId(), pi.toJson(),
                     succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getCode() : "unknown",
                     succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getMessage() : "Payment did not succeed"
             );
@@ -59,8 +60,8 @@ public class StripePaymentProviderService implements PaymentProviderService {
     }
 
     @Override
-    public RefundResult refund(RefundRequest req) {
-        if (req.providerSecretKey() == null || req.providerSecretKey().isBlank()) {
+    public RefundResult refund(RefundRequest req, ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             return new RefundResult(false, null, "No active Stripe connector found.");
         }
 
@@ -71,7 +72,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             RequestOptions options = RequestOptions.builder()
-                    .setApiKey(req.providerSecretKey())
+                    .setApiKey(stripe.secretKey())
                     .setIdempotencyKey("refund-" + req.refundId())
                     .build();
 
@@ -79,8 +80,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
             boolean succeeded = "succeeded".equals(refund.getStatus());
 
             return new RefundResult(
-                    succeeded,
-                    refund.getId(),
+                    succeeded, refund.getId(),
                     succeeded ? null : refund.getFailureReason()
             );
         } catch (StripeException e) {

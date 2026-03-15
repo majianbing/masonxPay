@@ -5,10 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
-import com.masonx.paygateway.provider.StripePaymentProviderService;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
@@ -31,7 +32,7 @@ public class PaymentIntentService {
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final RoutingEngine routingEngine;
-    private final StripePaymentProviderService stripeProvider;
+    private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
@@ -39,14 +40,14 @@ public class PaymentIntentService {
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
                                 RoutingEngine routingEngine,
-                                StripePaymentProviderService stripeProvider,
+                                PaymentProviderDispatcher dispatcher,
                                 ProviderAccountService providerAccountService,
                                 ObjectMapper objectMapper,
                                 ApplicationEventPublisher eventPublisher) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine = routingEngine;
-        this.stripeProvider = stripeProvider;
+        this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
@@ -117,16 +118,13 @@ public class PaymentIntentService {
         attempt.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
         attempt = paymentRequestRepository.save(attempt);
 
-        // Use the pre-selected account's key — same account will be used for refunds/captures
-        String providerSecretKey = providerAccountService.resolveSecretKeyById(account.getId());
+        ProviderCredentials creds = providerAccountService.loadCredentials(account.getId());
 
-        // Charge
-        ChargeResult result = stripeProvider.charge(new ChargeRequest(
+        ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 intent.getId(), intent.getAmount(), intent.getCurrency(),
                 attempt.getPaymentMethodType(), req.paymentMethodId(),
-                "pi-" + intent.getId() + "-" + attempt.getId(),
-                providerSecretKey
-        ));
+                "pi-" + intent.getId() + "-" + attempt.getId()
+        ), creds);
 
         // Update attempt
         attempt.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);

@@ -5,8 +5,9 @@ import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
-import com.masonx.paygateway.provider.StripePaymentProviderService;
-import com.masonx.paygateway.service.EncryptionService;
+import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.provider.credentials.CredentialsCodec;
+import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.web.dto.PublicCheckoutRequest;
 import com.masonx.paygateway.web.dto.PublicCheckoutResponse;
@@ -22,33 +23,28 @@ public class PublicPaymentController {
 
     private final PaymentLinkRepository paymentLinkRepository;
     private final ProviderAccountRepository providerAccountRepository;
-    private final EncryptionService encryptionService;
-    private final StripePaymentProviderService stripeProvider;
+    private final CredentialsCodec credentialsCodec;
+    private final PaymentProviderDispatcher dispatcher;
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentTokenService paymentTokenService;
 
     public PublicPaymentController(PaymentLinkRepository paymentLinkRepository,
                                    ProviderAccountRepository providerAccountRepository,
-                                   EncryptionService encryptionService,
-                                   StripePaymentProviderService stripeProvider,
+                                   CredentialsCodec credentialsCodec,
+                                   PaymentProviderDispatcher dispatcher,
                                    PaymentIntentRepository paymentIntentRepository,
                                    PaymentRequestRepository paymentRequestRepository,
                                    PaymentTokenService paymentTokenService) {
         this.paymentLinkRepository = paymentLinkRepository;
         this.providerAccountRepository = providerAccountRepository;
-        this.encryptionService = encryptionService;
-        this.stripeProvider = stripeProvider;
+        this.credentialsCodec = credentialsCodec;
+        this.dispatcher = dispatcher;
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.paymentTokenService = paymentTokenService;
     }
 
-    /**
-     * Processes a card payment for a payment link.
-     * Accepts a gateway token (gw_tok_xxx) which resolves to the pre-selected
-     * connector account and provider PM ID — no provider details leak to the merchant.
-     */
     @PostMapping("/{token}/checkout")
     public ResponseEntity<PublicCheckoutResponse> checkout(
             @PathVariable String token,
@@ -56,18 +52,15 @@ public class PublicPaymentController {
 
         PaymentLink link = findActiveLink(token);
 
-        // Consume the gateway token — validates expiry + single-use, marks as used
         PaymentToken paymentToken = paymentTokenService.consume(req.gatewayToken());
 
-        // Load the pre-selected connector account from the token
         ProviderAccount account = providerAccountRepository.findById(paymentToken.getAccountId())
                 .orElseThrow(() -> new IllegalStateException("Connector account not found"));
 
-        String secretKey = encryptionService.decrypt(account.getEncryptedSecretKey());
+        ProviderCredentials creds = credentialsCodec.decode(account);
         PaymentProvider provider = PaymentProvider.valueOf(paymentToken.getProvider());
         String idempotencyKey = "pl-" + link.getId() + "-" + UUID.randomUUID();
 
-        // Persist payment intent
         PaymentIntent intent = new PaymentIntent();
         intent.setMerchantId(link.getMerchantId());
         intent.setMode(link.getMode());
@@ -79,15 +72,14 @@ public class PublicPaymentController {
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
-        ChargeResult result = stripeProvider.charge(new ChargeRequest(
+        ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 savedIntent.getId(),
                 link.getAmount(),
                 link.getCurrency(),
                 "card",
-                paymentToken.getProviderPmId(),   // resolved from gateway token — never sent by client
-                idempotencyKey,
-                secretKey
-        ));
+                paymentToken.getProviderPmId(),
+                idempotencyKey
+        ), creds);
 
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
         savedIntent.setProviderPaymentId(result.providerPaymentId());
