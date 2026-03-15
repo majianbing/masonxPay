@@ -1,5 +1,5 @@
 {
-  "name": "@gateway/node",
+  "name": "@gateway/server",
   "version": "0.1.0",
   "description": "Official Node.js / TypeScript SDK for the Gateway payment API",
   "main": "dist/index.js",

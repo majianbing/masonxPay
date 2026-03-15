@@ -1,0 +1,15 @@
+{
+  "name": "@gateway/browser",
+  "version": "0.1.0",
+  "description": "MasonXPay browser SDK — embeddable payment form using pk_xxx",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "bundle": "esbuild src/bundle-entry.ts --bundle --minify --format=iife --outfile=dist/gateway-sdk.min.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}

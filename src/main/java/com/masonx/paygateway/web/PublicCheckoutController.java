@@ -10,11 +10,14 @@ import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.service.RoutingEngine;
+import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.CheckoutSessionResponse;
 import com.masonx.paygateway.web.dto.TokenizeRequest;
 import com.masonx.paygateway.web.dto.TokenizeResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -52,11 +55,12 @@ public class PublicCheckoutController {
     }
 
     /**
-     * Returns the available provider brands and their publishable keys for the hosted picker.
+     * Returns available provider brands + publishable keys for the checkout picker.
      *
-     * One of:
-     *   - ?linkToken=xxx           — for payment-link flows (derives merchant + mode from link)
-     *   - ?merchantId=xxx&mode=xxx — for merchant-SDK flows
+     * Accepts any one of:
+     *   - ?linkToken=xxx                    — hosted pay-link flow
+     *   - Authorization: Bearer pk_xxx      — embedded SDK flow (pk identifies merchant + mode)
+     *   - ?merchantId=xxx&mode=xxx          — legacy/server-side explicit params
      */
     @GetMapping("/checkout-session")
     public ResponseEntity<CheckoutSessionResponse> checkoutSession(
@@ -83,11 +87,17 @@ public class PublicCheckoutController {
             currency = link.getCurrency().toUpperCase();
             title = link.getTitle();
             description = link.getDescription();
-        } else if (merchantId != null) {
-            resolvedMerchantId = UUID.fromString(merchantId);
-            resolvedMode = ApiKeyMode.valueOf(mode.toUpperCase());
         } else {
-            throw new IllegalArgumentException("Either linkToken or merchantId is required");
+            ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
+            if (apiKeyAuth != null) {
+                resolvedMerchantId = apiKeyAuth.getMerchantId();
+                resolvedMode = apiKeyAuth.getMode();
+            } else if (merchantId != null) {
+                resolvedMerchantId = UUID.fromString(merchantId);
+                resolvedMode = ApiKeyMode.valueOf(mode.toUpperCase());
+            } else {
+                throw new IllegalArgumentException("Provide linkToken, a publishable API key (Authorization header), or merchantId+mode");
+            }
         }
 
         Merchant merchant = merchantRepository.findById(resolvedMerchantId).orElse(null);
@@ -135,16 +145,28 @@ public class PublicCheckoutController {
             }
             merchantId = link.getMerchantId();
             mode = link.getMode();
-        } else if (req.merchantId() != null && req.mode() != null) {
-            merchantId = UUID.fromString(req.merchantId());
-            mode = ApiKeyMode.valueOf(req.mode().toUpperCase());
         } else {
-            throw new IllegalArgumentException("Either linkToken or merchantId+mode is required");
+            ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
+            if (apiKeyAuth != null) {
+                merchantId = apiKeyAuth.getMerchantId();
+                mode = apiKeyAuth.getMode();
+            } else if (req.merchantId() != null && req.mode() != null) {
+                merchantId = UUID.fromString(req.merchantId());
+                mode = ApiKeyMode.valueOf(req.mode().toUpperCase());
+            } else {
+                throw new IllegalArgumentException("Provide linkToken, a publishable API key (Authorization header), or merchantId+mode");
+            }
         }
 
         PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
         String gatewayToken = paymentTokenService.create(merchantId, provider, mode, req.providerPmId());
 
         return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
+    }
+
+    /** Extracts ApiKeyAuthentication from SecurityContext if present (set by ApiKeyAuthFilter). */
+    private ApiKeyAuthentication resolveApiKeyAuth() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth instanceof ApiKeyAuthentication a ? a : null;
     }
 }

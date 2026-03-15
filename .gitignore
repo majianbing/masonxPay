@@ -28,3 +28,7 @@ TestResults.xml
 /dashboard/node_modules/
 /dashboard/.next/
 /sdk/node/dist/
+/sdk/browser/dist/
+/sdk/browser/node_modules/
+/sdk/server/dist/
+/sdk/server/node_modules/

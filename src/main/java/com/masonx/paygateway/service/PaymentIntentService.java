@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
@@ -34,6 +35,8 @@ public class PaymentIntentService {
     private final RoutingEngine routingEngine;
     private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
+    private final ProviderAccountRepository providerAccountRepository;
+    private final PaymentTokenService paymentTokenService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -42,6 +45,8 @@ public class PaymentIntentService {
                                 RoutingEngine routingEngine,
                                 PaymentProviderDispatcher dispatcher,
                                 ProviderAccountService providerAccountService,
+                                ProviderAccountRepository providerAccountRepository,
+                                PaymentTokenService paymentTokenService,
                                 ObjectMapper objectMapper,
                                 ApplicationEventPublisher eventPublisher) {
         this.paymentIntentRepository = paymentIntentRepository;
@@ -49,6 +54,8 @@ public class PaymentIntentService {
         this.routingEngine = routingEngine;
         this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
+        this.providerAccountRepository = providerAccountRepository;
+        this.paymentTokenService = paymentTokenService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -97,13 +104,32 @@ public class PaymentIntentService {
                     "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
         }
 
-        // Resolve provider brand then pick a specific account (weighted-random)
-        PaymentProvider provider = routingEngine.resolve(
-                auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
-                req.paymentMethodType() != null ? req.paymentMethodType() : "card");
+        // Resolve provider + account.
+        // If the paymentMethodId is a gateway token (gw_tok_xxx), routing was already done
+        // browser-side — consume the token and use the account it points to directly.
+        // Otherwise run the standard routing engine.
+        final PaymentProvider provider;
+        final ProviderAccount account;
+        final String rawPmId;
 
-        ProviderAccount account = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
-                .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
+        if (req.paymentMethodId().startsWith("gw_tok_")) {
+            PaymentToken token = paymentTokenService.consume(req.paymentMethodId());
+            if (!token.getMerchantId().equals(auth.getMerchantId())) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Payment token does not belong to this merchant");
+            }
+            provider = PaymentProvider.valueOf(token.getProvider());
+            account = providerAccountRepository.findById(token.getAccountId())
+                    .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+            rawPmId = token.getProviderPmId();
+        } else {
+            provider = routingEngine.resolve(
+                    auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
+                    req.paymentMethodType() != null ? req.paymentMethodType() : "card");
+            account = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
+                    .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
+            rawPmId = req.paymentMethodId();
+        }
 
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         intent.setResolvedProvider(provider);
@@ -122,7 +148,7 @@ public class PaymentIntentService {
 
         ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 intent.getId(), intent.getAmount(), intent.getCurrency(),
-                attempt.getPaymentMethodType(), req.paymentMethodId(),
+                attempt.getPaymentMethodType(), rawPmId,
                 "pi-" + intent.getId() + "-" + attempt.getId()
         ), creds);
 
