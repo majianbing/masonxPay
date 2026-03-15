@@ -14,6 +14,7 @@ public record ProviderAccountResponse(
         String secretKeyHint,        // e.g. "...x4z9" — last 4 chars only
         boolean hasPublishableKey,
         boolean primary,
+        int weight,
         String status,
         Instant createdAt,
         Instant updatedAt
@@ -28,6 +29,7 @@ public record ProviderAccountResponse(
                 "...%s".formatted(a.getSecretKeyHint()),
                 a.getEncryptedPublishableKey() != null,
                 a.isPrimary(),
+                a.getWeight(),
                 a.getStatus().name(),
                 a.getCreatedAt(),
                 a.getUpdatedAt()

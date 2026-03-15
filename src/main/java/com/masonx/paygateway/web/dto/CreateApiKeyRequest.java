@@ -1,9 +1,8 @@
 package com.masonx.paygateway.web.dto;
 
-import com.masonx.paygateway.domain.apikey.ApiKeyType;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 
 public record CreateApiKeyRequest(
-        @NotNull ApiKeyType type,
-        String name
+        @NotBlank String name,
+        String mode    // TEST | LIVE — defaults to TEST in service if omitted
 ) {}

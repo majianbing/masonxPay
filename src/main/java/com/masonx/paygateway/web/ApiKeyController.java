@@ -1,6 +1,7 @@
 package com.masonx.paygateway.web;
 
 import com.masonx.paygateway.service.ApiKeyService;
+import com.masonx.paygateway.web.dto.ApiKeyPairResponse;
 import com.masonx.paygateway.web.dto.ApiKeyResponse;
 import com.masonx.paygateway.web.dto.CreateApiKeyRequest;
 import jakarta.validation.Valid;
@@ -30,8 +31,8 @@ public class ApiKeyController {
 
     @PostMapping
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'API_KEY', 'CREATE')")
-    public ResponseEntity<ApiKeyResponse> create(@PathVariable UUID merchantId,
-                                                  @Valid @RequestBody CreateApiKeyRequest req) {
+    public ResponseEntity<ApiKeyPairResponse> create(@PathVariable UUID merchantId,
+                                                      @Valid @RequestBody CreateApiKeyRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(apiKeyService.create(merchantId, req));
     }
 

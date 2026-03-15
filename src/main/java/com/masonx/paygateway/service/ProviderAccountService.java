@@ -50,6 +50,7 @@ public class ProviderAccountService {
         account.setEncryptedSecretKey(encryption.encrypt(req.secretKey()));
         account.setSecretKeyHint(buildHint(req.secretKey()));
         account.setPrimary(req.primary());
+        account.setWeight(req.weight() > 0 ? req.weight() : 1);
 
         if (req.publishableKey() != null && !req.publishableKey().isBlank()) {
             account.setEncryptedPublishableKey(encryption.encrypt(req.publishableKey()));
@@ -66,6 +67,9 @@ public class ProviderAccountService {
         }
         if (req.status() != null) {
             account.setStatus(ProviderAccountStatus.valueOf(req.status().toUpperCase()));
+        }
+        if (req.weight() != null && req.weight() > 0) {
+            account.setWeight(req.weight());
         }
 
         return ProviderAccountResponse.from(repo.save(account));

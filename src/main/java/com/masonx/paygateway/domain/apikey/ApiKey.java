@@ -45,6 +45,13 @@ public class ApiKey {
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
+    /**
+     * Stored only for PUBLISHABLE keys — pk_xxx is a public identifier, safe to expose at any time.
+     * Always null for SECRET keys (those are hashed-only, shown once at creation).
+     */
+    @Column(name = "plaintext_key", columnDefinition = "TEXT")
+    private String plaintextKey;
+
     public UUID getId() { return id; }
 
     public UUID getMerchantId() { return merchantId; }
@@ -75,4 +82,7 @@ public class ApiKey {
 
     public Instant getRevokedAt() { return revokedAt; }
     public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
+
+    public String getPlaintextKey() { return plaintextKey; }
+    public void setPlaintextKey(String plaintextKey) { this.plaintextKey = plaintextKey; }
 }

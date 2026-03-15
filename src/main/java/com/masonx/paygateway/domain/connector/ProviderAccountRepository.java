@@ -19,6 +19,10 @@ public interface ProviderAccountRepository extends JpaRepository<ProviderAccount
     Optional<ProviderAccount> findByMerchantIdAndProviderAndModeAndPrimaryTrueAndStatus(
             UUID merchantId, PaymentProvider provider, ApiKeyMode mode, ProviderAccountStatus status);
 
+    /** All active accounts for a merchant + provider + mode — used for weighted selection. */
+    List<ProviderAccount> findAllByMerchantIdAndProviderAndModeAndStatus(
+            UUID merchantId, PaymentProvider provider, ApiKeyMode mode, ProviderAccountStatus status);
+
     /** Clear primary flag for a given merchant + provider + mode before setting a new primary. */
     @Modifying
     @Query("UPDATE ProviderAccount a SET a.primary = false WHERE a.merchantId = :merchantId AND a.provider = :provider AND a.mode = :mode")

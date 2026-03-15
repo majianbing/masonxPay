@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.apikey.*;
+import com.masonx.paygateway.web.dto.ApiKeyPairResponse;
 import com.masonx.paygateway.web.dto.ApiKeyResponse;
 import com.masonx.paygateway.web.dto.CreateApiKeyRequest;
 import org.springframework.stereotype.Service;
@@ -25,23 +26,44 @@ public class ApiKeyService {
         this.apiKeyRepository = apiKeyRepository;
     }
 
-    public ApiKeyResponse create(UUID merchantId, CreateApiKeyRequest req) {
-        // MVP: test mode only
-        ApiKeyMode mode = ApiKeyMode.TEST;
-        String prefix = buildPrefix(req.type(), mode);
-        String rawKey = prefix + generateRandomHex(24);
-        String hash = sha256(rawKey);
+    /**
+     * Creates a sk+pk pair atomically.
+     * - sk: hashed only; raw value returned once in secretKey.secretPlaintext, never again.
+     * - pk: stored in plaintext (public identifier); always readable via publishableKey.plaintextKey.
+     */
+    public ApiKeyPairResponse create(UUID merchantId, CreateApiKeyRequest req) {
+        ApiKeyMode mode = ApiKeyMode.valueOf(req.mode() != null ? req.mode().toUpperCase() : "TEST");
 
-        ApiKey key = new ApiKey();
-        key.setMerchantId(merchantId);
-        key.setMode(mode);
-        key.setType(req.type());
-        key.setKeyHash(hash);
-        key.setPrefix(prefix);
-        key.setName(req.name());
+        // Secret key
+        String skPrefix = "sk_" + mode.name().toLowerCase() + "_";
+        String skRaw    = skPrefix + generateRandomHex(24);
+        ApiKey sk = new ApiKey();
+        sk.setMerchantId(merchantId);
+        sk.setMode(mode);
+        sk.setType(ApiKeyType.SECRET);
+        sk.setKeyHash(sha256(skRaw));
+        sk.setPrefix(skPrefix);
+        sk.setName(req.name());
+        // plaintextKey intentionally null — sk is never stored in plaintext
+        sk = apiKeyRepository.save(sk);
 
-        key = apiKeyRepository.save(key);
-        return ApiKeyResponse.from(key, rawKey);  // plaintext returned only here
+        // Publishable key (pk) — stored in plaintext, safe to show anytime
+        String pkPrefix = "pk_" + mode.name().toLowerCase() + "_";
+        String pkRaw    = pkPrefix + generateRandomHex(24);
+        ApiKey pk = new ApiKey();
+        pk.setMerchantId(merchantId);
+        pk.setMode(mode);
+        pk.setType(ApiKeyType.PUBLISHABLE);
+        pk.setKeyHash(sha256(pkRaw));
+        pk.setPrefix(pkPrefix);
+        pk.setName(req.name());
+        pk.setPlaintextKey(pkRaw);   // safe to persist — pk is a public identifier
+        pk = apiKeyRepository.save(pk);
+
+        return new ApiKeyPairResponse(
+                ApiKeyResponse.from(sk, skRaw),   // skRaw returned once only
+                ApiKeyResponse.from(pk, null)      // pk plaintext is on the entity, always available
+        );
     }
 
     @Transactional(readOnly = true)
@@ -52,10 +74,13 @@ public class ApiKeyService {
                 .toList();
     }
 
+    /**
+     * Revoking the sk also revokes the paired pk (same name + mode).
+     * Revoking the pk alone revokes only the pk.
+     */
     public void revoke(UUID merchantId, UUID keyId) {
         ApiKey key = apiKeyRepository.findById(keyId)
                 .orElseThrow(() -> new IllegalArgumentException("API key not found"));
-
         if (!key.getMerchantId().equals(merchantId)) {
             throw new IllegalArgumentException("API key does not belong to this merchant");
         }
@@ -66,6 +91,20 @@ public class ApiKeyService {
         key.setStatus(ApiKeyStatus.REVOKED);
         key.setRevokedAt(Instant.now());
         apiKeyRepository.save(key);
+
+        // If revoking a sk, also revoke the paired pk (same name + mode)
+        if (key.getType() == ApiKeyType.SECRET) {
+            apiKeyRepository.findAllByMerchantId(merchantId).stream()
+                    .filter(k -> k.getType() == ApiKeyType.PUBLISHABLE
+                            && k.getMode() == key.getMode()
+                            && k.getStatus() == ApiKeyStatus.ACTIVE
+                            && key.getName() != null && key.getName().equals(k.getName()))
+                    .forEach(pk -> {
+                        pk.setStatus(ApiKeyStatus.REVOKED);
+                        pk.setRevokedAt(Instant.now());
+                        apiKeyRepository.save(pk);
+                    });
+        }
     }
 
     private String buildPrefix(ApiKeyType type, ApiKeyMode mode) {

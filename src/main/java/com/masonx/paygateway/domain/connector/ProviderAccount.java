@@ -39,6 +39,10 @@ public class ProviderAccount {
     @Column(name = "is_primary", nullable = false)
     private boolean primary = false;
 
+    /** Weight for weighted-random account selection (1–100). Higher = more traffic. */
+    @Column(nullable = false)
+    private int weight = 1;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private ApiKeyMode mode = ApiKeyMode.TEST;
@@ -69,6 +73,8 @@ public class ProviderAccount {
     public void setSecretKeyHint(String secretKeyHint) { this.secretKeyHint = secretKeyHint; }
     public boolean isPrimary() { return primary; }
     public void setPrimary(boolean primary) { this.primary = primary; }
+    public int getWeight() { return weight; }
+    public void setWeight(int weight) { this.weight = weight; }
     public ApiKeyMode getMode() { return mode; }
     public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public ProviderAccountStatus getStatus() { return status; }

@@ -19,9 +19,11 @@ public record ApiKeyResponse(
         Instant lastUsedAt,
         Instant createdAt,
         Instant revokedAt,
-        String plainTextKey   // non-null only on creation; null on all subsequent reads
+        String plaintextKey,    // PUBLISHABLE: always present (safe public identifier)
+                                // SECRET: non-null only at creation, null on all subsequent reads
+        String secretPlaintext  // SECRET key raw value — non-null only at creation, then gone
 ) {
-    public static ApiKeyResponse from(ApiKey key, String plainTextKey) {
+    public static ApiKeyResponse from(ApiKey key, String secretPlaintext) {
         return new ApiKeyResponse(
                 key.getId(),
                 key.getMerchantId(),
@@ -33,7 +35,8 @@ public record ApiKeyResponse(
                 key.getLastUsedAt(),
                 key.getCreatedAt(),
                 key.getRevokedAt(),
-                plainTextKey
+                key.getPlaintextKey(),   // always returned for pk, null for sk after creation
+                secretPlaintext          // only non-null immediately after sk creation
         );
     }
 }

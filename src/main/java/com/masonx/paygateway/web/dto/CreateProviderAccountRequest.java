@@ -9,5 +9,6 @@ public record CreateProviderAccountRequest(
         @NotBlank String label,
         @NotBlank String secretKey,          // plaintext — encrypted before storage, never returned
         String publishableKey,               // optional
-        boolean primary
+        boolean primary,
+        int weight                           // 1–100, default 1; used for weighted account selection
 ) {}
