@@ -28,7 +28,8 @@ public class StripePaymentProviderService implements PaymentProviderService {
         if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             return new ChargeResult(false, null, null,
                     "connector_not_configured",
-                    "No active Stripe connector found. Add one under Settings → Connectors.");
+                    "No active Stripe connector found. Add one under Settings → Connectors.",
+                    false);
         }
 
         try {
@@ -48,14 +49,18 @@ public class StripePaymentProviderService implements PaymentProviderService {
             PaymentIntent pi = PaymentIntent.create(params, options);
             boolean succeeded = "succeeded".equals(pi.getStatus());
 
+            String failureCode = succeeded ? null
+                    : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getCode() : "unknown";
             return new ChargeResult(
                     succeeded, pi.getId(), pi.toJson(),
-                    succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getCode() : "unknown",
-                    succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getMessage() : "Payment did not succeed"
+                    failureCode,
+                    succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getMessage() : "Payment did not succeed",
+                    false   // card-level failures are never retryable with the same card
             );
         } catch (StripeException e) {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
-            return new ChargeResult(false, null, null, e.getCode(), e.getMessage());
+            // StripeException from the API call itself is a technical/transient failure → retryable
+            return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true);
         }
     }
 

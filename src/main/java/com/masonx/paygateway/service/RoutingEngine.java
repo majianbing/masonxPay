@@ -9,9 +9,12 @@ import com.masonx.paygateway.domain.routing.RoutingRule;
 import com.masonx.paygateway.domain.routing.RoutingRuleRepository;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -83,6 +86,43 @@ public class RoutingEngine {
         }
 
         return Optional.of(candidates.get(candidates.size() - 1));
+    }
+
+    /**
+     * Returns all active connector accounts for merchant + provider + mode, excluding already-tried
+     * ones, in weighted-random order. Used by the failover loop in PaymentIntentService so each
+     * candidate is tried at most once per confirm call, with higher-weight accounts preferred.
+     */
+    public List<ProviderAccount> resolveAccountsOrdered(UUID merchantId, PaymentProvider provider,
+                                                        ApiKeyMode mode, Set<UUID> excludeIds) {
+        List<ProviderAccount> candidates = providerAccountRepository
+                .findAllByMerchantIdAndProviderAndModeAndStatus(merchantId, provider, mode, ProviderAccountStatus.ACTIVE)
+                .stream()
+                .filter(a -> !excludeIds.contains(a.getId()))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        if (candidates.isEmpty()) return Collections.emptyList();
+        if (candidates.size() == 1) return candidates;
+
+        // Weighted shuffle: repeatedly pick by weight and move to result list
+        List<ProviderAccount> ordered = new ArrayList<>(candidates.size());
+        while (!candidates.isEmpty()) {
+            int totalWeight = candidates.stream().mapToInt(ProviderAccount::getWeight).sum();
+            if (totalWeight <= 0) {
+                ordered.addAll(candidates);
+                break;
+            }
+            int pick = random.nextInt(totalWeight);
+            int cumulative = 0;
+            for (int i = 0; i < candidates.size(); i++) {
+                cumulative += candidates.get(i).getWeight();
+                if (pick < cumulative) {
+                    ordered.add(candidates.remove(i));
+                    break;
+                }
+            }
+        }
+        return ordered;
     }
 
     /**

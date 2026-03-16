@@ -5,5 +5,6 @@ public record ChargeResult(
         String providerPaymentId,
         String providerResponseJson,
         String failureCode,
-        String failureMessage
+        String failureMessage,
+        boolean retryable
 ) {}

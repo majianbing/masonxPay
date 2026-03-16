@@ -43,7 +43,7 @@ public class SquarePaymentProviderService implements PaymentProviderService {
     public ChargeResult charge(ChargeRequest req, ProviderCredentials creds) {
         if (!(creds instanceof SquareCredentials square)) {
             return new ChargeResult(false, null, null,
-                    "connector_not_configured", "No active Square connector found.");
+                    "connector_not_configured", "No active Square connector found.", false);
         }
 
         try {
@@ -67,7 +67,8 @@ public class SquarePaymentProviderService implements PaymentProviderService {
 
             JsonNode payment = response != null ? response.path("payment") : null;
             if (payment == null || payment.isMissingNode()) {
-                return new ChargeResult(false, null, null, "unexpected_response", "No payment object in Square response");
+                return new ChargeResult(false, null, null, "unexpected_response",
+                        "No payment object in Square response", true);
             }
 
             String status = payment.path("status").asText("");
@@ -77,18 +78,22 @@ public class SquarePaymentProviderService implements PaymentProviderService {
 
             if (!succeeded) {
                 String errorCode = payment.path("delay_action").asText("card_declined");
-                return new ChargeResult(false, paymentId, responseJson, errorCode, "Payment status: " + status);
+                // Card-level failures are never retryable
+                return new ChargeResult(false, paymentId, responseJson, errorCode,
+                        "Payment status: " + status, false);
             }
 
-            return new ChargeResult(true, paymentId, responseJson, null, null);
+            return new ChargeResult(true, paymentId, responseJson, null, null, false);
 
         } catch (HttpClientErrorException e) {
             log.error("Square charge failed: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
             String code = parseSquareErrorCode(e.getResponseBodyAsString());
-            return new ChargeResult(false, null, null, code, e.getMessage());
+            // HTTP 4xx from Square is typically a card decline (non-retryable)
+            return new ChargeResult(false, null, null, code, e.getMessage(), false);
         } catch (Exception e) {
             log.error("Square charge error", e);
-            return new ChargeResult(false, null, null, "gateway_error", e.getMessage());
+            // Network / unexpected error — worth retrying on another connector
+            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true);
         }
     }
 

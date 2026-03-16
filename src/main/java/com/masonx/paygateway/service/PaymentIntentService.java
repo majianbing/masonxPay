@@ -15,20 +15,24 @@ import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
-import com.masonx.paygateway.service.ProviderAccountService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
-@Transactional
 public class PaymentIntentService {
+
+    private static final int MAX_FAILOVER_ATTEMPTS = 3;
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
@@ -37,8 +41,10 @@ public class PaymentIntentService {
     private final ProviderAccountService providerAccountService;
     private final ProviderAccountRepository providerAccountRepository;
     private final PaymentTokenService paymentTokenService;
+    private final FailoverPolicy failoverPolicy;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final TransactionTemplate txTemplate;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
@@ -47,8 +53,10 @@ public class PaymentIntentService {
                                 ProviderAccountService providerAccountService,
                                 ProviderAccountRepository providerAccountRepository,
                                 PaymentTokenService paymentTokenService,
+                                FailoverPolicy failoverPolicy,
                                 ObjectMapper objectMapper,
-                                ApplicationEventPublisher eventPublisher) {
+                                ApplicationEventPublisher eventPublisher,
+                                PlatformTransactionManager txManager) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine = routingEngine;
@@ -56,14 +64,16 @@ public class PaymentIntentService {
         this.providerAccountService = providerAccountService;
         this.providerAccountRepository = providerAccountRepository;
         this.paymentTokenService = paymentTokenService;
+        this.failoverPolicy = failoverPolicy;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
+        this.txTemplate = new TransactionTemplate(txManager);
     }
 
+    @Transactional
     public PaymentIntentResponse create(ApiKeyAuthentication auth, CreatePaymentIntentRequest req) {
         requireSecretKey(auth);
 
-        // Idempotency: return existing intent if key already used
         Optional<PaymentIntent> existing = paymentIntentRepository
                 .findByMerchantIdAndIdempotencyKey(auth.getMerchantId(), req.idempotencyKey());
         if (existing.isPresent()) {
@@ -93,89 +103,154 @@ public class PaymentIntentService {
         return toResponse(loadOwned(auth, intentId));
     }
 
+    /**
+     * Confirms a payment intent against the provider.
+     *
+     * This method deliberately has NO @Transactional annotation.
+     * Remote calls to Stripe/Square must never run inside a database transaction —
+     * holding a connection open during a network call would exhaust the pool under load.
+     * Instead, each DB write phase is wrapped in its own short TransactionTemplate block.
+     *
+     * TX flow:
+     *   1. TX-setup   — validate intent, resolve routing, set PROCESSING, save intent
+     *   2. per attempt — TX-create-attempt → remote call → TX-update-attempt (repeated up to MAX_FAILOVER_ATTEMPTS)
+     *   3. TX-finalize — re-read intent, set final status, save
+     */
     public PaymentIntentResponse confirm(ApiKeyAuthentication auth, UUID intentId,
                                          ConfirmPaymentIntentRequest req) {
         requireSecretKey(auth);
-        PaymentIntent intent = loadOwned(auth, intentId);
 
-        if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
-                && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION) {
-            throw new IllegalStateException(
-                    "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
-        }
+        // --- TX 1: validate, resolve routing, mark PROCESSING ---
+        record Setup(PaymentIntent intent, PaymentProvider provider,
+                     List<ProviderAccount> accountQueue, String rawPmId, String pmType) {}
 
-        // Resolve provider + account.
-        // If the paymentMethodId is a gateway token (gw_tok_xxx), routing was already done
-        // browser-side — consume the token and use the account it points to directly.
-        // Otherwise run the standard routing engine.
-        final PaymentProvider provider;
-        final ProviderAccount account;
-        final String rawPmId;
+        Setup setup = txTemplate.execute(ts -> {
+            PaymentIntent intent = loadOwned(auth, intentId);
 
-        if (req.paymentMethodId().startsWith("gw_tok_")) {
-            PaymentToken token = paymentTokenService.consume(req.paymentMethodId());
-            if (!token.getMerchantId().equals(auth.getMerchantId())) {
-                throw new org.springframework.security.access.AccessDeniedException(
-                        "Payment token does not belong to this merchant");
+            if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION) {
+                throw new IllegalStateException(
+                        "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
             }
-            provider = PaymentProvider.valueOf(token.getProvider());
-            account = providerAccountRepository.findById(token.getAccountId())
-                    .orElseThrow(() -> new IllegalStateException("Connector account not found"));
-            rawPmId = token.getProviderPmId();
-        } else {
-            provider = routingEngine.resolve(
-                    auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
-                    req.paymentMethodType() != null ? req.paymentMethodType() : "card");
-            account = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
-                    .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
-            rawPmId = req.paymentMethodId();
+
+            final PaymentProvider provider;
+            final ProviderAccount firstAccount;
+            final String rawPmId;
+
+            if (req.paymentMethodId().startsWith("gw_tok_")) {
+                PaymentToken token = paymentTokenService.consume(req.paymentMethodId());
+                if (!token.getMerchantId().equals(auth.getMerchantId())) {
+                    throw new AccessDeniedException("Payment token does not belong to this merchant");
+                }
+                provider = PaymentProvider.valueOf(token.getProvider());
+                firstAccount = providerAccountRepository.findById(token.getAccountId())
+                        .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+                rawPmId = token.getProviderPmId();
+            } else {
+                provider = routingEngine.resolve(
+                        auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
+                        req.paymentMethodType() != null ? req.paymentMethodType() : "card");
+                firstAccount = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
+                        .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
+                rawPmId = req.paymentMethodId();
+            }
+
+            // Build ordered candidate queue for the retry loop
+            final List<ProviderAccount> accountQueue;
+            if (req.paymentMethodId().startsWith("gw_tok_")) {
+                accountQueue = List.of(firstAccount);
+            } else {
+                List<ProviderAccount> rest = routingEngine.resolveAccountsOrdered(
+                        auth.getMerchantId(), provider, auth.getMode(), Set.of(firstAccount.getId()));
+                accountQueue = new ArrayList<>(1 + rest.size());
+                accountQueue.add(firstAccount);
+                accountQueue.addAll(rest);
+            }
+
+            intent.setStatus(PaymentIntentStatus.PROCESSING);
+            intent.setResolvedProvider(provider);
+            intent.setConnectorAccountId(firstAccount.getId());
+            paymentIntentRepository.save(intent);
+
+            String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
+            return new Setup(intent, provider, accountQueue, rawPmId, pmType);
+        });
+
+        // --- Retry loop: each iteration is remote call + two short transactions ---
+        ChargeResult lastResult = null;
+        ProviderAccount usedAccount = null;
+        int attemptCount = 0;
+
+        for (ProviderAccount candidate : setup.accountQueue()) {
+            if (attemptCount >= MAX_FAILOVER_ATTEMPTS) break;
+            attemptCount++;
+            usedAccount = candidate;
+
+            // TX 2a: persist the attempt record before the remote call
+            final ProviderAccount finalCandidate = candidate;
+            UUID attemptId = txTemplate.execute(ts -> {
+                PaymentRequest attempt = new PaymentRequest();
+                attempt.setPaymentIntentId(setup.intent().getId());
+                attempt.setAmount(setup.intent().getAmount());
+                attempt.setCurrency(setup.intent().getCurrency());
+                attempt.setPaymentMethodType(setup.pmType());
+                attempt.setConnectorAccountId(finalCandidate.getId());
+                return paymentRequestRepository.save(attempt).getId();
+            });
+
+            // Remote call — intentionally outside any transaction
+            ProviderCredentials creds = providerAccountService.loadCredentials(candidate.getId());
+            ChargeResult result = dispatcher.charge(setup.provider(), new ChargeRequest(
+                    setup.intent().getId(), setup.intent().getAmount(), setup.intent().getCurrency(),
+                    setup.pmType(), setup.rawPmId(),
+                    "pi-" + setup.intent().getId() + "-" + attemptId
+            ), creds);
+            lastResult = result;
+
+            // TX 2b: record outcome of this attempt
+            final ChargeResult r = result;
+            txTemplate.executeWithoutResult(ts -> {
+                PaymentRequest attempt = paymentRequestRepository.findById(attemptId).orElseThrow();
+                attempt.setStatus(r.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+                attempt.setProviderRequestId(r.providerPaymentId());
+                attempt.setProviderResponse(r.providerResponseJson());
+                attempt.setFailureCode(r.failureCode());
+                attempt.setFailureMessage(r.failureMessage());
+                paymentRequestRepository.save(attempt);
+            });
+
+            if (result.success()) break;
+            if (!failoverPolicy.isRetryable(result.failureCode())) break;
         }
 
-        intent.setStatus(PaymentIntentStatus.PROCESSING);
-        intent.setResolvedProvider(provider);
-        intent.setConnectorAccountId(account.getId());
-        paymentIntentRepository.save(intent);
+        // --- TX 3: finalize intent status ---
+        final ChargeResult finalResult = lastResult;
+        final UUID usedAccountId = usedAccount != null ? usedAccount.getId() : null;
 
-        // Record the attempt
-        PaymentRequest attempt = new PaymentRequest();
-        attempt.setPaymentIntentId(intent.getId());
-        attempt.setAmount(intent.getAmount());
-        attempt.setCurrency(intent.getCurrency());
-        attempt.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
-        attempt = paymentRequestRepository.save(attempt);
+        PaymentIntentResponse response = txTemplate.execute(ts -> {
+            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            if (finalResult != null && finalResult.success()) {
+                intent.setStatus(PaymentIntentStatus.SUCCEEDED);
+                intent.setConnectorAccountId(usedAccountId);
+                intent.setProviderPaymentId(finalResult.providerPaymentId());
+                intent.setProviderResponse(finalResult.providerResponseJson());
+            } else {
+                intent.setStatus(PaymentIntentStatus.FAILED);
+            }
+            PaymentIntent saved = paymentIntentRepository.save(intent);
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
+            return PaymentIntentResponse.from(saved, attempts, objectMapper);
+        });
 
-        ProviderCredentials creds = providerAccountService.loadCredentials(account.getId());
-
-        ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
-                intent.getId(), intent.getAmount(), intent.getCurrency(),
-                attempt.getPaymentMethodType(), rawPmId,
-                "pi-" + intent.getId() + "-" + attempt.getId()
-        ), creds);
-
-        // Update attempt
-        attempt.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
-        attempt.setProviderRequestId(result.providerPaymentId());
-        attempt.setProviderResponse(result.providerResponseJson());
-        attempt.setFailureCode(result.failureCode());
-        attempt.setFailureMessage(result.failureMessage());
-        paymentRequestRepository.save(attempt);
-
-        // Update intent
-        if (result.success()) {
-            intent.setStatus(PaymentIntentStatus.SUCCEEDED);
-            intent.setProviderPaymentId(result.providerPaymentId());
-            intent.setProviderResponse(result.providerResponseJson());
-        } else {
-            intent.setStatus(PaymentIntentStatus.FAILED);
-        }
-        PaymentIntentResponse response = toResponse(paymentIntentRepository.save(intent));
-
-        String eventType = result.success() ? "payment_intent.succeeded" : "payment_intent.failed";
-        publishEvent(intent, eventType, response);
+        // Publish event outside TX — async, best-effort
+        String eventType = (finalResult != null && finalResult.success())
+                ? "payment_intent.succeeded" : "payment_intent.failed";
+        publishEvent(setup.intent().getMerchantId(), setup.intent().getId(), eventType, response);
 
         return response;
     }
 
+    @Transactional
     public PaymentIntentResponse cancel(ApiKeyAuthentication auth, UUID intentId) {
         PaymentIntent intent = loadOwned(auth, intentId);
 
@@ -187,7 +262,7 @@ public class PaymentIntentService {
 
         intent.setStatus(PaymentIntentStatus.CANCELED);
         PaymentIntentResponse response = toResponse(paymentIntentRepository.save(intent));
-        publishEvent(intent, "payment_intent.canceled", response);
+        publishEvent(intent.getMerchantId(), intent.getId(), "payment_intent.canceled", response);
         return response;
     }
 
@@ -209,11 +284,11 @@ public class PaymentIntentService {
         return PaymentIntentResponse.from(intent, attempts, objectMapper);
     }
 
-    private void publishEvent(PaymentIntent intent, String eventType, PaymentIntentResponse payload) {
+    private void publishEvent(UUID merchantId, UUID intentId, String eventType, PaymentIntentResponse payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
             eventPublisher.publishEvent(
-                    new PaymentGatewayEvent(this, intent.getMerchantId(), eventType, intent.getId(), json));
+                    new PaymentGatewayEvent(this, merchantId, eventType, intentId, json));
         } catch (JsonProcessingException e) {
             // non-critical — log and move on
         }

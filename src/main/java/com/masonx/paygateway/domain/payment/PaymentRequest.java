@@ -40,6 +40,9 @@ public class PaymentRequest {
     @Column(name = "failure_message", length = 500)
     private String failureMessage;
 
+    @Column(name = "connector_account_id")
+    private UUID connectorAccountId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -77,6 +80,9 @@ public class PaymentRequest {
 
     public String getFailureMessage() { return failureMessage; }
     public void setFailureMessage(String failureMessage) { this.failureMessage = failureMessage; }
+
+    public UUID getConnectorAccountId() { return connectorAccountId; }
+    public void setConnectorAccountId(UUID connectorAccountId) { this.connectorAccountId = connectorAccountId; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
