@@ -1,0 +1,396 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  pay.masonx Managed — Spring Boot on EC2, PostgreSQL on RDS, Next.js on Amplify.
+  Managed services handle backups, patching and HTTPS automatically.
+  Stack creation takes ~15-20 min (RDS provisioning is the bottleneck).
+
+# ─────────────────────────────────────────────────────────────────────────────
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Instance"}
+        Parameters: [KeyPairName, InstanceType]
+      - Label: {default: "Source"}
+        Parameters: [GitRepoUrl, GitBranch, GitHubToken]
+      - Label: {default: "Database"}
+        Parameters: [DBUsername, DBPassword, DBInstanceClass]
+      - Label: {default: "Secrets (required)"}
+        Parameters: [JwtSecret]
+      - Label: {default: "Stripe (optional)"}
+        Parameters: [StripeSecretKey, StripeWebhookSecret]
+      - Label: {default: "Email / SMTP (optional)"}
+        Parameters: [MailHost, MailPort, MailUsername, MailPassword]
+      - Label: {default: "Encryption (optional)"}
+        Parameters: [EncryptionKey]
+
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 key pair for SSH access to the backend instance.
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium, t3.large]
+    Description: Backend EC2 instance type.
+
+  GitRepoUrl:
+    Type: String
+    Description: "HTTPS clone URL of your repository (e.g. https://github.com/you/pay.masonx.git)"
+
+  GitBranch:
+    Type: String
+    Default: master
+    Description: Branch Amplify will track for dashboard auto-deploys.
+
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: >
+      GitHub Personal Access Token (classic) with repo read scope.
+      Used by Amplify to pull the repository and trigger builds.
+      Generate at: https://github.com/settings/tokens
+
+  DBUsername:
+    Type: String
+    Default: "pay_app_user"
+    Description: RDS master username.
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: RDS master password (min 8 chars, avoid @/"/').
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium]
+    Description: "db.t3.micro is free-tier eligible."
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: "Random JWT signing secret — generate with: openssl rand -base64 32"
+
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) Stripe secret key."
+
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) Stripe webhook signing secret."
+
+  MailHost:
+    Type: String
+    Default: "smtp.gmail.com"
+
+  MailPort:
+    Type: String
+    Default: "587"
+
+  MailUsername:
+    Type: String
+    Default: ""
+    Description: "(Optional) SMTP username — leave blank to disable invite emails."
+
+  MailPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  EncryptionKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) AES-256 key — generate with: openssl rand -base64 32"
+
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── VPC — 2 public subnets across 2 AZs (required for RDS subnet group) ───
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-vpc'}]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-igw'}]
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-subnet-1'}]
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-subnet-2'}]
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-rt'}]
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+
+  SubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref RouteTable
+
+  # ── Security Groups ─────────────────────────────────────────────────────────
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "pay.masonx backend — SSH + API"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 22,   ToPort: 22,   CidrIp: 0.0.0.0/0, Description: SSH}
+        - {IpProtocol: tcp, FromPort: 8080, ToPort: 8080, CidrIp: 0.0.0.0/0, Description: Backend API}
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-backend-sg'}]
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "pay.masonx RDS — allow Postgres from backend EC2 only"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+          Description: Postgres from backend EC2
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-db-sg'}]
+
+  # ── RDS PostgreSQL ──────────────────────────────────────────────────────────
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "pay.masonx DB subnets"
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-db-subnet-group'}]
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot    # Snapshot on stack delete — change to Delete for test environments
+    Properties:
+      DBInstanceIdentifier: !Sub '${AWS::StackName}-postgres'
+      DBName: paygateway
+      Engine: postgres
+      EngineVersion: "16"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: "20"
+      StorageType: gp2
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [!Ref DBSecurityGroup]
+      PubliclyAccessible: false   # Accessible only from within the VPC
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-db'}]
+
+  # ── Backend EC2 ─────────────────────────────────────────────────────────────
+  # CloudFormation waits for RDS (implicit dep via Fn::Sub ${DBInstance.Endpoint.Address})
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-eip'}]
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds: [!Ref BackendSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-backend'}]
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash
+            set -euo pipefail
+            exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
+
+            echo "==> [1/5] System update"
+            dnf update -y
+
+            echo "==> [2/5] Docker + Git"
+            dnf install -y docker git
+            systemctl enable --now docker
+            usermod -aG docker ec2-user
+
+            echo "==> [3/5] Docker Compose plugin"
+            ARCH=$(uname -m)
+            COMPOSE_VER=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest \
+              | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+            mkdir -p /usr/local/lib/docker/cli-plugins
+            curl -fsSL \
+              "https://github.com/docker/compose/releases/download/$${COMPOSE_VER}/docker-compose-linux-$${ARCH}" \
+              -o /usr/local/lib/docker/cli-plugins/docker-compose
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+            echo "==> [4/5] Clone repository (branch: ${GitBranch})"
+            git clone --branch ${GitBranch} --depth 1 ${GitRepoUrl} /app
+
+            echo "==> [5/5] Write .env and launch backend"
+            cat > /app/.env <<'DOTENV'
+            DB_HOST=${DBInstance.Endpoint.Address}
+            DB_PORT=5432
+            DB_NAME=paygateway
+            DB_USERNAME=${DBUsername}
+            DB_PASSWORD=${DBPassword}
+            JWT_SECRET=${JwtSecret}
+            APP_BASE_URL=http://${ElasticIP}:8080
+            PAY_BASE_URL=https://${GitBranch}.${AmplifyApp.DefaultDomain}
+            CORS_ALLOWED_ORIGINS=https://${GitBranch}.${AmplifyApp.DefaultDomain}
+            STRIPE_SECRET_KEY=${StripeSecretKey}
+            STRIPE_WEBHOOK_SECRET=${StripeWebhookSecret}
+            MAIL_HOST=${MailHost}
+            MAIL_PORT=${MailPort}
+            MAIL_USERNAME=${MailUsername}
+            MAIL_PASSWORD=${MailPassword}
+            ENCRYPTION_KEY=${EncryptionKey}
+            DOTENV
+
+            # Start backend only — Postgres is on RDS, dashboard is on Amplify
+            cd /app
+            docker compose up -d --no-deps --build backend
+
+            echo "==> Done! API: http://${ElasticIP}:8080"
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      EIP: !Ref ElasticIP
+      InstanceId: !Ref EC2Instance
+
+  # ── Amplify (Next.js Dashboard) ─────────────────────────────────────────────
+  AmplifyServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-amplify-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: amplify.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess-Amplify
+
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub '${AWS::StackName}-dashboard'
+      Repository: !Ref GitRepoUrl
+      AccessToken: !Ref GitHubToken
+      Platform: WEB_COMPUTE          # Required for Next.js SSR
+      IAMServiceRole: !GetAtt AmplifyServiceRole.Arn
+      EnvironmentVariables:
+        - Name: NEXT_PUBLIC_API_URL
+          Value: !Sub 'http://${ElasticIP}:8080'
+      BuildSpec: |
+        version: 1
+        applications:
+          - appRoot: dashboard
+            frontend:
+              phases:
+                preBuild:
+                  commands:
+                    - npm ci
+                build:
+                  commands:
+                    - npx next build
+              artifacts:
+                baseDirectory: .next
+                files:
+                  - '**/*'
+              cache:
+                paths:
+                  - node_modules/**/*
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: !Ref GitBranch
+      EnableAutoBuild: true         # Rebuild dashboard on every push to this branch
+      Framework: "Next.js - SSR"
+
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+
+  DashboardURL:
+    Description: Next.js dashboard (Amplify — HTTPS, custom domain optional)
+    Value: !Sub 'https://${GitBranch}.${AmplifyApp.DefaultDomain}'
+
+  APIURL:
+    Description: Spring Boot backend API
+    Value: !Sub 'http://${ElasticIP}:8080'
+
+  DBEndpoint:
+    Description: RDS PostgreSQL endpoint (internal — not publicly accessible)
+    Value: !GetAtt DBInstance.Endpoint.Address
+
+  SSHCommand:
+    Description: SSH into the backend instance
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}'
+
+  BootLogsCommand:
+    Description: Watch first-boot progress
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP} "sudo tail -f /var/log/user-data.log"'
+
+  AmplifyConsole:
+    Description: Amplify Console — trigger manual builds or check deploy status
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/amplify/home#/${AmplifyApp.AppId}'

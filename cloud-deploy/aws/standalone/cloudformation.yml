@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  pay.masonx Standalone — Full stack (PostgreSQL + Spring Boot + Next.js dashboard)
+  on a single EC2 instance via Docker Compose. Ideal for quick evaluation and demos.
+  First boot takes ~10-15 min while Maven and Next.js build the images.
+
+# ─────────────────────────────────────────────────────────────────────────────
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: "Instance"}
+        Parameters: [KeyPairName, InstanceType]
+      - Label: {default: "Source"}
+        Parameters: [GitRepoUrl, GitBranch]
+      - Label: {default: "Secrets (required)"}
+        Parameters: [JwtSecret, DBPassword]
+      - Label: {default: "Stripe (optional)"}
+        Parameters: [StripeSecretKey, StripeWebhookSecret]
+      - Label: {default: "Email / SMTP (optional)"}
+        Parameters: [MailHost, MailPort, MailUsername, MailPassword]
+      - Label: {default: "Encryption (optional)"}
+        Parameters: [EncryptionKey]
+
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 key pair for SSH access.
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium, t3.large]
+    Description: "t3.small = 2 vCPU / 2 GB — minimum for Java 21 + Postgres + Next.js."
+
+  GitRepoUrl:
+    Type: String
+    Description: "HTTPS clone URL of your repository (e.g. https://github.com/you/pay.masonx.git)"
+
+  GitBranch:
+    Type: String
+    Default: master
+    Description: Branch to deploy.
+
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: "Random JWT signing secret — generate with: openssl rand -base64 32"
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Default: "Password123!"
+    MinLength: 8
+    Description: PostgreSQL password for the app user.
+
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) Stripe secret key (sk_live_... or sk_test_...)."
+
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) Stripe webhook signing secret."
+
+  MailHost:
+    Type: String
+    Default: "smtp.gmail.com"
+
+  MailPort:
+    Type: String
+    Default: "587"
+
+  MailUsername:
+    Type: String
+    Default: ""
+    Description: "(Optional) SMTP username — leave blank to disable invite emails."
+
+  MailPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  EncryptionKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "(Optional) AES-256 key — generate with: openssl rand -base64 32"
+
+# ─────────────────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── VPC ────────────────────────────────────────────────────────────────────
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-vpc'}]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-igw'}]
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-subnet'}]
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-rt'}]
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  # ── Security Group ─────────────────────────────────────────────────────────
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "pay.masonx standalone — SSH + API + Dashboard"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 22,   ToPort: 22,   CidrIp: 0.0.0.0/0, Description: SSH}
+        - {IpProtocol: tcp, FromPort: 8080, ToPort: 8080, CidrIp: 0.0.0.0/0, Description: Backend API}
+        - {IpProtocol: tcp, FromPort: 3000, ToPort: 3000, CidrIp: 0.0.0.0/0, Description: Dashboard}
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-sg'}]
+
+  # ── EC2 + EIP ──────────────────────────────────────────────────────────────
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-eip'}]
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      # Latest Amazon Linux 2023 — resolves per region automatically
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30      # Maven build cache + Docker layers need space
+            VolumeType: gp3
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-instance'}]
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash
+            set -euo pipefail
+            exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
+
+            echo "==> [1/5] System update"
+            dnf update -y
+
+            echo "==> [2/5] Docker + Git"
+            dnf install -y docker git
+            systemctl enable --now docker
+            usermod -aG docker ec2-user
+
+            echo "==> [3/5] Docker Compose plugin"
+            ARCH=$(uname -m)
+            COMPOSE_VER=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest \
+              | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+            mkdir -p /usr/local/lib/docker/cli-plugins
+            curl -fsSL \
+              "https://github.com/docker/compose/releases/download/$${COMPOSE_VER}/docker-compose-linux-$${ARCH}" \
+              -o /usr/local/lib/docker/cli-plugins/docker-compose
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+            echo "==> [4/5] Clone repository (branch: ${GitBranch})"
+            git clone --branch ${GitBranch} --depth 1 ${GitRepoUrl} /app
+
+            echo "==> [5/5] Write .env and launch stack"
+            cat > /app/.env <<'DOTENV'
+            DB_NAME=paygateway
+            DB_USERNAME=pay_app_user
+            DB_PASSWORD=${DBPassword}
+            JWT_SECRET=${JwtSecret}
+            APP_BASE_URL=http://${ElasticIP}:8080
+            PAY_BASE_URL=http://${ElasticIP}:3000
+            NEXT_PUBLIC_API_URL=http://${ElasticIP}:8080
+            CORS_ALLOWED_ORIGINS=http://${ElasticIP}:3000
+            STRIPE_SECRET_KEY=${StripeSecretKey}
+            STRIPE_WEBHOOK_SECRET=${StripeWebhookSecret}
+            MAIL_HOST=${MailHost}
+            MAIL_PORT=${MailPort}
+            MAIL_USERNAME=${MailUsername}
+            MAIL_PASSWORD=${MailPassword}
+            ENCRYPTION_KEY=${EncryptionKey}
+            DOTENV
+
+            cd /app
+            docker compose up -d --build
+
+            echo "==> Done! First boot takes ~10-15 min (Maven + Next.js build)."
+            echo "    Dashboard : http://${ElasticIP}:3000"
+            echo "    API       : http://${ElasticIP}:8080"
+            echo "    Logs      : docker compose -f /app/docker-compose.yml logs -f"
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      EIP: !Ref ElasticIP
+      InstanceId: !Ref EC2Instance
+
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+
+  DashboardURL:
+    Description: Next.js merchant dashboard
+    Value: !Sub 'http://${ElasticIP}:3000'
+
+  APIURL:
+    Description: Spring Boot backend API
+    Value: !Sub 'http://${ElasticIP}:8080'
+
+  SSHCommand:
+    Description: SSH into the instance
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}'
+
+  BootLogsCommand:
+    Description: Watch first-boot progress
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP} "sudo tail -f /var/log/user-data.log"'
+
+  AppLogsCommand:
+    Description: Watch running container logs
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP} "docker compose -f /app/docker-compose.yml logs -f"'
