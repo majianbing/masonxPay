@@ -8,8 +8,12 @@ A fully-featured, Stripe-like payment gateway built with Java and Spring Boot �
 
 ```
 pay.masonx/
-├── src/                   Spring Boot backend (Java 21)
+├── backend/               Spring Boot backend (Java 21)
+│   ├── src/
+│   ├── pom.xml
+│   └── Dockerfile
 ├── dashboard/             Merchant dashboard (Next.js)
+│   ├── Dockerfile
 │   └── public/
 │       ├── demo.html          Integration demo — try the API without writing code
 │       ├── gateway-sdk.js     Browser SDK (full, ~13 KB)
@@ -17,7 +21,11 @@ pay.masonx/
 ├── sdk/
 │   ├── server/            @gateway/server — Node.js / TypeScript server SDK
 │   └── browser/           @gateway/browser — Browser SDK source (TypeScript)
-└── cloud-deploy/          Deployment configs
+├── cloud-deploy/
+│   └── aws/
+│       ├── standalone/    Single-EC2 CloudFormation stack
+│       └── managed/       EC2 + RDS + Amplify CloudFormation stack
+└── docker-compose.yml     Local Docker quickstart (all services)
 ```
 
 ---
@@ -46,7 +54,7 @@ pay.masonx/
 | Database | PostgreSQL + Flyway migrations |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square (REST, no vendor SDK dependency) |
-| Dashboard | Next.js 14, Tailwind CSS, shadcn/ui, TanStack Query |
+| Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | Browser SDK | Vanilla TypeScript, esbuild for bundling |
 | Server SDK | TypeScript, Node.js 18+ |
 
@@ -54,15 +62,84 @@ pay.masonx/
 
 ## Getting started
 
-### 1. Prerequisites
+### Option A — Docker (recommended)
 
-- Java 21
-- Maven
-- PostgreSQL 14+
-- Node.js 18+ (for the dashboard and SDKs)
-- A Stripe test account **or** a Square sandbox account (at least one connector required)
+The fastest way to run the full stack locally. Only Docker is required — no Java, Node, or PostgreSQL needed on your machine.
 
-### 2. Database
+**1. Clone and configure**
+
+```bash
+git clone https://github.com/your-org/pay.masonx.git
+cd pay.masonx
+cp .env.docker.example .env
+```
+
+Open `.env` and set the two required values:
+
+```bash
+# Required — generate a random secret:  openssl rand -base64 32
+JWT_SECRET=your-random-secret-here
+
+# Optional — add Stripe keys to enable payment processing
+STRIPE_SECRET_KEY=sk_test_...
+```
+
+All other values have safe defaults for local development.
+
+**2. Start the stack**
+
+```bash
+docker compose up --build
+```
+
+This builds and starts three containers:
+
+| Container | URL | Description |
+|-----------|-----|-------------|
+| `dashboard` | http://localhost:3000 | Next.js merchant portal |
+| `backend` | http://localhost:8080 | Spring Boot API |
+| `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
+
+> **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
+
+**3. Create your account**
+
+Open http://localhost:3000 and register. The first registration creates a merchant account with the OWNER role. Flyway runs all database migrations automatically on startup.
+
+**4. Try the integration demo**
+
+Open http://localhost:3000/demo.html — enter your API key and test payment links, direct API calls, and the embedded checkout form interactively. No code required.
+
+---
+
+**Useful commands**
+
+```bash
+# Follow logs for all services
+docker compose logs -f
+
+# Follow logs for one service
+docker compose logs -f backend
+
+# Stop everything (data is preserved)
+docker compose down
+
+# Stop and wipe the database volume (full reset)
+docker compose down -v
+
+# Rebuild after code changes
+docker compose up --build
+```
+
+---
+
+### Option B — Local development (manual)
+
+Use this if you want hot-reload or are working on only one part of the stack.
+
+**Prerequisites:** Java 21, Maven, PostgreSQL 14+, Node.js 18+
+
+**1. Database**
 
 ```bash
 createdb paygateway
@@ -70,38 +147,36 @@ createdb paygateway
 
 Flyway runs migrations automatically on startup — no manual schema setup needed.
 
-### 3. Backend configuration
+**2. Backend**
 
-Create `src/main/resources/application-local.properties` (or set env vars):
+```bash
+cd backend
+cp ../.env .env          # spring-dotenv loads .env from the working directory
+mvn spring-boot:run
+# API available at http://localhost:8012 (local profile default)
+```
 
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/paygateway
-spring.datasource.username=your_db_user
-spring.datasource.password=your_db_password
+Or set env vars directly:
 
-app.jwt.secret=a-very-long-random-string-at-least-32-chars
-app.encryption.key=another-32-char-aes-key-for-credentials
+```bash
+DB_HOST=localhost DB_NAME=paygateway DB_USERNAME=your_user \
+DB_PASSWORD=your_pass JWT_SECRET=your-secret \
+mvn spring-boot:run -pl backend
 ```
 
 Provider credentials (Stripe `sk_xxx`, Square `accessToken`) are stored **AES-256 encrypted** in the database — no provider keys in config files.
 
-### 4. Run the backend
-
-```bash
-mvn spring-boot:run
-# API available at http://localhost:8080
-```
-
-### 5. Run the dashboard
+**3. Dashboard**
 
 ```bash
 cd dashboard
+echo "NEXT_PUBLIC_API_URL=http://localhost:8012" > .env.local
 npm install
 npm run dev
 # Dashboard available at http://localhost:3000
 ```
 
-### 6. Try the integration demo
+**4. Try the integration demo**
 
 Open `http://localhost:3000/demo.html` in your browser. No code required — enter your API key and test payment links, direct API calls, and the embedded form (Pattern B) interactively.
 

@@ -12,8 +12,12 @@ cd ../ docker compose up --build
 
 ## Cloudflare
 
-Minimum usage, approaching to free plan
+Minimum usage, approaching to free plan.
 
 ## AWS
 
+Cloudformation manage infrastructure, easy to use. But it's cloud-specific, maybe someday need migrate to Terraform.
+
 ## GCP
+
+Not familiar with GCP yet. maybe we should use Terraform.
