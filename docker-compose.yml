@@ -21,7 +21,7 @@ services:
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:

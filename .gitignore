@@ -21,8 +21,9 @@ rad.json
 #Test results file
 TestResults.xml
 /.idea/
-/target/
+target/
 /.env
+/backend/.env
 /.claude/
 /sdk/node/node_modules/
 /dashboard/node_modules/
