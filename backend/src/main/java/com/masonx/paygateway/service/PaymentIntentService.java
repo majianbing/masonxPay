@@ -284,6 +284,20 @@ public class PaymentIntentService {
         return PaymentIntentResponse.from(intent, attempts, objectMapper);
     }
 
+    // TODO: Transactional Outbox — this publish is NOT atomic with the DB write above it.
+    //   If the JVM crashes between save() and publishEvent(), the payment state is persisted
+    //   but the webhook event is silently lost — the merchant's endpoint never gets notified.
+    //
+    //   This is an accepted trade-off: at the transaction volumes this gateway targets the
+    //   crash window is extremely narrow, and the operational cost of a full outbox table
+    //   (poller, deduplication, cleanup job) outweighs the risk.
+    //
+    //   If zero event loss becomes a requirement, the fix is:
+    //     1. Add an `outbox_events` table (id, event_type, payload, published, created_at).
+    //     2. Write the outbox row in the SAME @Transactional as the intent save — atomic.
+    //     3. Replace publishEvent() here with outboxRepo.save(new OutboxEvent(...)).
+    //     4. A @Scheduled poller reads unpublished rows, fires the Spring event, marks published.
+    //   No Kafka/MQ needed — Postgres continues to be the durable queue.
     private void publishEvent(UUID merchantId, UUID intentId, String eventType, PaymentIntentResponse payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
