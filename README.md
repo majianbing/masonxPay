@@ -2,7 +2,7 @@
 
 > There is no open source Java version of the payment orchestration system, let's vibe coding one.
 
-A fully-featured, Stripe-like payment gateway built with Java and Spring Boot — supporting multiple providers, intelligent routing, and both hosted and embeddable checkout.
+A fully-featured, [HyperSwitch](https://github.com/juspay/hyperswitch)-like payment gateway built with Java and Spring Boot — supporting multiple providers, intelligent routing, and both hosted and embeddable checkout.
 
 ## Repository layout
 
