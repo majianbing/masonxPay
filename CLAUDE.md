@@ -121,6 +121,10 @@ Always follow this order. Each layer depends on the previous one.
 
 Providers that require a dynamic server-generated token (like Braintree) need an extra public endpoint under `/pub/**` — already whitelisted in `SecurityConfig`.
 
+### 4. README (root `README.md`)
+- Add the new connector to the supported connectors list
+- Include: name, sandbox signup link, what credentials are required
+
 ### Planned connectors
 - [x] Stripe
 - [x] Square
