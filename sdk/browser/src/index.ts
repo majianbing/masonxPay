@@ -49,6 +49,8 @@ declare global {
     Stripe?: any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Square?: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    braintree?: any;
   }
 }
 
@@ -72,6 +74,8 @@ export class GatewayEmbedded {
   private squareCard: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private squareMethods: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private braintreeDropin: any = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private listeners: Partial<{ [K in keyof EventMap]: Listener<any> }> = {};
@@ -172,6 +176,7 @@ export class GatewayEmbedded {
 
     if (provider === 'STRIPE') await this.mountStripe(opt);
     else if (provider === 'SQUARE') await this.mountSquare(opt);
+    else if (provider === 'BRAINTREE') await this.mountBraintree();
   }
 
   // ── Stripe ──────────────────────────────────────────────────────────────────
@@ -268,11 +273,43 @@ export class GatewayEmbedded {
     if (this.submitBtn) this.submitBtn.disabled = false;
   }
 
+  // ── Braintree ─────────────────────────────────────────────────────────────────
+
+  private async mountBraintree(): Promise<void> {
+    if (!this.area || !this.submitBtn) return;
+    this.submitBtn.disabled = true;
+
+    // Fetch dynamic client token from gateway (Braintree requires server-generated token)
+    const res = await fetch(`${this.baseUrl}/pub/braintree-client-token`, {
+      headers: { 'Authorization': `Bearer ${this.pk}`, 'Accept': 'application/json' },
+    });
+    if (!res.ok) { this.showError('Failed to get Braintree client token'); return; }
+    const { clientToken } = await res.json() as { clientToken: string };
+
+    if (!window.braintree?.dropin) {
+      await this.loadScript('https://js.braintreegateway.com/web/dropin/1.43.0/js/dropin.min.js');
+    }
+    if (!window.braintree?.dropin) { this.showError('Failed to load Braintree SDK'); return; }
+
+    const mountDiv = document.createElement('div');
+    mountDiv.className = 'gw-card-input';
+    this.area.appendChild(mountDiv);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.braintreeDropin = await (window.braintree as any).dropin.create({
+      authorization: clientToken,
+      container: mountDiv,
+    });
+
+    if (this.submitBtn) this.submitBtn.disabled = false;
+  }
+
   private async destroyProviderForms(): Promise<void> {
     if (this.stripeCard) { this.stripeCard.destroy(); this.stripeCard = null; }
     if (this.squareCard) { const c = this.squareCard; this.squareCard = null; c.destroy().catch(() => {}); }
     const methods = this.squareMethods.splice(0);
     methods.forEach(m => m.destroy().catch(() => {}));
+    if (this.braintreeDropin) { const d = this.braintreeDropin; this.braintreeDropin = null; d.teardown().catch(() => {}); }
     this.stripe = null;
   }
 
@@ -285,6 +322,7 @@ export class GatewayEmbedded {
     try {
       if (this.selectedProvider === 'STRIPE') await this.submitStripe();
       else if (this.selectedProvider === 'SQUARE') await this.submitSquare();
+      else if (this.selectedProvider === 'BRAINTREE') await this.submitBraintree();
     } catch (e) {
       const msg = (e as Error).message ?? 'Payment error';
       this.showError(msg);
@@ -309,6 +347,12 @@ export class GatewayEmbedded {
       throw new Error(result.errors?.map((e: any) => e.message).join(', ') ?? 'Card error');
     }
     await this.tokenizeGateway('SQUARE', result.token);
+  }
+
+  private async submitBraintree(): Promise<void> {
+    if (!this.braintreeDropin) throw new Error('Braintree not ready');
+    const { nonce } = await this.braintreeDropin.requestPaymentMethod();
+    await this.tokenizeGateway('BRAINTREE', nonce);
   }
 
   private async tokenizeGateway(provider: string, providerPmId: string): Promise<void> {
@@ -341,7 +385,7 @@ export class GatewayEmbedded {
   }
 
   private brandName(provider: string): string {
-    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen' } as Record<string, string>)[provider] ?? provider;
+    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree' } as Record<string, string>)[provider] ?? provider;
   }
 
   private loadScript(src: string): Promise<void> {

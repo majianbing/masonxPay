@@ -83,6 +83,13 @@
             <version>24.3.0</version>
         </dependency>
 
+        <!-- Braintree SDK -->
+        <dependency>
+            <groupId>com.braintreepayments.gateway</groupId>
+            <artifactId>braintree-java</artifactId>
+            <version>3.19.0</version>
+        </dependency>
+
         <!-- Dotenv -->
         <dependency>
             <groupId>me.paulschwarz</groupId>

@@ -4,18 +4,23 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 public record CreateProviderAccountRequest(
-        @NotNull  String provider,       // STRIPE | SQUARE | PAYPAL | …
+        @NotNull  String provider,       // STRIPE | SQUARE | BRAINTREE | …
         @NotBlank String mode,           // TEST | LIVE
         @NotBlank String label,
         boolean primary,
         int weight,                      // 1–100, default 1
 
-        // ── Stripe ────────────────────────────────────────────────────────
+        // ── Stripe ────────────────────────────────────────────────────────────
         String secretKey,                // sk_test_xxx / sk_live_xxx
         String publishableKey,           // pk_test_xxx / pk_live_xxx (optional)
 
-        // ── Square ────────────────────────────────────────────────────────
+        // ── Square ────────────────────────────────────────────────────────────
         String accessToken,              // EAAA…  (server-side auth)
         String applicationId,            // sandbox-sq0idb-… (client-side JS SDK)
-        String locationId                // L…  (identifies which Square location)
+        String locationId,               // L…  (identifies which Square location)
+
+        // ── Braintree ─────────────────────────────────────────────────────────
+        String btMerchantId,             // Braintree merchant ID (used client-side for client token requests)
+        String btPublicKey,              // Braintree public key (server-side API auth)
+        String btPrivateKey              // Braintree private key (server-side API auth, encrypted at rest)
 ) {}

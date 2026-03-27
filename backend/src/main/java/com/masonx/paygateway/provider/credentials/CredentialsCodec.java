@@ -53,6 +53,14 @@ public class CredentialsCodec {
                 )));
                 account.setSecretKeyHint(hint(sq.accessToken()));
             }
+            case BraintreeCredentials bt -> {
+                account.setEncryptedCredentials(
+                        encryption.encrypt(toJson(Map.of(
+                                "publicKey",  bt.publicKey(),
+                                "privateKey", bt.privateKey()))));
+                account.setProviderConfig(toJson(Map.of("merchantId", bt.merchantId())));
+                account.setSecretKeyHint(hint(bt.privateKey()));
+            }
         }
     }
 
@@ -63,6 +71,9 @@ public class CredentialsCodec {
             case STRIPE -> new StripeCredentials(req.secretKey(), req.publishableKey());
             case SQUARE -> new SquareCredentials(
                     req.accessToken(), req.applicationId(), req.locationId(),
+                    mode == ApiKeyMode.TEST);
+            case BRAINTREE -> new BraintreeCredentials(
+                    req.btMerchantId(), req.btPublicKey(), req.btPrivateKey(),
                     mode == ApiKeyMode.TEST);
             default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
         };
@@ -88,6 +99,11 @@ public class CredentialsCodec {
                         config.get("applicationId"),
                         config.get("locationId"),
                         sandbox);
+                case BRAINTREE -> new BraintreeCredentials(
+                        config.get("merchantId"),
+                        secrets.get("publicKey"),
+                        secrets.get("privateKey"),
+                        sandbox);
                 default -> throw new IllegalStateException(
                         "No credential decoder for provider: " + account.getProvider());
             };
@@ -109,9 +125,10 @@ public class CredentialsCodec {
         if (account.getProviderConfig() != null) {
             Map<String, String> config = fromJson(account.getProviderConfig());
             return switch (account.getProvider()) {
-                case STRIPE -> config.get("publishableKey");
-                case SQUARE -> config.get("applicationId");
-                default -> null;
+                case STRIPE    -> config.get("publishableKey");
+                case SQUARE    -> config.get("applicationId");
+                case BRAINTREE -> config.get("merchantId");
+                default        -> null;
             };
         }
         // Legacy: publishableKey was encrypted

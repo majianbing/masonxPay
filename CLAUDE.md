@@ -85,6 +85,49 @@ cd backend && mvn spring-boot:run   # port 8012, uses application-local.yml
 cd dashboard && npm run dev         # port 3000
 ```
 
+## Adding a New Payment Connector
+
+Always follow this order. Each layer depends on the previous one.
+
+### 1. Backend
+- Add value to `PaymentProvider` enum
+- Create `XxxCredentials` record implementing `ProviderCredentials` (sealed — add to `permits`)
+- Update `CredentialsCodec`: `encode`, `decode`, `clientKeyFor`, `clientConfigFor` switch cases
+- Add credential fields to `CreateProviderAccountRequest` DTO
+- Add `XxxPaymentProviderService` implementing `PaymentProviderService` (`brand`, `charge`, `refund`)
+- Add `XxxWebhookController` at `POST /api/v1/providers/xxx/webhook` for status reconciliation
+- Add SDK dependency to `pom.xml`
+- If the provider needs a dynamic client token (like Braintree), add `GET /pub/xxx-client-token`
+- Verify `mvn compile` passes
+
+### 2. Dashboard (merchant portal)
+- Add provider to `PROVIDERS` array and `PROVIDER_META` in `connectors/page.tsx`
+- Add credential fields to the Zod schema + `superRefine` validation
+- Add `<SelectItem>` to the provider dropdown
+- Add conditional field block in the form
+- Add brand entry to `lib/provider-brands.tsx` (name, SVG icon, color)
+
+### 3. SDK + Pay Page (update together — they share the same pattern)
+- **Pay page** (`dashboard/app/pay/[token]/page.tsx`): add `XxxCardForm` component and wire into `CheckoutForm`
+- **Browser SDK** (`sdk/browser/src/index.ts`): add `mountXxx`, `submitXxx`, update `selectProvider`, `submit`, `destroyProviderForms`, `brandName`
+- Both use the same tokenize → gateway token → checkout flow; only the provider-specific JS SDK init differs
+
+### Provider client-key pattern
+| Provider | `clientKey` returned by checkout-session | Client-side init |
+|---|---|---|
+| Stripe | `publishableKey` (static) | `Stripe(clientKey)` |
+| Square | `applicationId` (static) | `Square.payments(clientKey, locationId)` |
+| Braintree | `merchantId` (static) | Needs `GET /pub/braintree-client-token` → Drop-in UI |
+
+Providers that require a dynamic server-generated token (like Braintree) need an extra public endpoint under `/pub/**` — already whitelisted in `SecurityConfig`.
+
+### Planned connectors
+- [x] Stripe
+- [x] Square
+- [x] Braintree
+- [ ] Mollie
+- [ ] Razorpay
+
 ## Do NOT Suggest
 
 - **Redis** — unless a real measured bottleneck exists

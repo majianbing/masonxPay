@@ -1,5 +1,7 @@
 package com.masonx.paygateway.web;
 
+import com.braintreegateway.BraintreeGateway;
+import com.braintreegateway.Environment;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
@@ -7,6 +9,7 @@ import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.merchant.Merchant;
 import com.masonx.paygateway.domain.merchant.MerchantRepository;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.provider.credentials.BraintreeCredentials;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.service.RoutingEngine;
@@ -21,6 +24,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -162,6 +166,61 @@ public class PublicCheckoutController {
         String gatewayToken = paymentTokenService.create(merchantId, provider, mode, req.providerPmId());
 
         return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
+    }
+
+    /**
+     * Generates a Braintree client token for the Drop-in UI.
+     *
+     * The Braintree Drop-in UI requires a short-lived client token (generated server-side via the
+     * Braintree SDK) rather than a static publishable key. This endpoint generates one on-demand
+     * when the customer selects Braintree on the checkout page.
+     *
+     * Accepts the same auth patterns as /pub/checkout-session.
+     */
+    @GetMapping("/braintree-client-token")
+    public ResponseEntity<Map<String, String>> braintreeClientToken(
+            @RequestParam(required = false) String linkToken,
+            @RequestParam(required = false) String merchantId,
+            @RequestParam(required = false, defaultValue = "TEST") String mode) {
+
+        UUID resolvedMerchantId;
+        ApiKeyMode resolvedMode;
+
+        if (linkToken != null) {
+            PaymentLink link = paymentLinkRepository.findByToken(linkToken)
+                    .orElseThrow(() -> new IllegalArgumentException("Payment link not found"));
+            if (link.getStatus() == PaymentLinkStatus.INACTIVE || link.isExpired()) {
+                throw new IllegalStateException("This payment link is no longer active");
+            }
+            resolvedMerchantId = link.getMerchantId();
+            resolvedMode = link.getMode();
+        } else {
+            ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
+            if (apiKeyAuth != null) {
+                resolvedMerchantId = apiKeyAuth.getMerchantId();
+                resolvedMode = apiKeyAuth.getMode();
+            } else if (merchantId != null) {
+                resolvedMerchantId = UUID.fromString(merchantId);
+                resolvedMode = ApiKeyMode.valueOf(mode.toUpperCase());
+            } else {
+                throw new IllegalArgumentException("Provide linkToken, publishable key, or merchantId+mode");
+            }
+        }
+
+        ProviderAccount account = providerAccountRepository
+                .findAllByMerchantIdAndProviderAndModeAndStatus(
+                        resolvedMerchantId, PaymentProvider.BRAINTREE, resolvedMode, ProviderAccountStatus.ACTIVE)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No active Braintree connector configured"));
+
+        BraintreeCredentials creds = (BraintreeCredentials) credentialsCodec.decode(account);
+        BraintreeGateway gateway = new BraintreeGateway(
+                creds.sandbox() ? Environment.SANDBOX : Environment.PRODUCTION,
+                creds.merchantId(), creds.publicKey(), creds.privateKey());
+
+        String clientToken = gateway.clientToken().generate();
+        return ResponseEntity.ok(Map.of("clientToken", clientToken));
     }
 
     /** Extracts ApiKeyAuthentication from SecurityContext if present (set by ApiKeyAuthFilter). */
