@@ -32,7 +32,7 @@ pay.masonx/
 
 ## Features
 
-- **Multi-provider routing** — Stripe and Square supported today; extensible to Adyen, PayPal, CyberSource, Airwallex. Weighted-random routing rules with priority, currency, amount, and country filters
+- **Multi-provider routing** — Stripe, Square, and Braintree supported today; extensible to Adyen, PayPal, Mollie, Razorpay, and more. Weighted-random routing rules with priority, currency, amount, and country filters
 - **Connector management** — connect multiple accounts per provider, set weights, designate a primary, preview charges from the dashboard
 - **Two checkout modes**
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
@@ -53,7 +53,7 @@ pay.masonx/
 | Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
 | Database | PostgreSQL + Flyway migrations |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
-| Payment providers | Stripe, Square (REST, no vendor SDK dependency) |
+| Payment providers | Stripe, Square, Braintree |
 | Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | Browser SDK | Vanilla TypeScript, esbuild for bundling |
 | Server SDK | TypeScript, Node.js 18+ |
