@@ -7,7 +7,6 @@ import com.masonx.paygateway.web.dto.RefundResponse;
 import com.masonx.paygateway.service.RefundService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
-import com.masonx.paygateway.web.dto.RefundResponse;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -99,6 +98,20 @@ public class DashboardPaymentController {
         return ResponseEntity.ok(
                 refundRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, modeEnum, pageable)
                         .map(RefundResponse::from));
+    }
+
+    @GetMapping("/{id}/refunds")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'REFUND', 'READ')")
+    public ResponseEntity<List<RefundResponse>> listRefundsForPayment(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID id) {
+
+        paymentIntentRepository.findByIdAndMerchantId(id, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+
+        return ResponseEntity.ok(
+                refundRepository.findByPaymentIntentId(id)
+                        .stream().map(RefundResponse::from).toList());
     }
 
     @PostMapping("/{id}/refunds")
