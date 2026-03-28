@@ -120,6 +120,7 @@ function StripeCardForm({
         mode: 'payment',
         amount: session.amount,
         currency: session.currency.toLowerCase(),
+        paymentMethodCreation: 'manual',
         appearance: { theme: 'stripe' },
       });
       elementsRef.current = elements;
