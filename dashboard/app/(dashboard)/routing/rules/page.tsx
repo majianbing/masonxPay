@@ -229,7 +229,7 @@ export default function RoutingRulesPage() {
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Create Routing Rule</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -241,7 +241,13 @@ export default function RoutingRulesPage() {
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select account" />
+                        <span className="truncate text-sm">
+                          {field.value
+                            ? (connectors.find((c) => c.id === field.value)
+                                ? accountLabel(connectors.find((c) => c.id === field.value)!)
+                                : field.value)
+                            : <span className="text-muted-foreground">Select account</span>}
+                        </span>
                       </SelectTrigger>
                       <SelectContent>
                         {connectors.length === 0 ? (
@@ -267,7 +273,13 @@ export default function RoutingRulesPage() {
                   render={({ field }) => (
                     <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === '_none' ? undefined : v)}>
                       <SelectTrigger>
-                        <SelectValue placeholder="None (optional)" />
+                        <span className="truncate text-sm">
+                          {field.value
+                            ? (connectors.find((c) => c.id === field.value)
+                                ? accountLabel(connectors.find((c) => c.id === field.value)!)
+                                : field.value)
+                            : <span className="text-muted-foreground">None (optional)</span>}
+                        </span>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_none">None</SelectItem>
