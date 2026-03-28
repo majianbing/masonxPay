@@ -13,6 +13,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+interface Refund {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  reason: string | null;
+  providerRefundId: string | null;
+  failureReason: string | null;
+  createdAt: string;
+}
+
 interface PaymentAttempt {
   id: string;
   status: string;
@@ -54,6 +65,12 @@ export default function PaymentDetailPage() {
     enabled: !!activeMerchantId,
   });
 
+  const { data: refunds = [] } = useQuery<Refund[]>({
+    queryKey: ['payment-refunds', id],
+    queryFn: () => apiFetch<Refund[]>(`/api/v1/merchants/${activeMerchantId}/payment-intents/${id}/refunds`),
+    enabled: !!activeMerchantId,
+  });
+
   const refundMutation = useMutation({
     mutationFn: (amount: number) =>
       apiFetch(`/api/v1/merchants/${activeMerchantId}/payment-intents/${id}/refunds`, {
@@ -65,6 +82,7 @@ export default function PaymentDetailPage() {
       setRefunding(false);
       setRefundAmount('');
       qc.invalidateQueries({ queryKey: ['payment-intent', id] });
+      qc.invalidateQueries({ queryKey: ['payment-refunds', id] });
     },
     onError: (err: unknown) => {
       const e = err as { detail?: string };
@@ -160,6 +178,29 @@ export default function PaymentDetailPage() {
             ) : (
               <Button variant="outline" onClick={() => setRefunding(true)}>Issue Refund</Button>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {refunds.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-sm font-medium">Refunds ({refunds.length})</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {refunds.map((r, i) => (
+              <div key={r.id} className="border rounded-md p-3 text-sm space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Refund #{i + 1}</span>
+                  <StatusBadge status={r.status} />
+                </div>
+                <div className="flex justify-between text-muted-foreground text-xs">
+                  <span>{(r.amount / 100).toFixed(2)} {r.currency}</span>
+                  <span>{format(new Date(r.createdAt), 'MMM d, yyyy HH:mm:ss')}</span>
+                </div>
+                {r.reason && <div className="text-xs text-muted-foreground">Reason: {r.reason.replace(/_/g, ' ')}</div>}
+                {r.providerRefundId && <div className="font-mono text-xs text-muted-foreground">{r.providerRefundId}</div>}
+                {r.failureReason && <div className="text-red-600 text-xs">{r.failureReason}</div>}
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}
