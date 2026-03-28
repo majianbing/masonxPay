@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
-import type { Stripe, StripeCardElement } from '@stripe/stripe-js';
+import type { Stripe, StripeElements } from '@stripe/stripe-js';
 import { Loader2, CheckCircle2, XCircle, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -89,7 +89,7 @@ async function fetchBraintreeClientToken(linkToken: string): Promise<string> {
   return (data as { clientToken: string }).clientToken;
 }
 
-// ─── Stripe card input (vanilla Stripe.js, no React wrapper) ─────────────────
+// ─── Stripe Payment Element (supports cards, wallets, bank transfers, BNPL…) ──
 
 function StripeCardForm({
   clientKey,
@@ -104,7 +104,7 @@ function StripeCardForm({
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const stripeRef = useRef<Stripe | null>(null);
-  const cardRef = useRef<StripeCardElement | null>(null);
+  const elementsRef = useRef<StripeElements | null>(null);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,47 +116,47 @@ function StripeCardForm({
       if (!stripe || cancelled || !mountRef.current) return;
       stripeRef.current = stripe;
 
-      const elements = stripe.elements();
-      const card = elements.create('card', {
-        style: {
-          base: {
-            fontSize: '14px',
-            fontFamily: 'inherit',
-            color: '#0f172a',
-            '::placeholder': { color: '#94a3b8' },
-          },
-          invalid: { color: '#ef4444' },
-        },
+      const elements = stripe.elements({
+        mode: 'payment',
+        amount: session.amount,
+        currency: session.currency.toLowerCase(),
+        appearance: { theme: 'stripe' },
       });
+      elementsRef.current = elements;
 
-      card.mount(mountRef.current);
-      card.on('ready', () => setReady(true));
-      card.on('change', (e) => setError(e.error?.message ?? null));
-      cardRef.current = card;
+      const paymentElement = elements.create('payment');
+      paymentElement.mount(mountRef.current);
+      paymentElement.on('ready', () => setReady(true));
+      paymentElement.on('change', (e) => { if (e.complete) setError(null); });
     });
 
     return () => {
       cancelled = true;
-      cardRef.current?.destroy();
-      cardRef.current = null;
+      elementsRef.current = null;
       stripeRef.current = null;
       setReady(false);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientKey]);
+  }, [clientKey, session.amount, session.currency]);
 
   async function handlePay() {
-    if (!stripeRef.current || !cardRef.current) return;
+    if (!stripeRef.current || !elementsRef.current) return;
     setLoading(true);
     setError(null);
 
+    const { error: submitError } = await elementsRef.current.submit();
+    if (submitError) {
+      setError(submitError.message ?? 'Validation error');
+      setLoading(false);
+      return;
+    }
+
     const { paymentMethod, error: pmError } = await stripeRef.current.createPaymentMethod({
-      type: 'card',
-      card: cardRef.current,
+      elements: elementsRef.current,
     });
 
     if (pmError || !paymentMethod) {
-      setError(pmError?.message ?? 'Card error');
+      setError(pmError?.message ?? 'Payment method error');
       setLoading(false);
       return;
     }
@@ -178,13 +178,7 @@ function StripeCardForm({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">Card details</label>
-        <div
-          ref={mountRef}
-          className="border rounded-md px-3 py-3 bg-white focus-within:ring-2 focus-within:ring-ring min-h-[42px]"
-        />
-      </div>
+      <div ref={mountRef} className="min-h-[42px]" />
 
       {error && (
         <p className="text-xs text-red-500 flex items-center gap-1">
