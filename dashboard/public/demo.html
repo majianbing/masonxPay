@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MasonXPay — Integration Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #0f172a; min-height: 100vh; }
+    .layout { display: grid; grid-template-columns: 380px 1fr; min-height: 100vh; }
+
+    /* ── Left panel ── */
+    .panel { background: #fff; border-right: 1px solid #e2e8f0; padding: 32px 28px; display: flex; flex-direction: column; gap: 28px; overflow-y: auto; }
+    .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.5px; color: #0f172a; }
+    .logo span { color: #6366f1; }
+    h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    input, select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 12px; font-size: 14px; width: 100%; outline: none; transition: border-color 0.15s; }
+    input:focus, select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .hint { font-size: 11px; color: #94a3b8; }
+    .btn { background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; width: 100%; }
+    .btn:hover { background: #4f46e5; }
+    .btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+    .btn-outline { background: transparent; color: #6366f1; border: 1px solid #6366f1; }
+    .btn-outline:hover { background: #eef2ff; }
+    .tabs { display: flex; gap: 4px; background: #f1f5f9; border-radius: 8px; padding: 4px; }
+    .tab { flex: 1; padding: 7px 10px; font-size: 13px; font-weight: 500; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: #64748b; transition: all 0.15s; }
+    .tab.active { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .divider { border: none; border-top: 1px solid #e2e8f0; }
+    .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; }
+    .badge-test { background: #fef9c3; color: #92400e; }
+    .badge-live { background: #dcfce7; color: #166534; }
+
+    /* ── Right panel ── */
+    .preview { display: flex; flex-direction: column; }
+    .preview-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 24px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #64748b; }
+    .preview-header strong { color: #0f172a; }
+    .preview-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    #checkout-frame { width: 100%; max-width: 460px; height: 580px; border: none; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); background: #fff; }
+    .placeholder { text-align: center; color: #94a3b8; }
+    .placeholder svg { margin: 0 auto 12px; display: block; }
+    .placeholder p { font-size: 14px; }
+
+    /* ── Code section ── */
+    .code-section { background: #fff; border-top: 1px solid #e2e8f0; }
+    .code-tabs { display: flex; gap: 0; border-bottom: 1px solid #e2e8f0; padding: 0 16px; }
+    .code-tab { padding: 10px 14px; font-size: 12px; font-weight: 500; border: none; background: transparent; cursor: pointer; color: #64748b; border-bottom: 2px solid transparent; }
+    .code-tab.active { color: #6366f1; border-bottom-color: #6366f1; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 20px; font-size: 12px; line-height: 1.7; overflow-x: auto; margin: 0; max-height: 260px; }
+    .kw { color: #c084fc; }
+    .str { color: #86efac; }
+    .cm { color: #64748b; font-style: italic; }
+    .fn { color: #7dd3fc; }
+
+    /* ── Result ── */
+    .result { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 13px; display: none; }
+    .result.success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+    .result.error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+    .result pre { background: transparent; color: inherit; padding: 0; font-size: 12px; max-height: none; }
+
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; }
+      .preview { display: none; }
+    }
+  </style>
+  <script src="./gateway-sdk.js"></script>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ─── Left: config panel ─────────────────────────────────────────── -->
+  <div class="panel">
+    <div>
+      <div class="logo">Mason<span>X</span>Pay</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px;">Integration Demo</div>
+    </div>
+
+    <div>
+      <div class="tabs" id="mode-tabs">
+        <button class="tab active" onclick="setMode('link')" id="tab-link">Payment Link</button>
+        <button class="tab" onclick="setMode('api')" id="tab-api">Direct API</button>
+        <button class="tab" onclick="setMode('embed')" id="tab-embed">Embedded Form</button>
+      </div>
+    </div>
+
+    <!-- Shared config -->
+    <div>
+      <h2>Configuration</h2>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="field">
+          <label>Gateway URL</label>
+          <input id="apiUrl" value="http://localhost:8012" placeholder="https://api.yourgateway.com" />
+        </div>
+        <div class="field">
+          <label>Your Secret Key</label>
+          <input id="apiKey" type="password" placeholder="sk_test_xxxxxxxxxxxxxxxxxxxx" />
+          <span class="hint">Found in Dashboard → Developers → API Keys. Never share this.</span>
+        </div>
+        <div class="field">
+          <label>Mode</label>
+          <select id="modeSelect">
+            <option value="TEST">TEST</option>
+            <option value="LIVE">LIVE</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Payment Link mode -->
+    <div id="section-link">
+      <h2>Payment Details</h2>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="field">
+          <label>Title</label>
+          <input id="linkTitle" value="Demo Product" />
+        </div>
+        <div class="field">
+          <label>Description (optional)</label>
+          <input id="linkDesc" placeholder="What the customer is paying for" />
+        </div>
+        <div style="display:flex;gap:8px;">
+          <div class="field" style="flex:1">
+            <label>Amount</label>
+            <input id="linkAmount" type="number" value="42.00" step="0.01" min="0.50" />
+          </div>
+          <div class="field" style="width:90px">
+            <label>Currency</label>
+            <select id="linkCurrency">
+              <option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Redirect URL (optional)</label>
+          <input id="linkRedirect" placeholder="https://yourshop.com/thank-you" />
+        </div>
+        <button class="btn" onclick="createPaymentLink()" id="btn-link">Create &amp; Preview Payment Link</button>
+        <div class="result" id="link-result"></div>
+      </div>
+    </div>
+
+    <!-- Embedded Form mode (Pattern B) -->
+    <div id="section-embed" style="display:none">
+      <h2>Embedded Form <span class="badge badge-test" style="vertical-align:middle">Pattern B</span></h2>
+      <p style="font-size:12px;color:#64748b;margin-bottom:14px;line-height:1.5">
+        Your browser collects the card. The SDK returns a <strong>gw_tok_xxx</strong> to your server,
+        which then creates + confirms the PaymentIntent. No card data ever touches your server.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="field">
+          <label>Publishable Key</label>
+          <input id="embedPk" placeholder="pk_test_xxxxxxxxxxxxxxxxxxxx" />
+          <span class="hint">Found in Dashboard → Developers → API Keys.</span>
+        </div>
+        <button class="btn" onclick="loadEmbeddedForm()" id="btn-load-form">Load Payment Form</button>
+        <div id="embed-form-container" style="display:none">
+          <div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;background:#fafafa;margin-bottom:8px">
+            <div id="gw-mount"></div>
+          </div>
+          <div id="embed-token-result" class="result" style="display:none"></div>
+          <!-- Complete payment section (shown after token received) -->
+          <div id="embed-complete-section" style="display:none;margin-top:12px">
+            <div style="border-top:1px solid #e2e8f0;padding-top:12px">
+              <p style="font-size:12px;font-weight:600;color:#64748b;margin-bottom:10px">Complete payment server-side (demo only):</p>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <div class="field" style="flex:1">
+                  <label>Amount</label>
+                  <input id="embedAmount" type="number" value="42.00" step="0.01" min="0.50" />
+                </div>
+                <div class="field" style="width:90px">
+                  <label>Currency</label>
+                  <select id="embedCurrency">
+                    <option>USD</option><option>EUR</option><option>GBP</option>
+                  </select>
+                </div>
+              </div>
+              <button class="btn" onclick="completeEmbedPayment()" id="btn-complete">Confirm Payment with sk_xxx</button>
+              <div class="result" id="embed-confirm-result"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Direct API mode -->
+    <div id="section-api" style="display:none">
+      <h2>Test a Direct Payment</h2>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;gap:8px;">
+          <div class="field" style="flex:1">
+            <label>Amount</label>
+            <input id="apiAmount" type="number" value="42.00" step="0.01" min="0.50" />
+          </div>
+          <div class="field" style="width:90px">
+            <label>Currency</label>
+            <select id="apiCurrency">
+              <option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option><option>AUD</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Test Card PM ID</label>
+          <select id="testCard">
+            <option value="pm_card_visa">Visa (4242...) — will succeed</option>
+            <option value="pm_card_mastercard">Mastercard — will succeed</option>
+            <option value="pm_card_chargeDeclined">Visa — will decline</option>
+            <option value="pm_card_chargeDeclinedInsufficientFunds">Visa — insufficient funds</option>
+          </select>
+          <span class="hint">These are Stripe test tokens. Only work in TEST mode with a Stripe connector.</span>
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <input id="apiDesc" value="Demo payment" />
+        </div>
+        <button class="btn" onclick="createDirectPayment()" id="btn-api">Send Payment Request</button>
+        <div class="result" id="api-result"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Right: preview + code ─────────────────────────────────────── -->
+  <div class="preview">
+    <div class="preview-header">
+      <strong>Live Preview</strong>
+      <span id="preview-badge"></span>
+      <span style="margin-left:auto;font-size:12px;" id="preview-url"></span>
+    </div>
+    <div class="preview-body">
+      <div id="frame-placeholder" class="placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/>
+        </svg>
+        <p>Fill in the form and click<br /><strong>Create &amp; Preview</strong> to see the<br />checkout in action.</p>
+      </div>
+      <iframe id="checkout-frame" style="display:none;" title="Checkout"></iframe>
+    </div>
+
+    <!-- Code examples -->
+    <div class="code-section">
+      <div class="code-tabs">
+        <button class="code-tab active" onclick="showCodeTab('node', this)">Node.js</button>
+        <button class="code-tab" onclick="showCodeTab('python', this)">Python</button>
+        <button class="code-tab" onclick="showCodeTab('curl', this)">cURL</button>
+        <button class="code-tab" onclick="showCodeTab('embed', this)">Embed</button>
+        <button class="code-tab" onclick="showCodeTab('sdk', this)">SDK (Pattern B)</button>
+      </div>
+      <pre id="code-node"><span class="cm">// 1. Create a payment link (server-side)</span>
+<span class="kw">const</span> response = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">`${API_URL}/api/v1/merchants/${MERCHANT_ID}/payment-links?mode=TEST`</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: {
+    <span class="str">'Authorization'</span>: <span class="str">`Bearer ${YOUR_SECRET_KEY}`</span>,
+    <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span>,
+  },
+  body: <span class="fn">JSON.stringify</span>({
+    title: <span class="str">'My Product'</span>,
+    amount: <span class="str">4200</span>,       <span class="cm">// cents</span>
+    currency: <span class="str">'usd'</span>,
+    redirectUrl: <span class="str">'https://yourshop.com/thank-you'</span>,
+  }),
+});
+<span class="kw">const</span> link = <span class="kw">await</span> response.<span class="fn">json</span>();
+
+<span class="cm">// 2. Send link.payUrl to your customer, or embed it</span>
+console.<span class="fn">log</span>(link.payUrl); <span class="cm">// https://pay.yourgateway.com/pay/TOKEN</span></pre>
+
+      <pre id="code-python" style="display:none"><span class="cm"># 1. Create a payment link (server-side)</span>
+<span class="kw">import</span> httpx
+
+response = httpx.<span class="fn">post</span>(
+    <span class="str">f"{API_URL}/api/v1/merchants/{MERCHANT_ID}/payment-links"</span>,
+    params={<span class="str">"mode"</span>: <span class="str">"TEST"</span>},
+    headers={<span class="str">"Authorization"</span>: <span class="str">f"Bearer {YOUR_SECRET_KEY}"</span>},
+    json={
+        <span class="str">"title"</span>: <span class="str">"My Product"</span>,
+        <span class="str">"amount"</span>: <span class="str">4200</span>,
+        <span class="str">"currency"</span>: <span class="str">"usd"</span>,
+        <span class="str">"redirectUrl"</span>: <span class="str">"https://yourshop.com/thank-you"</span>,
+    },
+)
+link = response.<span class="fn">json</span>()
+
+<span class="cm"># 2. Send link["payUrl"] to your customer</span>
+<span class="fn">print</span>(link[<span class="str">"payUrl"</span>])  <span class="cm"># https://pay.yourgateway.com/pay/TOKEN</span></pre>
+
+      <pre id="code-curl" style="display:none">curl -X POST <span class="str">"${API_URL}/api/v1/merchants/${MERCHANT_ID}/payment-links?mode=TEST"</span> \
+  -H <span class="str">"Authorization: Bearer ${YOUR_SECRET_KEY}"</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{
+    "title": "My Product",
+    "amount": 4200,
+    "currency": "usd",
+    "redirectUrl": "https://yourshop.com/thank-you"
+  }'</span>
+
+<span class="cm"># Response → { "payUrl": "https://pay.yourgateway.com/pay/TOKEN", ... }</span>
+<span class="cm"># Share that URL with your customer — they open it and pay.</span></pre>
+
+      <pre id="code-embed" style="display:none"><span class="cm">&lt;!-- Embed the hosted checkout in an iframe on your own page --&gt;</span>
+<span class="cm">&lt;!-- payUrl comes from your server after creating a payment link --&gt;</span>
+
+<span class="str">&lt;iframe</span>
+  <span class="kw">src</span>=<span class="str">"https://pay.yourgateway.com/pay/TOKEN"</span>
+  <span class="kw">width</span>=<span class="str">"460"</span>
+  <span class="kw">height</span>=<span class="str">"520"</span>
+  <span class="kw">style</span>=<span class="str">"border:none;border-radius:12px"</span>
+  <span class="kw">allow</span>=<span class="str">"payment"</span>
+<span class="str">&gt;&lt;/iframe&gt;</span>
+
+<span class="cm">&lt;!-- The checkout handles all card input inside the iframe.       --&gt;</span>
+<span class="cm">&lt;!-- Your server is notified via webhook when payment completes.  --&gt;</span>
+<span class="cm">&lt;!-- Card details never touch your server — you stay out of PCI.  --&gt;</span></pre>
+
+      <pre id="code-sdk" style="display:none"><span class="cm">&lt;!-- 1. Add to your page (no build step needed) --&gt;</span>
+<span class="str">&lt;script src="https://pay.yourgateway.com/gateway-sdk.js"&gt;&lt;/script&gt;</span>
+<span class="str">&lt;div id="payment-form"&gt;&lt;/div&gt;</span>
+
+<span class="cm">// 2. Mount the form with your publishable key</span>
+<span class="kw">const</span> gw = <span class="kw">new</span> <span class="fn">GatewayEmbedded</span>(<span class="str">'pk_test_xxxx'</span>, {
+  baseUrl: <span class="str">'https://api.yourgateway.com'</span>
+});
+
+<span class="kw">await</span> gw.<span class="fn">mount</span>(<span class="str">'#payment-form'</span>);
+
+<span class="cm">// 3. When customer clicks Pay, you get a gateway token</span>
+gw.<span class="fn">on</span>(<span class="str">'token'</span>, <span class="kw">async</span> ({ gatewayToken, provider }) => {
+  <span class="cm">// gatewayToken = "gw_tok_xxx" — safe to send to your server</span>
+  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'/your-server/pay'</span>, {
+    method: <span class="str">'POST'</span>,
+    body: <span class="fn">JSON.stringify</span>({ gatewayToken, amount: <span class="str">4200</span>, currency: <span class="str">'usd'</span> }),
+  });
+  <span class="cm">// Your server creates + confirms a PaymentIntent with sk_xxx + gatewayToken</span>
+});</pre>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let currentMode = 'link';
+  let currentGatewayToken = null;
+  let gwForm = null;
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('section-link').style.display  = mode === 'link'  ? '' : 'none';
+    document.getElementById('section-api').style.display   = mode === 'api'   ? '' : 'none';
+    document.getElementById('section-embed').style.display = mode === 'embed' ? '' : 'none';
+    ['link','api','embed'].forEach(m => {
+      document.getElementById('tab-' + m).className = 'tab' + (mode === m ? ' active' : '');
+    });
+  }
+
+  async function loadEmbeddedForm() {
+    const pk = document.getElementById('embedPk').value.trim();
+    const apiUrl = document.getElementById('apiUrl').value.replace(/\/$/, '');
+    if (!pk) { alert('Enter your Publishable Key first.'); return; }
+
+    const btn = document.getElementById('btn-load-form');
+    btn.disabled = true; btn.textContent = 'Loading…';
+
+    try {
+      // Reset previous state
+      currentGatewayToken = null;
+      document.getElementById('embed-token-result').style.display = 'none';
+      document.getElementById('embed-complete-section').style.display = 'none';
+      document.getElementById('embed-confirm-result').style.display = 'none';
+
+      gwForm = new GatewayEmbedded(pk, { baseUrl: apiUrl });
+
+      gwForm.on('token', async function({ gatewayToken, provider }) {
+        currentGatewayToken = gatewayToken;
+        showResult('embed-token-result', true, {
+          message: 'Gateway token received — send this to your server to complete payment.',
+          gatewayToken,
+          provider,
+        });
+        document.getElementById('embed-complete-section').style.display = '';
+      });
+
+      gwForm.on('error', function({ message }) {
+        showResult('embed-token-result', false, { error: message });
+      });
+
+      await gwForm.mount('#gw-mount');
+      document.getElementById('embed-form-container').style.display = '';
+    } catch(e) {
+      showResult('embed-token-result', false, e);
+      document.getElementById('embed-form-container').style.display = 'none';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Load Payment Form';
+    }
+  }
+
+  async function completeEmbedPayment() {
+    if (!currentGatewayToken) { alert('No gateway token yet — pay with the form first.'); return; }
+    const { apiUrl, apiKey } = getConfig();
+    if (!apiKey) { alert('Enter your Secret Key in the Configuration section.'); return; }
+    const merchantId = getMerchantId(apiKey);
+    if (!merchantId) return;
+
+    const btn = document.getElementById('btn-complete');
+    btn.disabled = true; btn.textContent = 'Confirming…';
+
+    const amount = Math.round(parseFloat(document.getElementById('embedAmount').value) * 100);
+    const currency = document.getElementById('embedCurrency').value.toLowerCase();
+    const mode = document.getElementById('modeSelect').value;
+
+    try {
+      // 1. Create intent
+      const r1 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents?mode=${mode}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, currency, idempotencyKey: 'demo-' + Date.now() }),
+      });
+      const intent = await r1.json();
+      if (!r1.ok) throw intent;
+
+      // 2. Confirm with gateway token — routing already resolved browser-side
+      const r2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${intent.id}/confirm`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId: currentGatewayToken }),
+      });
+      const result = await r2.json();
+      if (!r2.ok) throw result;
+
+      showResult('embed-confirm-result', result.status === 'SUCCEEDED', result);
+      currentGatewayToken = null; // token consumed, can't reuse
+    } catch(e) {
+      showResult('embed-confirm-result', false, e);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Confirm Payment with sk_xxx';
+    }
+  }
+
+  function showCodeTab(tab, el) {
+    ['node','python','curl','embed','sdk'].forEach(t => {
+      document.getElementById('code-' + t).style.display = t === tab ? '' : 'none';
+    });
+    document.querySelectorAll('.code-tab').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+  }
+
+  function getConfig() {
+    return {
+      apiUrl: document.getElementById('apiUrl').value.replace(/\/$/, ''),
+      apiKey: document.getElementById('apiKey').value,
+      mode:   document.getElementById('modeSelect').value,
+    };
+  }
+
+  function showResult(elId, ok, data) {
+    const el = document.getElementById(elId);
+    el.style.display = '';
+    el.className = 'result ' + (ok ? 'success' : 'error');
+    el.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+  }
+
+  function getMerchantId(apiKey) {
+    // We need merchantId — in a real integration your server would know this.
+    // For this demo, prompt for it if we don't have one stored.
+    let mid = localStorage.getItem('demo_merchant_id');
+    if (!mid) {
+      mid = prompt('Enter your Merchant ID (shown in the Dashboard URL or Settings):');
+      if (mid) localStorage.setItem('demo_merchant_id', mid);
+    }
+    return mid;
+  }
+
+  async function createPaymentLink() {
+    const { apiUrl, apiKey, mode } = getConfig();
+    if (!apiKey) { alert('Enter your Secret Key first.'); return; }
+    const merchantId = getMerchantId(apiKey);
+    if (!merchantId) return;
+
+    const btn = document.getElementById('btn-link');
+    btn.disabled = true; btn.textContent = 'Creating…';
+
+    const amount = Math.round(parseFloat(document.getElementById('linkAmount').value) * 100);
+    const currency = document.getElementById('linkCurrency').value.toLowerCase();
+    const title = document.getElementById('linkTitle').value;
+    const description = document.getElementById('linkDesc').value || null;
+    const redirectUrl = document.getElementById('linkRedirect').value || null;
+
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-links?mode=${mode}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, amount, currency, redirectUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw data;
+
+      showResult('link-result', true, data);
+
+      // Show the payment page in the preview iframe
+      const frame = document.getElementById('checkout-frame');
+      const placeholder = document.getElementById('frame-placeholder');
+      frame.src = data.payUrl;
+      frame.style.display = '';
+      placeholder.style.display = 'none';
+
+      const badge = document.getElementById('preview-badge');
+      badge.textContent = mode;
+      badge.className = 'badge ' + (mode === 'TEST' ? 'badge-test' : 'badge-live');
+
+      document.getElementById('preview-url').textContent = data.payUrl;
+    } catch(e) {
+      showResult('link-result', false, e);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Create & Preview Payment Link';
+    }
+  }
+
+  async function createDirectPayment() {
+    const { apiUrl, apiKey, mode } = getConfig();
+    if (!apiKey) { alert('Enter your Secret Key first.'); return; }
+    const merchantId = getMerchantId(apiKey);
+    if (!merchantId) return;
+
+    const btn = document.getElementById('btn-api');
+    btn.disabled = true; btn.textContent = 'Sending…';
+
+    const amount = Math.round(parseFloat(document.getElementById('apiAmount').value) * 100);
+    const currency = document.getElementById('apiCurrency').value.toLowerCase();
+    const paymentMethodId = document.getElementById('testCard').value;
+    const description = document.getElementById('apiDesc').value;
+
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents?mode=${mode}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, currency, paymentMethodId, description }),
+      });
+
+      // Confirm the payment intent
+      const intent = await res.json();
+      if (!res.ok) throw intent;
+
+      const res2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${intent.id}/confirm`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId }),
+      });
+      const result = await res2.json();
+      if (!res2.ok) throw result;
+
+      showResult('api-result', result.status === 'SUCCEEDED', result);
+    } catch(e) {
+      showResult('api-result', false, e);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send Payment Request';
+    }
+  }
+</script>
+
+</body>
+</html>
