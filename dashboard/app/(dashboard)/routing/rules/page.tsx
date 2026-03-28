@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -18,11 +18,18 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { PROVIDER_BRAND } from '@/lib/provider-brands';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+interface ProviderAccount {
+  id: string;
+  provider: string;
+}
 
 interface RoutingRule {
   id: string;
@@ -61,6 +68,20 @@ export default function RoutingRulesPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const { data: connectors = [] } = useQuery<ProviderAccount[]>({
+    queryKey: ['connectors-all', activeMerchantId],
+    queryFn: async () => {
+      const [test, live] = await Promise.all([
+        apiFetch<ProviderAccount[]>(`/api/v1/merchants/${activeMerchantId}/connectors?mode=TEST`),
+        apiFetch<ProviderAccount[]>(`/api/v1/merchants/${activeMerchantId}/connectors?mode=LIVE`),
+      ]);
+      return [...test, ...live];
+    },
+    enabled: !!activeMerchantId,
+  });
+
+  const availableProviders = [...new Set(connectors.map((c) => c.provider))];
+
   const { isLoading } = useQuery<RoutingRule[]>({
     queryKey: ['routing-rules', activeMerchantId],
     queryFn: async () => {
@@ -72,7 +93,7 @@ export default function RoutingRulesPage() {
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema) as any,
     defaultValues: { weight: '1' },
   });
@@ -203,12 +224,51 @@ export default function RoutingRulesPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Target Provider <span className="text-red-500">*</span></Label>
-                <Input placeholder="STRIPE" {...register('targetProvider')} />
+                <Controller
+                  name="targetProvider"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select provider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableProviders.length === 0 ? (
+                          <SelectItem value="_none" disabled>No connectors added</SelectItem>
+                        ) : (
+                          availableProviders.map((p) => (
+                            <SelectItem key={p} value={p}>
+                              {PROVIDER_BRAND[p]?.name ?? p}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 {errors.targetProvider && <p className="text-xs text-red-500">{errors.targetProvider.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label>Fallback Provider</Label>
-                <Input placeholder="ADYEN (optional)" {...register('fallbackProvider')} />
+                <Controller
+                  name="fallbackProvider"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === '_none' ? undefined : v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="None (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">None</SelectItem>
+                        {availableProviders.map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {PROVIDER_BRAND[p]?.name ?? p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
             </div>
             <div className="space-y-1">
