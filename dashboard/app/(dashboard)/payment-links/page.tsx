@@ -43,6 +43,7 @@ export default function PaymentLinksPage() {
   const mode = useAuthStore((s) => s.mode);
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [confirmLink, setConfirmLink] = useState<PaymentLink | null>(null);
 
   const { data: links = [], isLoading } = useQuery<PaymentLink[]>({
     queryKey: ['payment-links', activeMerchantId, mode],
@@ -178,11 +179,7 @@ export default function PaymentLinksPage() {
                           <Button
                             variant="ghost" size="icon" title="Deactivate"
                             className="text-red-500 hover:text-red-700"
-                            onClick={() => {
-                              if (confirm(`Deactivate "${l.title}"?`)) {
-                                deactivateMutation.mutate(l.id);
-                              }
-                            }}
+                            onClick={() => setConfirmLink(l)}
                           >
                             <Trash2 className="size-4" />
                           </Button>
@@ -196,6 +193,32 @@ export default function PaymentLinksPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={!!confirmLink} onOpenChange={(o) => { if (!o) setConfirmLink(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Deactivate link?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">&ldquo;{confirmLink?.title}&rdquo;</span> will be
+            deactivated immediately. Customers who visit the link will no longer be able to pay.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmLink(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deactivateMutation.isPending}
+              onClick={() => {
+                if (confirmLink) {
+                  deactivateMutation.mutate(confirmLink.id, { onSettled: () => setConfirmLink(null) });
+                }
+              }}
+            >
+              Deactivate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) reset(); }}>
         <DialogContent className="max-w-md">
