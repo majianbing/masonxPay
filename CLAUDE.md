@@ -132,6 +132,10 @@ Providers that require a dynamic server-generated token (like Braintree) need an
 - [ ] Mollie
 - [ ] Razorpay
 
+## New Features with New Tables
+
+Every new table must include a `merchant_id` column and all queries must be scoped to it. This is a multi-tenant system — data isolation between merchants is a hard requirement, not an afterthought. Before writing a migration or a repository method, verify that the tenant boundary is enforced at every read and write path.
+
 ## Do NOT Suggest
 
 - **Redis** — unless a real measured bottleneck exists
