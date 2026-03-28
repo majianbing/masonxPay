@@ -62,7 +62,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/api/v1/invites/**",
                                 "/api/v1/providers/*/webhook",
-                                "/pub/**"
+                                "/pub/**",
+                                "/actuator/health"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
