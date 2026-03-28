@@ -34,3 +34,4 @@ target/
 /sdk/server/dist/
 /sdk/server/node_modules/
 ./src/
+/src/
