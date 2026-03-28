@@ -245,7 +245,7 @@ public class PaymentIntentService {
             }
             PaymentIntent saved = paymentIntentRepository.save(intent);
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
-            return PaymentIntentResponse.from(saved, attempts, objectMapper);
+            return PaymentIntentResponse.from(saved, attempts, objectMapper, null);
         });
 
         // Publish event outside TX — async, best-effort
@@ -287,7 +287,7 @@ public class PaymentIntentService {
 
     private PaymentIntentResponse toResponse(PaymentIntent intent) {
         List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
-        return PaymentIntentResponse.from(intent, attempts, objectMapper);
+        return PaymentIntentResponse.from(intent, attempts, objectMapper, null);
     }
 
     // TODO: Transactional Outbox — this publish is NOT atomic with the DB write above it.

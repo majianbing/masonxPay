@@ -18,6 +18,8 @@ public record PaymentIntentResponse(
         String status,
         String captureMethod,
         String resolvedProvider,
+        UUID connectorAccountId,
+        String connectorAccountLabel,
         String providerPaymentId,
         String idempotencyKey,
         Map<String, Object> metadata,
@@ -40,7 +42,8 @@ public record PaymentIntentResponse(
 
     public static PaymentIntentResponse from(PaymentIntent intent,
                                               List<PaymentRequest> attempts,
-                                              ObjectMapper mapper) {
+                                              ObjectMapper mapper,
+                                              String connectorAccountLabel) {
         return new PaymentIntentResponse(
                 intent.getId(),
                 intent.getMerchantId(),
@@ -50,6 +53,8 @@ public record PaymentIntentResponse(
                 intent.getStatus().name(),
                 intent.getCaptureMethod().name(),
                 intent.getResolvedProvider() != null ? intent.getResolvedProvider().name() : null,
+                intent.getConnectorAccountId(),
+                connectorAccountLabel,
                 intent.getProviderPaymentId(),
                 intent.getIdempotencyKey(),
                 deserialize(intent.getMetadata(), mapper),

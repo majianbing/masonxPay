@@ -18,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,17 +35,20 @@ public class DashboardPaymentController {
     private final RefundRepository refundRepository;
     private final RefundService refundService;
     private final ObjectMapper objectMapper;
+    private final com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository;
 
     public DashboardPaymentController(PaymentIntentRepository paymentIntentRepository,
                                       PaymentRequestRepository paymentRequestRepository,
                                       RefundRepository refundRepository,
                                       RefundService refundService,
-                                      ObjectMapper objectMapper) {
+                                      ObjectMapper objectMapper,
+                                      com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.refundRepository = refundRepository;
         this.refundService = refundService;
         this.objectMapper = objectMapper;
+        this.providerAccountRepository = providerAccountRepository;
     }
 
     @GetMapping
@@ -68,9 +73,22 @@ public class DashboardPaymentController {
             page = paymentIntentRepository.findByMerchantId(merchantId, pageable);
         }
 
+        // Bulk-fetch connector account labels to avoid N+1
+        Set<UUID> accountIds = page.stream()
+                .map(PaymentIntent::getConnectorAccountId)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<UUID, String> accountLabels = providerAccountRepository.findAllById(accountIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.masonx.paygateway.domain.connector.ProviderAccount::getId,
+                        com.masonx.paygateway.domain.connector.ProviderAccount::getLabel));
+
         return ResponseEntity.ok(page.map(intent -> {
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
-            return PaymentIntentResponse.from(intent, attempts, objectMapper);
+            String label = intent.getConnectorAccountId() != null
+                    ? accountLabels.get(intent.getConnectorAccountId()) : null;
+            return PaymentIntentResponse.from(intent, attempts, objectMapper, label);
         }));
     }
 
@@ -84,7 +102,11 @@ public class DashboardPaymentController {
                 .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
 
         List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
-        return ResponseEntity.ok(PaymentIntentResponse.from(intent, attempts, objectMapper));
+        String label = intent.getConnectorAccountId() != null
+                ? providerAccountRepository.findById(intent.getConnectorAccountId())
+                        .map(com.masonx.paygateway.domain.connector.ProviderAccount::getLabel).orElse(null)
+                : null;
+        return ResponseEntity.ok(PaymentIntentResponse.from(intent, attempts, objectMapper, label));
     }
 
     @GetMapping("/refunds")

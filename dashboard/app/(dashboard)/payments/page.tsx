@@ -23,6 +23,7 @@ interface PaymentIntent {
   currency: string;
   status: string;
   resolvedProvider: string;
+  connectorAccountLabel: string | null;
   mode: string;
   createdAt: string;
 }
@@ -51,7 +52,17 @@ const columns = [
   }),
   col.accessor('resolvedProvider', {
     header: 'Provider',
-    cell: (i) => i.getValue() ?? '—',
+    cell: (i) => {
+      const provider = i.getValue();
+      const label = i.row.original.connectorAccountLabel;
+      if (!provider) return '—';
+      return (
+        <span>
+          {provider}
+          {label && <span className="text-muted-foreground"> — {label}</span>}
+        </span>
+      );
+    },
   }),
   col.accessor('mode', {
     header: 'Mode',
