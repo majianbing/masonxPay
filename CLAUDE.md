@@ -140,3 +140,4 @@ Providers that require a dynamic server-generated token (like Braintree) need an
 - **`ddl-auto: create` or `ddl-auto: update`** — Flyway owns the schema
 - **Sharing admin and merchant tables** — two separate realms, always
 - **Embedding merchant roles in JWT claims** — always resolve from DB
+- **`@Transactional` on methods that include remote calls** — holds a DB connection open for the duration of the HTTP call; exhausts the connection pool under load. Use an atomic compare-and-set UPDATE query to claim/release resources around the remote call instead.
