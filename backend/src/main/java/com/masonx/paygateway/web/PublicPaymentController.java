@@ -1,20 +1,26 @@
 package com.masonx.paygateway.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
+import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import com.masonx.paygateway.web.dto.PublicCheckoutRequest;
 import com.masonx.paygateway.web.dto.PublicCheckoutResponse;
 import jakarta.validation.Valid;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +34,8 @@ public class PublicPaymentController {
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentTokenService paymentTokenService;
+    private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     public PublicPaymentController(PaymentLinkRepository paymentLinkRepository,
                                    ProviderAccountRepository providerAccountRepository,
@@ -35,7 +43,9 @@ public class PublicPaymentController {
                                    PaymentProviderDispatcher dispatcher,
                                    PaymentIntentRepository paymentIntentRepository,
                                    PaymentRequestRepository paymentRequestRepository,
-                                   PaymentTokenService paymentTokenService) {
+                                   PaymentTokenService paymentTokenService,
+                                   ApplicationEventPublisher eventPublisher,
+                                   ObjectMapper objectMapper) {
         this.paymentLinkRepository = paymentLinkRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
@@ -43,6 +53,8 @@ public class PublicPaymentController {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.paymentTokenService = paymentTokenService;
+        this.eventPublisher = eventPublisher;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/{token}/checkout")
@@ -107,6 +119,10 @@ public class PublicPaymentController {
         attempt.setFailureMessage(result.failureMessage());
         paymentRequestRepository.save(attempt);
 
+        // Publish event so webhook endpoints receive delivery
+        String eventType = result.success() ? "payment_intent.succeeded" : "payment_intent.failed";
+        publishEvent(savedIntent, attempt, eventType);
+
         return ResponseEntity.ok(new PublicCheckoutResponse(
                 result.success(),
                 result.success() ? "SUCCEEDED" : "FAILED",
@@ -115,6 +131,17 @@ public class PublicPaymentController {
                 result.failureMessage(),
                 result.success() ? link.getRedirectUrl() : null
         ));
+    }
+
+    private void publishEvent(PaymentIntent intent, PaymentRequest attempt, String eventType) {
+        try {
+            PaymentIntentResponse payload = PaymentIntentResponse.from(intent, List.of(attempt), objectMapper, null);
+            String json = objectMapper.writeValueAsString(payload);
+            eventPublisher.publishEvent(
+                    new PaymentGatewayEvent(this, intent.getMerchantId(), eventType, intent.getId(), json));
+        } catch (JsonProcessingException e) {
+            // non-critical — log and move on
+        }
     }
 
     private PaymentLink findActiveLink(String token) {
