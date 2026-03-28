@@ -52,6 +52,12 @@ public class PublicPaymentController {
 
         PaymentLink link = findActiveLink(token);
 
+        // Atomically claim the link before the remote charge — prevents double-payment
+        // without holding a DB connection across the network call.
+        if (paymentLinkRepository.claimLink(token) == 0) {
+            throw new IllegalStateException("This payment link has already been paid");
+        }
+
         PaymentToken paymentToken = paymentTokenService.consume(req.gatewayToken());
 
         ProviderAccount account = providerAccountRepository.findById(paymentToken.getAccountId())
@@ -84,6 +90,11 @@ public class PublicPaymentController {
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
         savedIntent.setProviderPaymentId(result.providerPaymentId());
         paymentIntentRepository.save(savedIntent);
+
+        // Release the link back to ACTIVE on failure so the customer can retry with a different card.
+        if (!result.success()) {
+            paymentLinkRepository.releaseLink(token);
+        }
 
         PaymentRequest attempt = new PaymentRequest();
         attempt.setPaymentIntentId(savedIntent.getId());
