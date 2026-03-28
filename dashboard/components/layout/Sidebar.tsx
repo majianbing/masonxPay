@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch,
   Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap,
@@ -31,6 +32,8 @@ const nav = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const isInDevelopers = pathname.startsWith('/developers');
+  const [devOpen, setDevOpen] = useState(isInDevelopers);
 
   return (
     <aside className="w-60 shrink-0 border-r bg-white flex flex-col h-full">
@@ -46,11 +49,15 @@ export default function Sidebar() {
         {nav.map((item) =>
           'children' in item ? (
             <div key={item.label} className="mb-1">
-              <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <button
+                onClick={() => setDevOpen((o) => !o)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+              >
                 <item.icon className="size-4" />
                 {item.label}
-              </div>
-              {item.children?.map((child) => (
+                <ChevronRight className={cn('size-3 ml-auto transition-transform', devOpen && 'rotate-90')} />
+              </button>
+              {devOpen && item.children?.map((child) => (
                 <NavLink key={child.href} href={child.href} label={child.label} icon={child.icon} pathname={pathname} indent />
               ))}
             </div>
