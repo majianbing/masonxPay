@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 interface ProviderAccount {
   id: string;
   provider: string;
+  label: string;
 }
 
 interface RoutingRule {
@@ -36,8 +37,12 @@ interface RoutingRule {
   priority: number;
   enabled: boolean;
   weight: number;
+  targetAccountId: string;
   targetProvider: string;
+  targetAccountLabel: string;
+  fallbackAccountId?: string;
   fallbackProvider?: string;
+  fallbackAccountLabel?: string;
   currencies: string[];
   countryCodes: string[];
   paymentMethodTypes: string[];
@@ -46,8 +51,8 @@ interface RoutingRule {
 }
 
 const schema = z.object({
-  targetProvider: z.string().min(1, 'Required'),
-  fallbackProvider: z.string().optional(),
+  targetAccountId: z.string().min(1, 'Required'),
+  fallbackAccountId: z.string().optional(),
   currencies: z.string().optional(),
   countryCodes: z.string().optional(),
   paymentMethodTypes: z.string().optional(),
@@ -56,6 +61,11 @@ const schema = z.object({
   weight: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
+
+function accountLabel(account: ProviderAccount) {
+  const brand = PROVIDER_BRAND[account.provider]?.name ?? account.provider;
+  return `${brand} — ${account.label}`;
+}
 
 export default function RoutingRulesPage() {
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
@@ -79,8 +89,6 @@ export default function RoutingRulesPage() {
     },
     enabled: !!activeMerchantId,
   });
-
-  const availableProviders = [...new Set(connectors.map((c) => c.provider))];
 
   const { isLoading, data: fetchedRules } = useQuery<RoutingRule[]>({
     queryKey: ['routing-rules', activeMerchantId],
@@ -106,8 +114,8 @@ export default function RoutingRulesPage() {
       apiFetch(`/api/v1/merchants/${activeMerchantId}/routing-rules`, {
         method: 'POST',
         body: JSON.stringify({
-          targetProvider: data.targetProvider.toUpperCase(),
-          fallbackProvider: data.fallbackProvider ? data.fallbackProvider.toUpperCase() : undefined,
+          targetAccountId: data.targetAccountId,
+          fallbackAccountId: data.fallbackAccountId || undefined,
           priority: rules.length + 1,
           enabled: true,
           weight: data.weight ? parseInt(data.weight) || 1 : 1,
@@ -157,7 +165,7 @@ export default function RoutingRulesPage() {
       const next = arrayMove(prev, oldIdx, newIdx);
       next.forEach((r, i) => {
         if (r.priority !== i + 1) {
-          updateMutation.mutate({ id: r.id, priority: i + 1, targetProvider: r.targetProvider, enabled: r.enabled, weight: r.weight });
+          updateMutation.mutate({ id: r.id, priority: i + 1, targetAccountId: r.targetAccountId, enabled: r.enabled, weight: r.weight });
         }
       });
       return next;
@@ -168,7 +176,7 @@ export default function RoutingRulesPage() {
     const updated = { ...rule, enabled: !rule.enabled };
     setRules((prev) => prev.map((r) => (r.id === rule.id ? updated : r)));
     updateMutation.mutate(
-      { id: rule.id, priority: rule.priority, targetProvider: rule.targetProvider, enabled: !rule.enabled, weight: rule.weight },
+      { id: rule.id, priority: rule.priority, targetAccountId: rule.targetAccountId, enabled: !rule.enabled, weight: rule.weight },
       {
         onError: () => {
           setRules((prev) => prev.map((r) => (r.id === rule.id ? rule : r)));
@@ -197,7 +205,7 @@ export default function RoutingRulesPage() {
       ) : rules.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No routing rules. Default provider (Stripe) will be used.
+            No routing rules. The first active connector will be used by default.
           </CardContent>
         </Card>
       ) : (
@@ -226,22 +234,22 @@ export default function RoutingRulesPage() {
           <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>Target Provider <span className="text-red-500">*</span></Label>
+                <Label>Target Account <span className="text-red-500">*</span></Label>
                 <Controller
-                  name="targetProvider"
+                  name="targetAccountId"
                   control={control}
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select provider" />
+                        <SelectValue placeholder="Select account" />
                       </SelectTrigger>
                       <SelectContent>
-                        {availableProviders.length === 0 ? (
+                        {connectors.length === 0 ? (
                           <SelectItem value="_none" disabled>No connectors added</SelectItem>
                         ) : (
-                          availableProviders.map((p) => (
-                            <SelectItem key={p} value={p}>
-                              {PROVIDER_BRAND[p]?.name ?? p}
+                          connectors.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {accountLabel(c)}
                             </SelectItem>
                           ))
                         )}
@@ -249,12 +257,12 @@ export default function RoutingRulesPage() {
                     </Select>
                   )}
                 />
-                {errors.targetProvider && <p className="text-xs text-red-500">{errors.targetProvider.message}</p>}
+                {errors.targetAccountId && <p className="text-xs text-red-500">{errors.targetAccountId.message}</p>}
               </div>
               <div className="space-y-1">
-                <Label>Fallback Provider</Label>
+                <Label>Fallback Account</Label>
                 <Controller
-                  name="fallbackProvider"
+                  name="fallbackAccountId"
                   control={control}
                   render={({ field }) => (
                     <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === '_none' ? undefined : v)}>
@@ -263,9 +271,9 @@ export default function RoutingRulesPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_none">None</SelectItem>
-                        {availableProviders.map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {PROVIDER_BRAND[p]?.name ?? p}
+                        {connectors.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {accountLabel(c)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -329,6 +337,14 @@ function SortableRuleCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const targetDisplay = rule.targetAccountLabel
+    ? `${PROVIDER_BRAND[rule.targetProvider]?.name ?? rule.targetProvider} — ${rule.targetAccountLabel}`
+    : rule.targetProvider;
+
+  const fallbackDisplay = rule.fallbackAccountLabel
+    ? `${PROVIDER_BRAND[rule.fallbackProvider ?? '']?.name ?? rule.fallbackProvider} — ${rule.fallbackAccountLabel}`
+    : rule.fallbackProvider;
+
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
       <Card className={rule.enabled ? '' : 'opacity-60'}>
@@ -340,10 +356,10 @@ function SortableRuleCard({
             {index + 1}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="font-medium text-sm">{rule.targetProvider}</p>
-              {rule.fallbackProvider && (
-                <span className="text-xs text-muted-foreground">→ {rule.fallbackProvider}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium text-sm">{targetDisplay}</p>
+              {fallbackDisplay && (
+                <span className="text-xs text-muted-foreground">→ {fallbackDisplay}</span>
               )}
               <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">
                 w:{rule.weight ?? 1}

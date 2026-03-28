@@ -37,7 +37,7 @@ public class PaymentTokenService {
      * @return opaque gateway token string ("gw_tok_" + UUID hex)
      */
     public String create(UUID merchantId, PaymentProvider provider, ApiKeyMode mode, String providerPmId) {
-        ProviderAccount account = routingEngine.resolveAccount(merchantId, provider, mode)
+        ProviderAccount account = routingEngine.resolveAccountForProvider(merchantId, provider, mode)
                 .orElseThrow(() -> new IllegalStateException(
                         "No active connector found for provider " + provider + " in " + mode + " mode"));
 

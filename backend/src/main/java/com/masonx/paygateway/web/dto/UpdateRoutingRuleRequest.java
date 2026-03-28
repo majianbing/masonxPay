@@ -1,9 +1,9 @@
 package com.masonx.paygateway.web.dto;
 
-import com.masonx.paygateway.domain.payment.PaymentProvider;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.List;
+import java.util.UUID;
 
 public record UpdateRoutingRuleRequest(
         @NotNull int priority,
@@ -14,6 +14,6 @@ public record UpdateRoutingRuleRequest(
         Long amountMax,
         List<String> countryCodes,
         List<String> paymentMethodTypes,
-        @NotNull PaymentProvider targetProvider,
-        PaymentProvider fallbackProvider
+        @NotNull UUID targetAccountId,
+        UUID fallbackAccountId
 ) {}

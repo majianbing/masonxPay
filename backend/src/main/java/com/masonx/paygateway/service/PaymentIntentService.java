@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -147,11 +146,14 @@ public class PaymentIntentService {
                         .orElseThrow(() -> new IllegalStateException("Connector account not found"));
                 rawPmId = token.getProviderPmId();
             } else {
-                provider = routingEngine.resolve(
-                        auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
-                        req.paymentMethodType() != null ? req.paymentMethodType() : "card");
-                firstAccount = routingEngine.resolveAccount(auth.getMerchantId(), provider, auth.getMode())
-                        .orElseThrow(() -> new IllegalStateException("No active connector for provider: " + provider));
+                String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
+                RoutingEngine.RoutingResult routing = routingEngine
+                        .resolve(auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null, pmType)
+                        .or(() -> routingEngine.resolveAnyAccount(auth.getMerchantId(), auth.getMode())
+                                .map(a -> new RoutingEngine.RoutingResult(a, null)))
+                        .orElseThrow(() -> new IllegalStateException("No active payment connector configured"));
+                firstAccount = routing.primary();
+                provider = firstAccount.getProvider();
                 rawPmId = req.paymentMethodId();
             }
 
@@ -160,11 +162,15 @@ public class PaymentIntentService {
             if (req.paymentMethodId().startsWith("gw_tok_")) {
                 accountQueue = List.of(firstAccount);
             } else {
-                List<ProviderAccount> rest = routingEngine.resolveAccountsOrdered(
-                        auth.getMerchantId(), provider, auth.getMode(), Set.of(firstAccount.getId()));
-                accountQueue = new ArrayList<>(1 + rest.size());
-                accountQueue.add(firstAccount);
-                accountQueue.addAll(rest);
+                RoutingEngine.RoutingResult routing = routingEngine
+                        .resolve(auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
+                                req.paymentMethodType() != null ? req.paymentMethodType() : "card")
+                        .or(() -> routingEngine.resolveAnyAccount(auth.getMerchantId(), auth.getMode())
+                                .map(a -> new RoutingEngine.RoutingResult(a, null)))
+                        .orElse(new RoutingEngine.RoutingResult(firstAccount, null));
+                accountQueue = routing.hasFallback()
+                        ? List.of(routing.primary(), routing.fallback())
+                        : List.of(routing.primary());
             }
 
             intent.setStatus(PaymentIntentStatus.PROCESSING);

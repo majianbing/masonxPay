@@ -1,6 +1,5 @@
 package com.masonx.paygateway.domain.routing;
 
-import com.masonx.paygateway.domain.payment.PaymentProvider;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.Arrays;
@@ -42,13 +41,11 @@ public class RoutingRule {
     @Column(nullable = false)
     private int weight = 1;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "target_provider", nullable = false, length = 20)
-    private PaymentProvider targetProvider;
+    @Column(name = "target_account_id", nullable = false)
+    private UUID targetAccountId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "fallback_provider", length = 20)
-    private PaymentProvider fallbackProvider;
+    @Column(name = "fallback_account_id")
+    private UUID fallbackAccountId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -123,11 +120,11 @@ public class RoutingRule {
     public String getPaymentMethodTypes() { return paymentMethodTypes; }
     public void setPaymentMethodTypes(String paymentMethodTypes) { this.paymentMethodTypes = paymentMethodTypes; }
 
-    public PaymentProvider getTargetProvider() { return targetProvider; }
-    public void setTargetProvider(PaymentProvider targetProvider) { this.targetProvider = targetProvider; }
+    public UUID getTargetAccountId() { return targetAccountId; }
+    public void setTargetAccountId(UUID targetAccountId) { this.targetAccountId = targetAccountId; }
 
-    public PaymentProvider getFallbackProvider() { return fallbackProvider; }
-    public void setFallbackProvider(PaymentProvider fallbackProvider) { this.fallbackProvider = fallbackProvider; }
+    public UUID getFallbackAccountId() { return fallbackAccountId; }
+    public void setFallbackAccountId(UUID fallbackAccountId) { this.fallbackAccountId = fallbackAccountId; }
 
     public int getWeight() { return weight; }
     public void setWeight(int weight) { this.weight = weight; }

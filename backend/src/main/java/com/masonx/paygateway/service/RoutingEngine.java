@@ -9,12 +9,9 @@ import com.masonx.paygateway.domain.routing.RoutingRule;
 import com.masonx.paygateway.domain.routing.RoutingRuleRepository;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
-import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -31,13 +28,23 @@ public class RoutingEngine {
     }
 
     /**
-     * Resolves which provider BRAND to use for a payment.
-     * Collects all matching enabled rules and picks one by weighted-random selection,
-     * so rules with higher weight receive proportionally more traffic.
-     * Falls back to STRIPE if no rule matches.
+     * The resolved routing decision: a primary account to charge and an optional fallback.
+     * Fallback is used if the primary charge fails.
      */
-    public PaymentProvider resolve(UUID merchantId, long amount, String currency,
-                                   String countryCode, String paymentMethodType) {
+    public record RoutingResult(ProviderAccount primary, ProviderAccount fallback) {
+        public boolean hasFallback() { return fallback != null; }
+    }
+
+    /**
+     * Resolves a routing decision for a payment.
+     *
+     * Finds all enabled rules matching the payment criteria, picks one by weighted-random
+     * selection, then loads the target and fallback accounts directly from the winning rule.
+     *
+     * Returns empty if no rules are configured — caller should fall back to any active account.
+     */
+    public Optional<RoutingResult> resolve(UUID merchantId, long amount, String currency,
+                                           String countryCode, String paymentMethodType) {
         List<RoutingRule> rules =
                 routingRuleRepository.findByMerchantIdAndEnabledTrueOrderByPriorityAsc(merchantId);
 
@@ -45,27 +52,29 @@ public class RoutingEngine {
                 .filter(r -> matches(r, amount, currency, countryCode, paymentMethodType))
                 .toList();
 
-        if (matching.isEmpty()) return PaymentProvider.STRIPE;
-        if (matching.size() == 1) return matching.get(0).getTargetProvider();
+        if (matching.isEmpty()) return Optional.empty();
 
-        int totalWeight = matching.stream().mapToInt(RoutingRule::getWeight).sum();
-        if (totalWeight <= 0) return matching.get(0).getTargetProvider();
+        RoutingRule winner = matching.size() == 1
+                ? matching.get(0)
+                : pickByWeight(matching);
 
-        int pick = random.nextInt(totalWeight);
-        int cumulative = 0;
-        for (RoutingRule rule : matching) {
-            cumulative += rule.getWeight();
-            if (pick < cumulative) return rule.getTargetProvider();
-        }
-        return matching.get(matching.size() - 1).getTargetProvider();
+        ProviderAccount primary = providerAccountRepository.findById(winner.getTargetAccountId())
+                .orElse(null);
+        if (primary == null) return Optional.empty();
+
+        ProviderAccount fallback = winner.getFallbackAccountId() != null
+                ? providerAccountRepository.findById(winner.getFallbackAccountId()).orElse(null)
+                : null;
+
+        return Optional.of(new RoutingResult(primary, fallback));
     }
 
     /**
-     * Selects a specific connector account within a provider brand using weighted-random selection.
-     * Among all ACTIVE accounts for merchant + provider + mode, picks one proportionally to weight.
-     * Falls back to the primary account if no accounts have weight > 0.
+     * Selects an active account for a specific provider brand using weighted-random selection.
+     * Used by the tokenize flow where the customer has already chosen a provider from the picker
+     * and we need to pin an account before routing rules are consulted.
      */
-    public Optional<ProviderAccount> resolveAccount(UUID merchantId, PaymentProvider provider, ApiKeyMode mode) {
+    public Optional<ProviderAccount> resolveAccountForProvider(UUID merchantId, PaymentProvider provider, ApiKeyMode mode) {
         List<ProviderAccount> candidates = providerAccountRepository
                 .findAllByMerchantIdAndProviderAndModeAndStatus(merchantId, provider, mode, ProviderAccountStatus.ACTIVE);
 
@@ -73,10 +82,7 @@ public class RoutingEngine {
         if (candidates.size() == 1) return Optional.of(candidates.get(0));
 
         int totalWeight = candidates.stream().mapToInt(ProviderAccount::getWeight).sum();
-        if (totalWeight <= 0) {
-            // Degenerate case — fall back to first (primary if sorted)
-            return Optional.of(candidates.get(0));
-        }
+        if (totalWeight <= 0) return Optional.of(candidates.get(0));
 
         int pick = random.nextInt(totalWeight);
         int cumulative = 0;
@@ -84,45 +90,22 @@ public class RoutingEngine {
             cumulative += account.getWeight();
             if (pick < cumulative) return Optional.of(account);
         }
-
         return Optional.of(candidates.get(candidates.size() - 1));
     }
 
     /**
-     * Returns all active connector accounts for merchant + provider + mode, excluding already-tried
-     * ones, in weighted-random order. Used by the failover loop in PaymentIntentService so each
-     * candidate is tried at most once per confirm call, with higher-weight accounts preferred.
+     * Fallback when no routing rule matches: returns any single active account for the merchant.
+     * Prefers the primary-flagged account; otherwise picks the first active one found.
      */
-    public List<ProviderAccount> resolveAccountsOrdered(UUID merchantId, PaymentProvider provider,
-                                                        ApiKeyMode mode, Set<UUID> excludeIds) {
-        List<ProviderAccount> candidates = providerAccountRepository
-                .findAllByMerchantIdAndProviderAndModeAndStatus(merchantId, provider, mode, ProviderAccountStatus.ACTIVE)
+    public Optional<ProviderAccount> resolveAnyAccount(UUID merchantId, ApiKeyMode mode) {
+        List<ProviderAccount> active = providerAccountRepository
+                .findAllByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
                 .stream()
-                .filter(a -> !excludeIds.contains(a.getId()))
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                .filter(a -> a.getStatus() == ProviderAccountStatus.ACTIVE)
+                .toList();
 
-        if (candidates.isEmpty()) return Collections.emptyList();
-        if (candidates.size() == 1) return candidates;
-
-        // Weighted shuffle: repeatedly pick by weight and move to result list
-        List<ProviderAccount> ordered = new ArrayList<>(candidates.size());
-        while (!candidates.isEmpty()) {
-            int totalWeight = candidates.stream().mapToInt(ProviderAccount::getWeight).sum();
-            if (totalWeight <= 0) {
-                ordered.addAll(candidates);
-                break;
-            }
-            int pick = random.nextInt(totalWeight);
-            int cumulative = 0;
-            for (int i = 0; i < candidates.size(); i++) {
-                cumulative += candidates.get(i).getWeight();
-                if (pick < cumulative) {
-                    ordered.add(candidates.remove(i));
-                    break;
-                }
-            }
-        }
-        return ordered;
+        return active.stream().filter(ProviderAccount::isPrimary).findFirst()
+                .or(() -> active.stream().findFirst());
     }
 
     /**
@@ -138,6 +121,19 @@ public class RoutingEngine {
                 .map(ProviderAccount::getProvider)
                 .distinct()
                 .toList();
+    }
+
+    private RoutingRule pickByWeight(List<RoutingRule> rules) {
+        int totalWeight = rules.stream().mapToInt(RoutingRule::getWeight).sum();
+        if (totalWeight <= 0) return rules.get(0);
+
+        int pick = random.nextInt(totalWeight);
+        int cumulative = 0;
+        for (RoutingRule rule : rules) {
+            cumulative += rule.getWeight();
+            if (pick < cumulative) return rule;
+        }
+        return rules.get(rules.size() - 1);
     }
 
     private boolean matches(RoutingRule rule, long amount, String currency,

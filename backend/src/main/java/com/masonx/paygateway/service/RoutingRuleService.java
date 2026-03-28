@@ -1,5 +1,7 @@
 package com.masonx.paygateway.service;
 
+import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.routing.RoutingRule;
 import com.masonx.paygateway.domain.routing.RoutingRuleRepository;
 import com.masonx.paygateway.web.dto.CreateRoutingRuleRequest;
@@ -16,24 +18,32 @@ import java.util.UUID;
 public class RoutingRuleService {
 
     private final RoutingRuleRepository routingRuleRepository;
+    private final ProviderAccountRepository providerAccountRepository;
 
-    public RoutingRuleService(RoutingRuleRepository routingRuleRepository) {
+    public RoutingRuleService(RoutingRuleRepository routingRuleRepository,
+                              ProviderAccountRepository providerAccountRepository) {
         this.routingRuleRepository = routingRuleRepository;
+        this.providerAccountRepository = providerAccountRepository;
     }
 
     @Transactional(readOnly = true)
     public List<RoutingRuleResponse> list(UUID merchantId) {
         return routingRuleRepository.findByMerchantId(merchantId)
-                .stream().map(RoutingRuleResponse::from).toList();
+                .stream().map(r -> toResponse(merchantId, r)).toList();
     }
 
     public RoutingRuleResponse create(UUID merchantId, CreateRoutingRuleRequest req) {
+        ProviderAccount target = requireOwnedAccount(merchantId, req.targetAccountId(), "targetAccountId");
+        ProviderAccount fallback = req.fallbackAccountId() != null
+                ? requireOwnedAccount(merchantId, req.fallbackAccountId(), "fallbackAccountId")
+                : null;
+
         RoutingRule rule = new RoutingRule();
         rule.setMerchantId(merchantId);
-        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(), req.amountMin(),
-                req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
-                req.targetProvider(), req.fallbackProvider());
-        return RoutingRuleResponse.from(routingRuleRepository.save(rule));
+        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(),
+                req.amountMin(), req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
+                req.targetAccountId(), req.fallbackAccountId());
+        return RoutingRuleResponse.from(routingRuleRepository.save(rule), target, fallback);
     }
 
     public RoutingRuleResponse update(UUID merchantId, UUID ruleId, UpdateRoutingRuleRequest req) {
@@ -42,10 +52,16 @@ public class RoutingRuleService {
         if (!rule.getMerchantId().equals(merchantId)) {
             throw new IllegalArgumentException("Routing rule does not belong to this merchant");
         }
-        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(), req.amountMin(),
-                req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
-                req.targetProvider(), req.fallbackProvider());
-        return RoutingRuleResponse.from(routingRuleRepository.save(rule));
+
+        ProviderAccount target = requireOwnedAccount(merchantId, req.targetAccountId(), "targetAccountId");
+        ProviderAccount fallback = req.fallbackAccountId() != null
+                ? requireOwnedAccount(merchantId, req.fallbackAccountId(), "fallbackAccountId")
+                : null;
+
+        applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(),
+                req.amountMin(), req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
+                req.targetAccountId(), req.fallbackAccountId());
+        return RoutingRuleResponse.from(routingRuleRepository.save(rule), target, fallback);
     }
 
     public void delete(UUID merchantId, UUID ruleId) {
@@ -57,11 +73,27 @@ public class RoutingRuleService {
         routingRuleRepository.delete(rule);
     }
 
+    private ProviderAccount requireOwnedAccount(UUID merchantId, UUID accountId, String field) {
+        ProviderAccount account = providerAccountRepository.findById(accountId)
+                .orElseThrow(() -> new IllegalArgumentException(field + ": connector account not found"));
+        if (!account.getMerchantId().equals(merchantId)) {
+            throw new IllegalArgumentException(field + ": connector account does not belong to this merchant");
+        }
+        return account;
+    }
+
+    private RoutingRuleResponse toResponse(UUID merchantId, RoutingRule rule) {
+        ProviderAccount target = providerAccountRepository.findById(rule.getTargetAccountId()).orElse(null);
+        ProviderAccount fallback = rule.getFallbackAccountId() != null
+                ? providerAccountRepository.findById(rule.getFallbackAccountId()).orElse(null)
+                : null;
+        return RoutingRuleResponse.from(rule, target, fallback);
+    }
+
     private void applyRequest(RoutingRule rule, int priority, boolean enabled, int weight,
                                List<String> currencies, Long amountMin, Long amountMax,
                                List<String> countryCodes, List<String> paymentMethodTypes,
-                               com.masonx.paygateway.domain.payment.PaymentProvider targetProvider,
-                               com.masonx.paygateway.domain.payment.PaymentProvider fallbackProvider) {
+                               UUID targetAccountId, UUID fallbackAccountId) {
         rule.setPriority(priority);
         rule.setEnabled(enabled);
         rule.setWeight(weight > 0 ? weight : 1);
@@ -70,7 +102,7 @@ public class RoutingRuleService {
         rule.setAmountMax(amountMax);
         rule.setCountryCodeList(countryCodes);
         rule.setPaymentMethodTypeList(paymentMethodTypes);
-        rule.setTargetProvider(targetProvider);
-        rule.setFallbackProvider(fallbackProvider);
+        rule.setTargetAccountId(targetAccountId);
+        rule.setFallbackAccountId(fallbackAccountId);
     }
 }

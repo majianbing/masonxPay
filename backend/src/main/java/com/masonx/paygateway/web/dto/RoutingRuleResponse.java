@@ -1,6 +1,6 @@
 package com.masonx.paygateway.web.dto;
 
-import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.routing.RoutingRule;
 
 import java.time.Instant;
@@ -18,12 +18,16 @@ public record RoutingRuleResponse(
         Long amountMax,
         List<String> countryCodes,
         List<String> paymentMethodTypes,
-        PaymentProvider targetProvider,
-        PaymentProvider fallbackProvider,
+        UUID targetAccountId,
+        String targetProvider,
+        String targetAccountLabel,
+        UUID fallbackAccountId,
+        String fallbackProvider,
+        String fallbackAccountLabel,
         Instant createdAt,
         Instant updatedAt
 ) {
-    public static RoutingRuleResponse from(RoutingRule rule) {
+    public static RoutingRuleResponse from(RoutingRule rule, ProviderAccount target, ProviderAccount fallback) {
         return new RoutingRuleResponse(
                 rule.getId(),
                 rule.getMerchantId(),
@@ -35,8 +39,12 @@ public record RoutingRuleResponse(
                 rule.getAmountMax(),
                 rule.getCountryCodeList(),
                 rule.getPaymentMethodTypeList(),
-                rule.getTargetProvider(),
-                rule.getFallbackProvider(),
+                target != null ? target.getId() : rule.getTargetAccountId(),
+                target != null ? target.getProvider().name() : null,
+                target != null ? target.getLabel() : null,
+                fallback != null ? fallback.getId() : rule.getFallbackAccountId(),
+                fallback != null ? fallback.getProvider().name() : null,
+                fallback != null ? fallback.getLabel() : null,
                 rule.getCreatedAt(),
                 rule.getUpdatedAt()
         );
