@@ -4,6 +4,20 @@
 
 A fully-featured, [HyperSwitch](https://github.com/juspay/hyperswitch)-like payment gateway built with Java and Spring Boot — supporting multiple providers, intelligent routing, and both hosted and embeddable checkout.
 
+## Live demo
+
+Hosted on Vercel + Render + Neon (free tier — allow ~30s warm-up on first request).
+
+| | |
+|---|---|
+| **Dashboard** | https://masonx-pay.vercel.app |
+| **Username** | demo@masonx.me |
+| **Password** | demo@masonx.me |
+| **Backend API** | https://masonxpay.onrender.com |
+| **Database** | Neon PostgreSQL (https://console.neon.tech) |
+
+---
+
 ## Repository layout
 
 ```
