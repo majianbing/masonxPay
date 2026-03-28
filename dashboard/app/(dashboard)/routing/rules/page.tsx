@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -82,15 +82,18 @@ export default function RoutingRulesPage() {
 
   const availableProviders = [...new Set(connectors.map((c) => c.provider))];
 
-  const { isLoading } = useQuery<RoutingRule[]>({
+  const { isLoading, data: fetchedRules } = useQuery<RoutingRule[]>({
     queryKey: ['routing-rules', activeMerchantId],
     queryFn: async () => {
       const data = await apiFetch<RoutingRule[]>(`/api/v1/merchants/${activeMerchantId}/routing-rules`);
-      setRules(data.sort((a, b) => a.priority - b.priority));
-      return data;
+      return data.sort((a, b) => a.priority - b.priority);
     },
     enabled: !!activeMerchantId,
   });
+
+  useEffect(() => {
+    if (fetchedRules) setRules(fetchedRules);
+  }, [fetchedRules]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm<FormData>({
