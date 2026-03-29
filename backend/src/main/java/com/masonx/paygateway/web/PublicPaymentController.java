@@ -155,11 +155,14 @@ public class PublicPaymentController {
     public ResponseEntity<Map<String, String>> prepareStripe(@PathVariable String token) {
         PaymentLink link = findActiveLink(token);
 
-        ProviderAccount account = providerAccountRepository
-                .findAllByMerchantIdAndProviderAndModeAndStatus(
-                        link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
-                .stream().findFirst()
-                .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
+        ProviderAccount account = (link.getPinnedConnectorId() != null)
+                ? providerAccountRepository.findById(link.getPinnedConnectorId())
+                        .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
+                : providerAccountRepository
+                        .findAllByMerchantIdAndProviderAndModeAndStatus(
+                                link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
+                        .stream().findFirst()
+                        .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
 
         if (!(credentialsCodec.decode(account) instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             throw new IllegalStateException("Stripe connector is missing a secret key");
@@ -217,11 +220,14 @@ public class PublicPaymentController {
         }
 
         // Retrieve the PI from Stripe to get authoritative status
-        ProviderAccount account = providerAccountRepository
-                .findAllByMerchantIdAndProviderAndModeAndStatus(
-                        link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
-                .stream().findFirst()
-                .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
+        ProviderAccount account = (link.getPinnedConnectorId() != null)
+                ? providerAccountRepository.findById(link.getPinnedConnectorId())
+                        .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
+                : providerAccountRepository
+                        .findAllByMerchantIdAndProviderAndModeAndStatus(
+                                link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
+                        .stream().findFirst()
+                        .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
 
         if (!(credentialsCodec.decode(account) instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             throw new IllegalStateException("Stripe connector is missing a secret key");

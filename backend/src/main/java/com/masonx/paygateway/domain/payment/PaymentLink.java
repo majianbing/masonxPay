@@ -49,6 +49,10 @@ public class PaymentLink {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
+    /** When set, checkout-session returns only this connector and tokenize bypasses routing. */
+    @Column(name = "pinned_connector_id")
+    private UUID pinnedConnectorId;
+
     public UUID getId() { return id; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
@@ -71,6 +75,9 @@ public class PaymentLink {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+
+    public UUID getPinnedConnectorId() { return pinnedConnectorId; }
+    public void setPinnedConnectorId(UUID pinnedConnectorId) { this.pinnedConnectorId = pinnedConnectorId; }
 
     public boolean isExpired() {
         return expiresAt != null && Instant.now().isAfter(expiresAt);

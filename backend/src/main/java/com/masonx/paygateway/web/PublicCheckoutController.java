@@ -109,27 +109,43 @@ public class PublicCheckoutController {
         Merchant merchant = merchantRepository.findById(resolvedMerchantId).orElse(null);
         String merchantName = merchant != null ? merchant.getName() : "";
 
-        // Fetch all active accounts sorted by displayOrder, then deduplicate by provider brand
-        // (first account per brand wins — brand position = its lowest displayOrder account).
-        List<CheckoutSessionResponse.ProviderOption> options = providerAccountRepository
-                .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
-                        resolvedMerchantId, resolvedMode, ProviderAccountStatus.ACTIVE)
-                .stream()
-                .filter(a -> a.getEncryptedPublishableKey() != null || a.getProviderConfig() != null)
-                .collect(java.util.stream.Collectors.toMap(
-                        ProviderAccount::getProvider, a -> a,
-                        (existing, dupe) -> existing,   // keep the one with lower displayOrder
-                        LinkedHashMap::new))
-                .values().stream()
-                .map(account -> {
-                    String clientKey = credentialsCodec.clientKeyFor(account);
-                    if (clientKey == null) return null;
-                    return new CheckoutSessionResponse.ProviderOption(
-                            account.getProvider().name(), clientKey,
-                            credentialsCodec.clientConfigFor(account));
-                })
-                .filter(Objects::nonNull)
-                .toList();
+        List<CheckoutSessionResponse.ProviderOption> options;
+
+        // Preview links pin to a single connector — skip routing, return only that provider.
+        UUID pinnedConnectorId = (linkToken != null)
+                ? paymentLinkRepository.findByToken(linkToken).map(PaymentLink::getPinnedConnectorId).orElse(null)
+                : null;
+
+        if (pinnedConnectorId != null) {
+            ProviderAccount account = providerAccountRepository.findById(pinnedConnectorId).orElse(null);
+            String clientKey = account != null ? credentialsCodec.clientKeyFor(account) : null;
+            options = (clientKey != null)
+                    ? List.of(new CheckoutSessionResponse.ProviderOption(
+                            account.getProvider().name(), clientKey, credentialsCodec.clientConfigFor(account)))
+                    : List.of();
+        } else {
+            // Fetch all active accounts sorted by displayOrder, then deduplicate by provider brand
+            // (first account per brand wins — brand position = its lowest displayOrder account).
+            options = providerAccountRepository
+                    .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
+                            resolvedMerchantId, resolvedMode, ProviderAccountStatus.ACTIVE)
+                    .stream()
+                    .filter(a -> a.getEncryptedPublishableKey() != null || a.getProviderConfig() != null)
+                    .collect(java.util.stream.Collectors.toMap(
+                            ProviderAccount::getProvider, a -> a,
+                            (existing, dupe) -> existing,
+                            LinkedHashMap::new))
+                    .values().stream()
+                    .map(account -> {
+                        String clientKey = credentialsCodec.clientKeyFor(account);
+                        if (clientKey == null) return null;
+                        return new CheckoutSessionResponse.ProviderOption(
+                                account.getProvider().name(), clientKey,
+                                credentialsCodec.clientConfigFor(account));
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
+        }
 
         return ResponseEntity.ok(new CheckoutSessionResponse(
                 merchantName, resolvedMode.name(), options, amount, currency, title, description));
@@ -152,6 +168,14 @@ public class PublicCheckoutController {
             }
             merchantId = link.getMerchantId();
             mode = link.getMode();
+
+            // Preview link: bypass routing engine, pin to the specific connector account
+            if (link.getPinnedConnectorId() != null) {
+                PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
+                String gatewayToken = paymentTokenService.createForAccount(
+                        merchantId, link.getPinnedConnectorId(), provider, mode, req.providerPmId());
+                return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
+            }
         } else {
             ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
             if (apiKeyAuth != null) {

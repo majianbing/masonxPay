@@ -18,7 +18,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -31,19 +34,22 @@ public class ConnectorController {
     private final PaymentProviderDispatcher dispatcher;
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
+    private final PaymentLinkRepository paymentLinkRepository;
 
     public ConnectorController(ProviderAccountService service,
                                ProviderAccountRepository providerAccountRepository,
                                CredentialsCodec credentialsCodec,
                                PaymentProviderDispatcher dispatcher,
                                PaymentIntentRepository paymentIntentRepository,
-                               PaymentRequestRepository paymentRequestRepository) {
+                               PaymentRequestRepository paymentRequestRepository,
+                               PaymentLinkRepository paymentLinkRepository) {
         this.service = service;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
         this.dispatcher = dispatcher;
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
+        this.paymentLinkRepository = paymentLinkRepository;
     }
 
     @GetMapping
@@ -170,5 +176,40 @@ public class ConnectorController {
                 result.failureCode(),
                 result.failureMessage()
         ));
+    }
+
+    /**
+     * Creates a short-lived TEST payment link pinned to a specific connector.
+     * Used by the SDK-driven preview: checkout-session returns only this provider,
+     * and tokenize bypasses routing in favour of this exact account.
+     */
+    @PostMapping("/{accountId}/preview-link")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CONNECTOR', 'READ')")
+    public ResponseEntity<Map<String, String>> previewLink(@PathVariable UUID merchantId,
+                                                           @PathVariable UUID accountId,
+                                                           @RequestBody PreviewLinkRequest req) {
+        ProviderAccount account = providerAccountRepository
+                .findByIdAndMerchantId(accountId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Connector not found"));
+
+        if (account.getStatus() != ProviderAccountStatus.ACTIVE) {
+            throw new IllegalStateException("Connector is not active");
+        }
+        if (account.getMode() != ApiKeyMode.TEST) {
+            throw new IllegalStateException("Preview is only available for TEST mode connectors");
+        }
+
+        PaymentLink link = new PaymentLink();
+        link.setMerchantId(merchantId);
+        link.setToken("prev_" + UUID.randomUUID().toString().replace("-", ""));
+        link.setTitle("Preview");
+        link.setAmount(req.amount());
+        link.setCurrency(req.currency().toLowerCase());
+        link.setMode(ApiKeyMode.TEST);
+        link.setPinnedConnectorId(accountId);
+        link.setExpiresAt(Instant.now().plus(15, ChronoUnit.MINUTES));
+        paymentLinkRepository.save(link);
+
+        return ResponseEntity.ok(Map.of("linkToken", link.getToken()));
     }
 }

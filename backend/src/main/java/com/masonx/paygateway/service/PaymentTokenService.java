@@ -53,6 +53,22 @@ public class PaymentTokenService {
     }
 
     /**
+     * Creates a payment token pinned to a specific connector account, bypassing routing.
+     * Used by the preview flow where the merchant selects an exact account to test.
+     */
+    public String createForAccount(UUID merchantId, UUID accountId, PaymentProvider provider,
+                                   ApiKeyMode mode, String providerPmId) {
+        PaymentToken token = new PaymentToken();
+        token.setMerchantId(merchantId);
+        token.setProvider(provider.name());
+        token.setAccountId(accountId);
+        token.setProviderPmId(providerPmId);
+        token.setExpiresAt(Instant.now().plus(TOKEN_TTL_MINUTES, ChronoUnit.MINUTES));
+        PaymentToken saved = repo.save(token);
+        return "gw_tok_" + saved.getId().toString().replace("-", "");
+    }
+
+    /**
      * Resolves and consumes a gateway token. Validates expiry and single-use.
      * Marks the token as used atomically.
      */
