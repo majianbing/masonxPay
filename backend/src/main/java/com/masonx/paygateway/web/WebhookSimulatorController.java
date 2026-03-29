@@ -9,9 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Collections;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Test endpoint for verifying webhook delivery.
@@ -29,10 +27,9 @@ public class WebhookSimulatorController {
             @RequestBody String body,
             HttpServletRequest request) {
 
-        Map<String, String> headers = Collections.list(request.getHeaderNames()).stream()
-                .collect(Collectors.toMap(h -> h, request::getHeader));
-
-        log.info("[webhook-test] received delivery\n  headers: {}\n  body: {}", headers, body);
+        // Log only non-sensitive metadata — never headers (contain HMAC signatures) or body (payment data)
+        log.info("[webhook-test] received delivery from={} size={}",
+                request.getRemoteAddr(), body == null ? 0 : body.length());
 
         return ResponseEntity.ok(Map.of("received", "true"));
     }

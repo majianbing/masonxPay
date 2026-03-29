@@ -17,12 +17,45 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
+import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Component
 public class ApiRequestLoggingFilter extends OncePerRequestFilter {
 
     private static final int MAX_BODY_BYTES = 4096;
+
+    /**
+     * JSON field names whose values must never appear in stored logs.
+     * Matched case-insensitively against the key token in the JSON string.
+     */
+    private static final Set<String> SENSITIVE_FIELDS = Set.of(
+            "password", "passwordhash",
+            "secretkey", "accesstoken", "privatekey", "publickey",
+            "refreshtoken", "accesstoken",
+            "mfasecret", "mfabackupcodes", "mfasessiontoken", "code",
+            "btprivatekey", "btpublickey"
+    );
+
+    /**
+     * Replaces the values of known sensitive JSON fields with "[REDACTED]".
+     * Handles both quoted-string and number values. Non-JSON bodies are returned unchanged.
+     */
+    private static final Pattern SENSITIVE_FIELD_PATTERN = buildSensitivePattern();
+
+    private static Pattern buildSensitivePattern() {
+        String fields = String.join("|", SENSITIVE_FIELDS);
+        // Matches: "fieldName" (any case) : ("value" | number)
+        return Pattern.compile(
+                "(?i)(\"(?:" + fields + ")\"\\s*:\\s*)(?:\"[^\"]*\"|\\d+)",
+                Pattern.CASE_INSENSITIVE);
+    }
+
+    private static String redactSensitiveFields(String body) {
+        if (body == null || body.isBlank() || !body.stripLeading().startsWith("{")) return body;
+        return SENSITIVE_FIELD_PATTERN.matcher(body).replaceAll("$1\"[REDACTED]\"");
+    }
 
     private final GatewayLogService gatewayLogService;
 
@@ -86,9 +119,9 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         log.setMethod(req.getMethod());
         log.setPath(req.getRequestURI());
         log.setRequestHeaders(serializeHeaders(req));
-        log.setRequestBody(bodyString(req.getContentAsByteArray()));
+        log.setRequestBody(redactSensitiveFields(bodyString(req.getContentAsByteArray())));
         log.setResponseStatus(res.getStatus());
-        log.setResponseBody(bodyString(res.getContentAsByteArray()));
+        log.setResponseBody(redactSensitiveFields(bodyString(res.getContentAsByteArray())));
         log.setDurationMs(durationMs);
 
         gatewayLogService.log(log);

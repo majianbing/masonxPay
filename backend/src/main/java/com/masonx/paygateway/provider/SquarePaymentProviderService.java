@@ -86,8 +86,8 @@ public class SquarePaymentProviderService implements PaymentProviderService {
             return new ChargeResult(true, paymentId, responseJson, null, null, false);
 
         } catch (HttpClientErrorException e) {
-            log.error("Square charge failed: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
             String code = parseSquareErrorCode(e.getResponseBodyAsString());
+            log.error("Square charge failed: {} — {}", e.getStatusCode(), code);
             // HTTP 4xx from Square is typically a card decline (non-retryable)
             return new ChargeResult(false, null, null, code, e.getMessage(), false);
         } catch (Exception e) {
@@ -132,7 +132,8 @@ public class SquarePaymentProviderService implements PaymentProviderService {
                     succeeded ? null : "Refund status: " + status);
 
         } catch (HttpClientErrorException e) {
-            log.error("Square refund failed: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
+            String code = parseSquareErrorCode(e.getResponseBodyAsString());
+            log.error("Square refund failed: {} — {}", e.getStatusCode(), code);
             return new RefundResult(false, null, e.getMessage());
         } catch (Exception e) {
             log.error("Square refund error", e);
