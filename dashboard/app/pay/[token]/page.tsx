@@ -89,6 +89,32 @@ async function fetchBraintreeClientToken(linkToken: string): Promise<string> {
   return (data as { clientToken: string }).clientToken;
 }
 
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+function PaymentFormSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="animate-pulse space-y-3 py-1">
+      {/* payment method tabs */}
+      {rows > 1 && (
+        <div className="flex gap-2">
+          <div className="h-10 w-24 rounded-lg bg-gray-200" />
+          <div className="h-10 w-24 rounded-lg bg-gray-200" />
+          <div className="h-10 w-20 rounded-lg bg-gray-200" />
+        </div>
+      )}
+      {/* card number */}
+      <div className="h-10 w-full rounded-md bg-gray-200" />
+      {/* expiry + cvc */}
+      {rows > 1 && (
+        <div className="flex gap-3">
+          <div className="h-10 flex-1 rounded-md bg-gray-200" />
+          <div className="h-10 flex-1 rounded-md bg-gray-200" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Stripe Payment Element (supports cards, wallets, bank transfers, BNPL…) ──
 
 function StripeCardForm({
@@ -179,7 +205,10 @@ function StripeCardForm({
 
   return (
     <div className="space-y-4">
-      <div ref={mountRef} className="min-h-[42px]" />
+      <div className="relative">
+        {!ready && <PaymentFormSkeleton />}
+        <div ref={mountRef} className={!ready ? 'opacity-0' : ''} />
+      </div>
 
       {error && (
         <p className="text-xs text-red-500 flex items-center gap-1">
@@ -294,7 +323,10 @@ function BraintreeDropInForm({
 
   return (
     <div className="space-y-4">
-      <div ref={mountRef} className="min-h-[42px]" />
+      <div className="relative">
+        {!ready && <PaymentFormSkeleton />}
+        <div ref={mountRef} className={!ready ? 'opacity-0' : ''} />
+      </div>
       {error && (
         <p className="text-xs text-red-500 flex items-center gap-1">
           <XCircle className="size-3" /> {error}
@@ -475,7 +507,10 @@ function SquareCardForm({
 
       <div className="space-y-1.5">
         <label className="text-sm font-medium">Card details</label>
-        <div ref={cardMountRef} className="min-h-[42px]" />
+        <div className="relative">
+          {!ready && <PaymentFormSkeleton rows={1} />}
+          <div ref={cardMountRef} className={!ready ? 'opacity-0' : ''} />
+        </div>
       </div>
 
       {error && (
