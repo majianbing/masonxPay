@@ -78,6 +78,11 @@ const STYLES = `
 .gw-submit:hover:not(:disabled) { opacity: 0.9; }
 .gw-card-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: white; }
 .gw-wallets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+@keyframes gw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.gw-skeleton { animation: gw-pulse 1.5s ease-in-out infinite; }
+.gw-skeleton-line { height: 40px; background: #f1f5f9; border-radius: 6px; margin-bottom: 10px; }
+.gw-skeleton-row { display: flex; gap: 10px; }
+.gw-skeleton-row .gw-skeleton-line { flex: 1; margin-bottom: 0; }
 `;
 
 let stylesInjected = false;
@@ -265,6 +270,7 @@ export class GatewayEmbedded {
     await this.destroyProviderForms();
     this.area.innerHTML = '';
     this.showError(null);
+    this.showSkeleton();
 
     const opt = this.session.providers.find(p => p.provider === provider);
     if (!opt) return;
@@ -283,6 +289,7 @@ export class GatewayEmbedded {
     this.submitBtn.disabled = true;
 
     if (!window.Stripe) await this.loadScript('https://js.stripe.com/v3/');
+    this.area.innerHTML = '';
     if (!window.Stripe) { this.showError('Failed to load Stripe.js'); return; }
 
     this.stripe = window.Stripe(opt.clientKey);
@@ -336,6 +343,7 @@ export class GatewayEmbedded {
       ? 'https://web.squarecdn.com/v1/square.js'
       : 'https://sandbox.web.squarecdn.com/v1/square.js';
     if (!window.Square) await this.loadScript(scriptUrl);
+    this.area.innerHTML = '';
     if (!window.Square) { this.showError('Failed to load Square SDK'); return; }
 
     const payments = window.Square.payments(opt.clientKey, opt.clientConfig?.['locationId'] ?? '');
@@ -408,6 +416,7 @@ export class GatewayEmbedded {
     if (!window.braintree?.dropin) {
       await this.loadScript('https://js.braintreegateway.com/web/dropin/1.43.0/js/dropin.min.js');
     }
+    this.area.innerHTML = '';
     if (!window.braintree?.dropin) { this.showError('Failed to load Braintree SDK'); return; }
 
     const mountDiv = document.createElement('div');
@@ -546,6 +555,18 @@ export class GatewayEmbedded {
     if (!this.errEl) return;
     this.errEl.textContent = msg ?? '';
     this.errEl.style.display = msg ? '' : 'none';
+  }
+
+  private showSkeleton(): void {
+    if (!this.area) return;
+    this.area.innerHTML = `
+      <div class="gw-skeleton">
+        <div class="gw-skeleton-line"></div>
+        <div class="gw-skeleton-row">
+          <div class="gw-skeleton-line"></div>
+          <div class="gw-skeleton-line"></div>
+        </div>
+      </div>`;
   }
 
   private fmt(amount: number, currency: string): string {
