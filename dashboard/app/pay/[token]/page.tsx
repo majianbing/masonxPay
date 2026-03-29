@@ -211,13 +211,6 @@ export default function PayPage() {
       )}
 
       <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <p className="text-sm text-muted-foreground">{session.merchantName}</p>
-          <h1 className="text-2xl font-semibold mt-1">{session.title}</h1>
-          {session.description && (
-            <p className="text-sm text-muted-foreground mt-1">{session.description}</p>
-          )}
-        </div>
 
         <div className="bg-white rounded-2xl shadow-sm border p-6">
           {result ? (
