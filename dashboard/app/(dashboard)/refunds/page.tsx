@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface Refund {
   id: string;
@@ -33,22 +34,44 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED:    'bg-red-100 text-red-700',
 };
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function RefundsPage() {
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
   const mode = useAuthStore((s) => s.mode);
   const router = useRouter();
+
   const [page, setPage] = useState(0);
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const debouncedSearch = useDebounce(search, 400);
+
+  useEffect(() => { setPage(0); }, [debouncedSearch, dateFrom, dateTo]);
 
   const { data, isLoading } = useQuery<PageResponse>({
-    queryKey: ['refunds', activeMerchantId, mode, page],
+    queryKey: ['refunds', activeMerchantId, mode, page, debouncedSearch, dateFrom, dateTo],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), size: '20', mode });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
       return apiFetch<PageResponse>(
         `/api/v1/merchants/${activeMerchantId}/payment-intents/refunds?${params}`,
       );
     },
     enabled: !!activeMerchantId,
   });
+
+  const hasFilters = !!search || !!dateFrom || !!dateTo;
 
   return (
     <div className="space-y-4">
@@ -59,6 +82,40 @@ export default function RefundsPage() {
             To issue a new refund, open the payment detail page.
           </p>
         </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <Input
+          placeholder="Search by ID or payment ID…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-60"
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          title="From date"
+        />
+        <span className="text-muted-foreground text-sm">→</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          title="To date"
+        />
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setSearch(''); setDateFrom(''); setDateTo(''); }}
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
       <Card>

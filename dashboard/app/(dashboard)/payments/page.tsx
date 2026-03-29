@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
@@ -78,18 +78,44 @@ const columns = [
   }),
 ];
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function PaymentsPage() {
   const router = useRouter();
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
   const mode = useAuthStore((s) => s.mode);
+
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [providerFilter, setProviderFilter] = useState('ALL');
+  const [idSearch, setIdSearch] = useState('');
+  const [labelSearch, setLabelSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const debouncedId = useDebounce(idSearch, 400);
+  const debouncedLabel = useDebounce(labelSearch, 400);
+
+  // Reset to page 0 whenever any filter changes
+  useEffect(() => { setPage(0); }, [statusFilter, providerFilter, debouncedId, debouncedLabel, dateFrom, dateTo]);
 
   const { data, isLoading } = useQuery<PageResponse>({
-    queryKey: ['payment-intents', activeMerchantId, page, statusFilter, mode],
+    queryKey: ['payment-intents', activeMerchantId, page, statusFilter, providerFilter, debouncedId, debouncedLabel, dateFrom, dateTo, mode],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), size: '20', sort: 'createdAt,desc', mode });
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
+      if (providerFilter !== 'ALL') params.set('provider', providerFilter);
+      if (debouncedId) params.set('search', debouncedId);
+      if (debouncedLabel) params.set('labelSearch', debouncedLabel);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
       return apiFetch<PageResponse>(`/api/v1/merchants/${activeMerchantId}/payment-intents?${params}`);
     },
     enabled: !!activeMerchantId,
@@ -103,14 +129,23 @@ export default function PaymentsPage() {
     pageCount: data?.totalPages ?? 0,
   });
 
+  const hasFilters = statusFilter !== 'ALL' || providerFilter !== 'ALL' || idSearch || labelSearch || dateFrom || dateTo;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Payments</h1>
       </div>
 
-      <div className="flex gap-3">
-        <Select value={statusFilter} onValueChange={(v: string | null) => setStatusFilter(v ?? 'ALL')}>
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <Input
+          placeholder="Search by ID…"
+          value={idSearch}
+          onChange={(e) => setIdSearch(e.target.value)}
+          className="w-44"
+        />
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v)}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -122,6 +157,54 @@ export default function PaymentsPage() {
             <SelectItem value="CANCELED">Canceled</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={providerFilter} onValueChange={(v) => setProviderFilter(v)}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="All providers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All providers</SelectItem>
+            <SelectItem value="STRIPE">Stripe</SelectItem>
+            <SelectItem value="SQUARE">Square</SelectItem>
+            <SelectItem value="BRAINTREE">Braintree</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input
+          placeholder="Connector label…"
+          value={labelSearch}
+          onChange={(e) => setLabelSearch(e.target.value)}
+          className="w-40"
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          title="From date"
+        />
+        <span className="text-muted-foreground text-sm">→</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          title="To date"
+        />
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStatusFilter('ALL');
+              setProviderFilter('ALL');
+              setIdSearch('');
+              setLabelSearch('');
+              setDateFrom('');
+              setDateTo('');
+            }}
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
       <Card>
