@@ -24,6 +24,12 @@ interface Refund {
   createdAt: string;
 }
 
+const METHOD_LABELS: Record<string, string> = {
+  card: 'Card', google_pay: 'Google Pay', apple_pay: 'Apple Pay',
+  ideal: 'iDEAL', amazon_pay: 'Amazon Pay', sofort: 'Sofort',
+  link: 'Link', paypal: 'PayPal', cash_app: 'Cash App', cashapp: 'Cash App',
+};
+
 interface PaymentAttempt {
   id: string;
   status: string;
@@ -138,9 +144,16 @@ export default function PaymentDetailPage() {
           <CardContent className="space-y-3">
             {payment.attempts.map((a, i) => (
               <div key={a.id} className="border rounded-md p-3 text-sm space-y-1">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="font-medium">Attempt #{i + 1}</span>
-                  <StatusBadge status={a.status} />
+                  <div className="flex items-center gap-2">
+                    {a.paymentMethodType && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                        {METHOD_LABELS[a.paymentMethodType.toLowerCase()] ?? a.paymentMethodType}
+                      </span>
+                    )}
+                    <StatusBadge status={a.status} />
+                  </div>
                 </div>
                 <div className="text-muted-foreground text-xs">{format(new Date(a.createdAt), 'MMM d, yyyy HH:mm:ss')}</div>
                 {a.providerRequestId && <div className="font-mono text-xs">{a.providerRequestId}</div>}

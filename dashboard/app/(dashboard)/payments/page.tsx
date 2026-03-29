@@ -17,6 +17,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
+interface PaymentAttempt {
+  id: string;
+  paymentMethodType: string;
+  status: string;
+}
+
 interface PaymentIntent {
   id: string;
   amount: number;
@@ -26,6 +32,7 @@ interface PaymentIntent {
   connectorAccountLabel: string | null;
   mode: string;
   createdAt: string;
+  attempts: PaymentAttempt[];
 }
 
 interface PageResponse {
@@ -33,6 +40,33 @@ interface PageResponse {
   totalElements: number;
   totalPages: number;
   number: number;
+}
+
+// Human-readable labels for every known payment method type
+const METHOD_LABELS: Record<string, string> = {
+  card:        'Card',
+  google_pay:  'Google Pay',
+  apple_pay:   'Apple Pay',
+  ideal:       'iDEAL',
+  amazon_pay:  'Amazon Pay',
+  sofort:      'Sofort',
+  link:        'Link',
+  paypal:      'PayPal',
+  cash_app:    'Cash App',
+  cashapp:     'Cash App',
+  unknown:     '—',
+};
+
+function methodLabel(type: string | undefined): string {
+  if (!type) return '—';
+  return METHOD_LABELS[type.toLowerCase()] ?? type;
+}
+
+/** Pick the succeeded attempt's method type; fall back to the last attempt. */
+function effectiveMethod(attempts: PaymentAttempt[]): string | undefined {
+  if (!attempts?.length) return undefined;
+  return (attempts.find((a) => a.status === 'SUCCEEDED') ?? attempts[attempts.length - 1])
+    .paymentMethodType;
 }
 
 const col = createColumnHelper<PaymentIntent>();
@@ -63,6 +97,13 @@ const columns = [
         </span>
       );
     },
+  }),
+  col.display({
+    id: 'paymentMethod',
+    header: 'Method',
+    cell: (i) => (
+      <span className="text-xs">{methodLabel(effectiveMethod(i.row.original.attempts))}</span>
+    ),
   }),
   col.accessor('mode', {
     header: 'Mode',
@@ -95,6 +136,7 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [providerFilter, setProviderFilter] = useState('ALL');
+  const [methodFilter, setMethodFilter] = useState('ALL');
   const [idSearch, setIdSearch] = useState('');
   const [labelSearch, setLabelSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -103,7 +145,7 @@ export default function PaymentsPage() {
   const debouncedId = useDebounce(idSearch, 400);
   const debouncedLabel = useDebounce(labelSearch, 400);
 
-  // Reset to page 0 whenever any filter changes
+  // Server-side filters reset page; method filter is client-side so no reset needed
   useEffect(() => { setPage(0); }, [statusFilter, providerFilter, debouncedId, debouncedLabel, dateFrom, dateTo]);
 
   const { data, isLoading } = useQuery<PageResponse>({
@@ -121,15 +163,23 @@ export default function PaymentsPage() {
     enabled: !!activeMerchantId,
   });
 
+  // Method filter is client-side — applied after the server page is fetched
+  const visibleRows = methodFilter === 'ALL'
+    ? (data?.content ?? [])
+    : (data?.content ?? []).filter(
+        (p) => effectiveMethod(p.attempts)?.toLowerCase() === methodFilter,
+      );
+
   const table = useReactTable({
-    data: data?.content ?? [],
+    data: visibleRows,
     columns,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     pageCount: data?.totalPages ?? 0,
   });
 
-  const hasFilters = statusFilter !== 'ALL' || providerFilter !== 'ALL' || idSearch || labelSearch || dateFrom || dateTo;
+  const hasFilters = statusFilter !== 'ALL' || providerFilter !== 'ALL' || methodFilter !== 'ALL'
+    || idSearch || labelSearch || dateFrom || dateTo;
 
   return (
     <div className="space-y-4">
@@ -146,7 +196,7 @@ export default function PaymentsPage() {
           className="w-44"
         />
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? 'ALL')}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger className="w-40">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -166,6 +216,23 @@ export default function PaymentsPage() {
             <SelectItem value="STRIPE">Stripe</SelectItem>
             <SelectItem value="SQUARE">Square</SelectItem>
             <SelectItem value="BRAINTREE">Braintree</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={methodFilter} onValueChange={(v) => setMethodFilter(v ?? 'ALL')}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="All methods" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All methods</SelectItem>
+            <SelectItem value="card">Card</SelectItem>
+            <SelectItem value="google_pay">Google Pay</SelectItem>
+            <SelectItem value="apple_pay">Apple Pay</SelectItem>
+            <SelectItem value="ideal">iDEAL</SelectItem>
+            <SelectItem value="amazon_pay">Amazon Pay</SelectItem>
+            <SelectItem value="sofort">Sofort</SelectItem>
+            <SelectItem value="link">Link</SelectItem>
+            <SelectItem value="paypal">PayPal</SelectItem>
+            <SelectItem value="cash_app">Cash App</SelectItem>
           </SelectContent>
         </Select>
         <Input
@@ -196,6 +263,7 @@ export default function PaymentsPage() {
             onClick={() => {
               setStatusFilter('ALL');
               setProviderFilter('ALL');
+              setMethodFilter('ALL');
               setIdSearch('');
               setLabelSearch('');
               setDateFrom('');
@@ -223,9 +291,9 @@ export default function PaymentsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">Loading…</td></tr>
               ) : table.getRowModel().rows.length === 0 ? (
-                <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">No payments found</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No payments found</td></tr>
               ) : (
                 table.getRowModel().rows.map((row) => (
                   <tr
@@ -247,7 +315,11 @@ export default function PaymentsPage() {
       </Card>
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{data?.totalElements ?? 0} total payments</span>
+        <span>
+          {methodFilter !== 'ALL'
+            ? `${visibleRows.length} of ${data?.totalElements ?? 0} payments`
+            : `${data?.totalElements ?? 0} total payments`}
+        </span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Previous
