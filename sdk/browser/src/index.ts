@@ -105,6 +105,7 @@ export class GatewayEmbedded {
   private submitBtn: HTMLButtonElement | null = null;
 
   private selectedProvider: string | null = null;
+  private skeletonEl: HTMLElement | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private stripe: any = null;
@@ -268,6 +269,7 @@ export class GatewayEmbedded {
     });
 
     await this.destroyProviderForms();
+    this.area.innerHTML = '';
     this.showError(null);
     this.showSkeleton();
     if (this.submitBtn) this.submitBtn.disabled = true;
@@ -275,33 +277,38 @@ export class GatewayEmbedded {
     const opt = this.session.providers.find(p => p.provider === provider);
     if (!opt) return;
 
-    let formEl: HTMLElement | null = null;
+    // Pre-attach a hidden slot so provider SDKs can access a live DOM node
+    // (Braintree dropin and Square card.attach require the container to be in the document)
+    const slot = document.createElement('div');
+    slot.hidden = true;
+    this.area.appendChild(slot);
+
     try {
-      if (provider === 'STRIPE') formEl = await this.buildStripeForm(opt);
-      else if (provider === 'SQUARE') formEl = await this.buildSquareForm(opt);
-      else if (provider === 'BRAINTREE') formEl = await this.buildBraintreeForm();
+      if (provider === 'STRIPE') await this.buildStripeForm(opt, slot);
+      else if (provider === 'SQUARE') await this.buildSquareForm(opt, slot);
+      else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot);
     } catch (e) {
-      this.area.innerHTML = '';
+      slot.remove();
+      this.clearSkeleton();
       this.showError((e as Error).message);
       return;
     }
 
-    // ── Single place skeleton is cleared — enforced for every provider ────────
-    this.area.innerHTML = '';
-    if (formEl) this.area.appendChild(formEl);
+    // ── Single place: skeleton cleared, form revealed — enforced for every provider ──
+    this.clearSkeleton();
+    slot.hidden = false;
   }
 
   // ── Stripe ─────────────────────────────────────────────────────────────────
   // Hosted mode  : Payment Element (multi-method, accordion layout)
   // Embedded mode: Card Element (backwards-compatible for existing integrations)
 
-  private async buildStripeForm(opt: ProviderOption): Promise<HTMLElement> {
+  private async buildStripeForm(opt: ProviderOption, container: HTMLElement): Promise<void> {
     if (!this.session) throw new Error('No session');
     if (!window.Stripe) await this.loadScript('https://js.stripe.com/v3/');
     if (!window.Stripe) throw new Error('Failed to load Stripe.js');
 
     this.stripe = window.Stripe(opt.clientKey);
-    const container = document.createElement('div');
 
     if (this.isHostedMode) {
       const elements = this.stripe.elements({
@@ -333,13 +340,11 @@ export class GatewayEmbedded {
       card.on('change', (e: any) => this.showError(e.error?.message ?? null));
       this.stripeCard = card;
     }
-
-    return container;
   }
 
   // ── Square ─────────────────────────────────────────────────────────────────
 
-  private async buildSquareForm(opt: ProviderOption): Promise<HTMLElement> {
+  private async buildSquareForm(opt: ProviderOption, container: HTMLElement): Promise<void> {
     if (!this.session) throw new Error('No session');
 
     const scriptUrl = this.session.mode === 'LIVE'
@@ -348,7 +353,6 @@ export class GatewayEmbedded {
     if (!window.Square) await this.loadScript(scriptUrl);
     if (!window.Square) throw new Error('Failed to load Square SDK');
 
-    const container = document.createElement('div');
     const payments = window.Square.payments(opt.clientKey, opt.clientConfig?.['locationId'] ?? '');
 
     const paymentRequest = payments.paymentRequest({
@@ -395,12 +399,11 @@ export class GatewayEmbedded {
     this.squareCard = card;
 
     if (this.submitBtn) this.submitBtn.disabled = false;
-    return container;
   }
 
   // ── Braintree ──────────────────────────────────────────────────────────────
 
-  private async buildBraintreeForm(): Promise<HTMLElement> {
+  private async buildBraintreeForm(container: HTMLElement): Promise<void> {
     const tokenUrl = this.checkoutLinkToken
       ? `${this.baseUrl}/pub/braintree-client-token?linkToken=${encodeURIComponent(this.checkoutLinkToken)}`
       : `${this.baseUrl}/pub/braintree-client-token`;
@@ -417,7 +420,6 @@ export class GatewayEmbedded {
     }
     if (!window.braintree?.dropin) throw new Error('Failed to load Braintree SDK');
 
-    const container = document.createElement('div');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.braintreeDropin = await (window.braintree as any).dropin.create({
       authorization: clientToken,
@@ -425,7 +427,6 @@ export class GatewayEmbedded {
     });
 
     if (this.submitBtn) this.submitBtn.disabled = false;
-    return container;
   }
 
   private async destroyProviderForms(): Promise<void> {
@@ -556,14 +557,21 @@ export class GatewayEmbedded {
 
   private showSkeleton(): void {
     if (!this.area) return;
-    this.area.innerHTML = `
-      <div class="gw-skeleton">
+    const el = document.createElement('div');
+    el.className = 'gw-skeleton';
+    el.innerHTML = `
+      <div class="gw-skeleton-line"></div>
+      <div class="gw-skeleton-row">
         <div class="gw-skeleton-line"></div>
-        <div class="gw-skeleton-row">
-          <div class="gw-skeleton-line"></div>
-          <div class="gw-skeleton-line"></div>
-        </div>
+        <div class="gw-skeleton-line"></div>
       </div>`;
+    this.area.appendChild(el);
+    this.skeletonEl = el;
+  }
+
+  private clearSkeleton(): void {
+    this.skeletonEl?.remove();
+    this.skeletonEl = null;
   }
 
   private fmt(amount: number, currency: string): string {
