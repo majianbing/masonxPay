@@ -35,3 +35,4 @@ target/
 /sdk/server/node_modules/
 ./src/
 /src/
+/bench/results/

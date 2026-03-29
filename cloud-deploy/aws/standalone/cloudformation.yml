@@ -13,13 +13,11 @@ Metadata:
       - Label: {default: "Source"}
         Parameters: [GitRepoUrl, GitBranch]
       - Label: {default: "Secrets (required)"}
-        Parameters: [JwtSecret, DBPassword]
+        Parameters: [JwtSecret, DBPassword, EncryptionKey]
       - Label: {default: "Stripe (optional)"}
         Parameters: [StripeSecretKey, StripeWebhookSecret]
       - Label: {default: "Email / SMTP (optional)"}
         Parameters: [MailHost, MailPort, MailUsername, MailPassword]
-      - Label: {default: "Encryption (optional)"}
-        Parameters: [EncryptionKey]
 
 # ─────────────────────────────────────────────────────────────────────────────
 Parameters:
@@ -52,7 +50,6 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Default: "Password123!"
     MinLength: 8
     Description: PostgreSQL password for the app user.
 
@@ -89,8 +86,8 @@ Parameters:
   EncryptionKey:
     Type: String
     NoEcho: true
-    Default: ""
-    Description: "(Optional) AES-256 key — generate with: openssl rand -base64 32"
+    MinLength: 32
+    Description: "AES-256 encryption key for connector credentials and MFA secrets — generate with: openssl rand -base64 32"
 
 # ─────────────────────────────────────────────────────────────────────────────
 Resources:

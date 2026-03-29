@@ -1,0 +1,88 @@
+# Compose override: resource-constrained stack + k6 benchmark runner
+#
+# ── Quick start ──────────────────────────────────────────────────────────────
+#
+#   # 1. Start the constrained stack (replaces docker compose up)
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build
+#
+#   # 2. Run the benchmark (k6 exits when done; results printed to stdout)
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml --profile bench run --rm k6
+#
+# ── Instance-size profiles ───────────────────────────────────────────────────
+#
+#   t3.small  (default)  2 vCPU / 2 GB
+#     BENCH_BACKEND_CPU=1.0  BENCH_BACKEND_MEM=1g
+#     BENCH_DB_CPU=0.5       BENCH_DB_MEM=512m
+#     BENCH_DASH_CPU=0.25    BENCH_DASH_MEM=256m
+#
+#   t3.medium            2 vCPU / 4 GB
+#     BENCH_BACKEND_CPU=1.25 BENCH_BACKEND_MEM=2g
+#     BENCH_DB_CPU=0.5       BENCH_DB_MEM=1g
+#     BENCH_DASH_CPU=0.25    BENCH_DASH_MEM=512m
+#
+#   t3.large             2 vCPU / 8 GB
+#     BENCH_BACKEND_CPU=1.75 BENCH_BACKEND_MEM=3g
+#     BENCH_DB_CPU=0.75      BENCH_DB_MEM=2g
+#     BENCH_DASH_CPU=0.25    BENCH_DASH_MEM=512m
+#
+#   Pass them as env vars on the same line:
+#     BENCH_BACKEND_CPU=1.25 BENCH_BACKEND_MEM=2g BENCH_DB_MEM=1g \
+#       docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build
+#
+# ── Benchmark scenarios (k6) ─────────────────────────────────────────────────
+#   smoke        — 1 VU × 1 min            verify the stack is healthy
+#   average_load — ramp 0→20 VUs over 8 m  ~100 k tx/day sustained
+#   spike        — ramp 0→100 VUs over 4 m stress-test ceiling
+#
+# ── Customising the run ───────────────────────────────────────────────────────
+#   Override BASE_URL to point at a remote backend:
+#     BASE_URL=https://api.example.com docker compose ... run --rm k6
+#
+#   Save results as JSON:
+#     K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=bench/results/report.html \
+#       docker compose ... run --rm k6
+
+services:
+
+  # ── Apply resource limits to simulate target instance sizes ─────────────────
+
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_DB_CPU:-0.5}'
+          memory: ${BENCH_DB_MEM:-512m}
+
+  backend:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_BACKEND_CPU:-1.0}'
+          memory: ${BENCH_BACKEND_MEM:-1g}
+
+  dashboard:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_DASH_CPU:-0.25}'
+          memory: ${BENCH_DASH_MEM:-256m}
+
+  # ── k6 load runner ──────────────────────────────────────────────────────────
+  # Profile: bench — only starts when --profile bench is supplied.
+  # Depends on the backend health check so k6 never fires before Spring Boot is ready.
+
+  k6:
+    image: grafana/k6:latest
+    profiles: [bench]
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./bench/k6:/scripts:ro
+      - ./bench/results:/results
+    environment:
+      BASE_URL: ${BASE_URL:-http://backend:8080}
+      # HTML report with charts — open bench/results/report.html after the run
+      K6_WEB_DASHBOARD: "true"
+      K6_WEB_DASHBOARD_EXPORT: /results/report.html
+    command: run --out json=/results/results.json /scripts/script.js
