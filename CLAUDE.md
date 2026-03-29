@@ -59,18 +59,21 @@ docker-compose.yml                Local quickstart (all 3 services)
 
 | Concern | Approach |
 |---|---|
-| Provider credentials (Stripe sk_xxx, etc.) | AES-256 encrypted in DB |
+| Provider credentials (Stripe sk_xxx, etc.) | AES-256-GCM encrypted in DB (`EncryptionService`) |
 | Refresh tokens | SHA-256 hashed in DB, rotated on each use |
 | Invite tokens | SHA-256 hashed, 48h expiry, single-use |
 | Webhook payloads | HMAC-SHA256 signed (Stripe-compatible format) |
+| TOTP MFA secret | AES-256-GCM encrypted in DB; backup codes SHA-256 hashed, single-use |
+| API request/response bodies in `gateway_logs` | `ApiRequestLoggingFilter` regex-redacts known sensitive JSON field values (`secretKey`, `accessToken`, `privateKey`, `password`, `refreshToken`, `mfaSecret`, etc.) before DB write |
 
 ## Database
 
-- PostgreSQL + Flyway — 26 migrations (V1–V26)
+- PostgreSQL + Flyway — 27 migrations (V1–V27)
 - `ddl-auto: validate` in production — Flyway owns the schema, never Hibernate
 - `gateway_logs` is time-partitioned (V13)
 - All financial state transitions go through the service layer — no direct repo writes from controllers
 - `payment_links.pinned_connector_id` — used by connector preview to scope checkout to one account (V26)
+- `users.mfa_enabled / mfa_secret / mfa_backup_codes` — optional TOTP MFA fields (V27)
 
 ## Local Development
 
@@ -179,6 +182,53 @@ Every new table must include a `merchant_id` column and all queries must be scop
 - `selectProvider()` owns the full skeleton lifecycle — show before builder, clear + reveal after. Builders receive a pre-attached hidden `<div>` slot and populate it; they are skeleton-unaware.
 - The pay button has a periodic gloss sheen animation (CSS `::after` + `@keyframes gw-btn-sheen`); skeleton bars use a left-to-right shimmer sweep (`@keyframes gw-shimmer`).
 - Hosted mode two-phase flow: `mountCheckout` → detect redirect return (`?payment_intent_client_secret`) or render form → `buildStripeForm` lazily calls `/prepare-stripe` and caches `stripeClientSecret` → `submitStripe` calls `confirmPayment({ redirect: 'if_required' })` → in-place completions call `/stripe-result` to create the DB record.
+
+## MFA Architecture
+
+Optional TOTP-based MFA for merchant portal users (Google/Microsoft Authenticator compatible).
+
+### Login two-step flow
+```
+POST /api/v1/auth/login
+  → MFA disabled  → full AuthResponse (mfaRequired: false, mfaEnabled: false)
+  → MFA enabled   → { mfaRequired: true, mfaSessionToken: <5-min JWT> }
+
+POST /api/v1/auth/mfa/verify  { mfaSessionToken, code }
+  → validates TOTP or backup code → full AuthResponse
+```
+
+### MFA session token
+- Short-lived JWT (5 min), claim `jwtType: "MFA_SESSION"`
+- `JwtAuthFilter` explicitly rejects any bearer token where `jwtType == "MFA_SESSION"` — it cannot be used as an access token
+- Only accepted at `POST /auth/mfa/verify`
+
+### MFA endpoints (all under `/api/v1/auth/`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `POST` | `/mfa/verify` | Public | Exchange session token + TOTP code → full tokens |
+| `POST` | `/mfa/setup` | JWT | Generate encrypted secret + QR URI (not yet active) |
+| `POST` | `/mfa/confirm` | JWT | Verify scanned code → activate MFA, return 8 backup codes |
+| `DELETE` | `/mfa` | JWT | Disable MFA (requires live code) |
+| `GET` | `/mfa/status` | JWT | `{ mfaEnabled: boolean }` |
+
+### Backup codes
+- 8 codes generated as `XXXX-XXXX` hex strings
+- SHA-256 hashed before storage in `users.mfa_backup_codes` (JSON array)
+- Single-use: consumed on first use
+
+### Dashboard
+- Warning banner (amber, dismissible per `sessionStorage` session) shown on all pages when MFA is not set up
+- `/settings/security` — QR code display (`qrcode.react`), confirm flow, backup codes panel, disable flow
+- Login page shows TOTP step 2 when `mfaRequired: true`; supports backup code toggle
+
+## Logging Security Rules
+
+`ApiRequestLoggingFilter` stores API request/response bodies in `gateway_logs`. The following rules MUST be maintained:
+
+- **Sensitive field redaction**: `redactSensitiveFields()` regex-replaces values of known sensitive JSON keys with `"[REDACTED]"` before DB write. The field list: `password`, `passwordHash`, `secretKey`, `accessToken`, `privateKey`, `publicKey`, `refreshToken`, `mfaSecret`, `mfaBackupCodes`, `mfaSessionToken`, `code`, `btPrivateKey`, `btPublicKey`
+- **Webhook endpoints**: NEVER log raw webhook bodies or headers — they contain HMAC signatures and payment data. `WebhookSimulatorController` logs only remote IP + body size
+- **Provider error responses**: log only the parsed error code, NOT `e.getResponseBodyAsString()` — provider error responses can contain payment tokens
+- When adding new sensitive fields (new provider credentials, new auth tokens), add them to the `SENSITIVE_FIELDS` set in `ApiRequestLoggingFilter`
 
 ## Do NOT Suggest
 
