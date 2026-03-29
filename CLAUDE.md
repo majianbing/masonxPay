@@ -66,10 +66,11 @@ docker-compose.yml                Local quickstart (all 3 services)
 
 ## Database
 
-- PostgreSQL + Flyway — 22 migrations (V1–V22)
+- PostgreSQL + Flyway — 26 migrations (V1–V26)
 - `ddl-auto: validate` in production — Flyway owns the schema, never Hibernate
 - `gateway_logs` is time-partitioned (V13)
 - All financial state transitions go through the service layer — no direct repo writes from controllers
+- `payment_links.pinned_connector_id` — used by connector preview to scope checkout to one account (V26)
 
 ## Local Development
 
@@ -90,41 +91,72 @@ cd dashboard && npm run dev         # port 3000
 Always follow this order. Each layer depends on the previous one.
 
 ### 1. Backend
+
+**Enum + credentials (sealed interface)**
 - Add value to `PaymentProvider` enum
 - Create `XxxCredentials` record implementing `ProviderCredentials` (sealed — add to `permits`)
-- Update `CredentialsCodec`: `encode`, `decode`, `clientKeyFor`, `clientConfigFor` switch cases
+
+**Codec** — most error-prone step, four switch cases must all be consistent:
+- `encode` — serialize credentials to encrypted blob
+- `decode` — deserialize and return the correct `XxxCredentials` type
+- `clientKeyFor` — return the publishable/client key the browser SDK receives; returning `null` silently hides this provider from the checkout picker
+- `clientConfigFor` — return any extra map the SDK needs (e.g. Square needs `{"locationId": "..."}`)
+
+**DTO + service**
 - Add credential fields to `CreateProviderAccountRequest` DTO
-- Add `XxxPaymentProviderService` implementing `PaymentProviderService` (`brand`, `charge`, `refund`)
-- Add `XxxWebhookController` at `POST /api/v1/providers/xxx/webhook` for status reconciliation
-- Add SDK dependency to `pom.xml`
-- If the provider needs a dynamic client token (like Braintree), add `GET /pub/xxx-client-token`
-- Verify `mvn compile` passes
+- Create `XxxPaymentProviderService` implementing `PaymentProviderService` (`brand`, `charge`, `refund`) — register as `@Service`, `PaymentProviderDispatcher` picks it up automatically
+
+**Webhook controller**
+- `POST /api/v1/providers/xxx/webhook` — verify provider signature, reconcile payment intent status
+
+**pom.xml** — add the provider's Java SDK dependency
+
+**Dynamic client token** (only if needed — Braintree pattern):
+- Add `GET /pub/xxx-client-token` — already whitelisted in `SecurityConfig` under `/pub/**`
+- SDK calls this before mounting the form; store the token; pass to the Drop-in/Elements init
+
+**Verify:** `mvn compile`
 
 ### 2. Dashboard (merchant portal)
 - Add provider to `PROVIDERS` array and `PROVIDER_META` in `connectors/page.tsx`
 - Add credential fields to the Zod schema + `superRefine` validation
 - Add `<SelectItem>` to the provider dropdown
-- Add conditional field block in the form
+- Add conditional credential field block in the form
 - Add brand entry to `lib/provider-brands.tsx` (name, SVG icon, color)
 
-### 3. SDK only — pay page is a consumer, not an owner
-- **Browser SDK** (`sdk/browser/src/index.ts`) is the single source of truth for all client-side payment UI: provider picker, payment form, pay button, success/failure callbacks.
-- Add `mountXxx`, `submitXxx` for the new provider; update `selectProvider`, `submit`, `destroyProviderForms`, `brandName`, and the hosted-mode path in `mountCheckout`.
-- The pay page (`dashboard/app/pay/[token]/page.tsx`) calls `gw.mountCheckout(containerEl, { linkToken, onSuccess, onError })` and renders nothing provider-specific itself. **Do NOT add provider-specific React components or form logic to the pay page.**
-- Any other future consumer (embeddable widget, mobile webview, white-label page) follows the same pattern: mount the SDK, handle callbacks, own nothing provider-specific.
+### 3. Browser SDK — single source of truth
+
+**`sdk/browser/src/index.ts`** owns all client-side payment UI. Pages are consumers only.
+
+- Add `private buildXxxForm(opt, container): Promise<void>` — populate the pre-attached live DOM slot; do NOT manage skeleton or call `disabled` here
+- Add `private submitXxx(): Promise<void>`
+- Update `selectProvider()`: add `else if (provider === 'XXX') await this.buildXxxForm(opt, slot)`
+- Update `submit()`: add `else if (this.selectedProvider === 'XXX') await this.submitXxx()`
+- Update `destroyProviderForms()`: tear down any SDK state for the new provider
+- Update `brandName()` map
+
+**Skeleton lifecycle** — `selectProvider()` owns it; builders must NOT call `showSkeleton`/`clearSkeleton`. Pre-attach a hidden `slot` to the live DOM before calling the builder (required for iframe-injecting SDKs like Square and Braintree).
+
+**Stripe redirect pattern** (in-page vs redirect methods):
+- Hosted mode uses `stripe.confirmPayment({ redirect: 'if_required' })` — handles both card (in-place) and redirect methods (iDEAL, Amazon Pay, etc.)
+- On redirect return, `mountCheckout` detects `?payment_intent_client_secret` in the URL, calls `GET /pub/pay/{token}/stripe-result`, then fires `onSuccess`/`onError`
+- `stripeClientSecret` is cached per `GatewayEmbedded` instance (set on first Stripe selection, cleared only on `destroy()`) — prevents creating multiple PIs when the user switches providers back and forth
+
+**The pay page** (`dashboard/app/pay/[token]/page.tsx`) calls `gw.mountCheckout(containerEl, { linkToken, onSuccess, onError })` and renders nothing provider-specific. **Do NOT add provider-specific React/JSX to the pay page.**
 
 ### Provider client-key pattern
-| Provider | `clientKey` returned by checkout-session | Client-side init |
+| Provider | `clientKey` from checkout-session | Client-side init |
 |---|---|---|
-| Stripe | `publishableKey` (static) | `Stripe(clientKey)` |
+| Stripe | `publishableKey` (static) | `Stripe(clientKey)` then `stripe.elements({ clientSecret })` |
 | Square | `applicationId` (static) | `Square.payments(clientKey, locationId)` |
-| Braintree | `merchantId` (static) | Needs `GET /pub/braintree-client-token` → Drop-in UI |
+| Braintree | `merchantId` (static) | Needs `GET /pub/braintree-client-token` first → Drop-in UI |
 
-Providers that require a dynamic server-generated token (like Braintree) need an extra public endpoint under `/pub/**` — already whitelisted in `SecurityConfig`.
+### Connector preview — free once SDK is wired
+The preview feature (`/connectors/[accountId]/preview`) works automatically for any provider once the SDK step is done. `POST /{accountId}/preview-link` creates a 15-min TEST payment link with `pinned_connector_id`, which scopes `checkout-session` to return only that provider and bypasses routing in `tokenize`. No extra preview-specific backend code needed per provider.
 
 ### 4. README (root `README.md`)
 - Add the new connector to the supported connectors list
-- Include: name, sandbox signup link, what credentials are required
+- Include: name, sandbox signup link, required credentials
 
 ### Planned connectors
 - [x] Stripe
@@ -141,9 +173,12 @@ Every new table must include a `merchant_id` column and all queries must be scop
 
 **The browser SDK (`sdk/browser/src/index.ts`) is the single source of truth for all client-side payment UI.**
 
-- Provider picker, payment form inputs, pay button, and result handling all live in the SDK.
+- Provider picker, payment form inputs, pay button, loading skeleton, and result handling all live in the SDK.
 - Pages and apps are consumers: they call `mountCheckout()` and handle `onSuccess`/`onError`. They own no provider-specific JSX or logic.
 - When adding a new provider, update the SDK. Pages update only if a new lifecycle callback is needed.
+- `selectProvider()` owns the full skeleton lifecycle — show before builder, clear + reveal after. Builders receive a pre-attached hidden `<div>` slot and populate it; they are skeleton-unaware.
+- The pay button has a periodic gloss sheen animation (CSS `::after` + `@keyframes gw-btn-sheen`); skeleton bars use a left-to-right shimmer sweep (`@keyframes gw-shimmer`).
+- Hosted mode two-phase flow: `mountCheckout` → detect redirect return (`?payment_intent_client_secret`) or render form → `buildStripeForm` lazily calls `/prepare-stripe` and caches `stripeClientSecret` → `submitStripe` calls `confirmPayment({ redirect: 'if_required' })` → in-place completions call `/stripe-result` to create the DB record.
 
 ## Do NOT Suggest
 
