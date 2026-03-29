@@ -23,17 +23,21 @@ Cloudformation manage infrastructure, easy to use. But it's cloud-specific, mayb
 
 ALB + WAF
 
+Certificate Management
+
 CloudFront CDN
 
 VPC private network
 
-	EC2 -> Backend
+	EC2 * 2 -> Backend
 
 	Amplify -> Dashboard
 
 	S3 -> SDK static files
 
-	RDS PostgreSQL
+	RDS PostgreSQL micro/small
+
+
 
 
 ```
