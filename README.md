@@ -270,16 +270,82 @@ Covers: payment intents, refunds, API keys, webhook endpoints, webhook verificat
 
 ### `@gateway/browser` — browser-side (TypeScript / plain JS)
 
-See [`sdk/browser/README.md`](sdk/browser/README.md) for the full reference.
+**Architecture: the SDK is the single source of truth for all client-side payment UI.**
+The provider picker, payment form inputs, pay button, and result callbacks all live inside the SDK.
+Pages and apps (including the hosted `/pay/[token]` page) are consumers — they call `mountCheckout()` and handle `onSuccess`/`onError`. They own no provider-specific logic.
+
+#### Two modes
+
+| Mode | Use case | Entry point |
+|------|----------|-------------|
+| **Hosted** | Merchant-created pay links at `/pay/{token}` | `gw.mountCheckout(el, { linkToken, onSuccess, onError })` |
+| **Embedded** | Drop the form into your own page with `pk_xxx` | `gw.mount(el)` + listen for `token` event |
+
+#### Hosted mode — `mountCheckout`
+
+```ts
+import { GatewayEmbedded } from '@gateway/browser';
+
+const gw = new GatewayEmbedded('', { baseUrl: 'https://your-backend' });
+
+gw.on('ready', () => { /* form is mounted and interactive */ });
+
+await gw.mountCheckout(document.getElementById('payment-container'), {
+  linkToken: 'lnk_xxx',          // from the pay link URL
+  onSuccess: (result) => {
+    console.log(result.paymentIntentId); // charge complete
+  },
+  onError: (err) => {
+    console.error(err.message);
+  },
+});
+
+// Cleanup (e.g. React useEffect return)
+gw.destroy();
+```
+
+#### Embedded mode — `mount` + `token` event
+
+```ts
+const gw = new GatewayEmbedded('pk_test_xxx', { baseUrl: 'https://your-backend' });
+
+gw.on('ready', () => { /* form ready */ });
+gw.on('token', async ({ paymentMethodId }) => {
+  // paymentMethodId is a gateway token (gw_tok_xxx)
+  // send it to your server to call POST /api/v1/payment-intents
+});
+gw.on('error', ({ message }) => { /* show error */ });
+
+await gw.mount('#payment-container');
+```
+
+#### Local development — no build step required
+
+The dashboard references the SDK as a local package (`file:../sdk/browser`).
+Next.js is configured with `transpilePackages: ['@gateway/browser']` and the SDK `main` points directly to `src/index.ts`, so **Next.js imports and compiles the TypeScript source at dev time**.
+
+```
+# Terminal 1
+cd backend && mvn spring-boot:run
+
+# Terminal 2 — SDK changes are picked up automatically; no sdk build needed
+cd dashboard && npm run dev
+```
+
+When you edit `sdk/browser/src/index.ts`, Turbopack detects the change through the symlink and hot-reloads the pay page. If a change isn't reflected, restart `npm run dev`.
+
+#### Docker — SDK is built into the image
+
+`docker compose up --build` copies `sdk/browser/` into the dashboard image before `npm ci`, so the container always uses the SDK source as it exists at build time. To pick up SDK changes in Docker, re-run `docker compose up --build`.
+
+#### Distributable bundle (for `<script>` tag consumers)
 
 ```bash
 cd sdk/browser && npm install
-
-npm run build   # TypeScript → dist/  (for npm consumers)
-npm run bundle  # Minified IIFE → dist/gateway-sdk.min.js  (for <script> tag consumers)
+npm run bundle  # → dist/gateway-sdk.min.js
 ```
 
-The pre-built files (`gateway-sdk.js` and `gateway-sdk.min.js`) are served directly from `dashboard/public/` and can be copied to any CDN or static host.
+The pre-built files (`gateway-sdk.js` and `gateway-sdk.min.js`) in `dashboard/public/` can be served from any CDN or static host.
 
 ---
 
