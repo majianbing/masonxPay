@@ -47,10 +47,40 @@ public class JwtService {
                 .subject(userDetails.getUserId().toString())
                 .claim("email", userDetails.getUsername())
                 .claim("type", "MERCHANT_USER")
+                .claim("jwtType", "ACCESS")
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(accessTokenExpiryMs)))
                 .signWith(signingKey)
                 .compact();
+    }
+
+    /** Short-lived token (5 min) used only at /auth/mfa/verify — rejected by JwtAuthFilter. */
+    public String generateMfaSessionToken(UUID userId) {
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .subject(userId.toString())
+                .claim("jwtType", "MFA_SESSION")
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusMillis(5 * 60 * 1000L)))
+                .signWith(signingKey)
+                .compact();
+    }
+
+    public UUID extractUserIdFromMfaToken(String token) {
+        Claims claims = parseToken(token);
+        if (!"MFA_SESSION".equals(claims.get("jwtType", String.class))) {
+            throw new IllegalArgumentException("Not an MFA session token");
+        }
+        return UUID.fromString(claims.getSubject());
+    }
+
+    public boolean isMfaSessionToken(String token) {
+        try {
+            Claims claims = parseToken(token);
+            return "MFA_SESSION".equals(claims.get("jwtType", String.class));
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
     }
 
     public Claims parseToken(String token) {

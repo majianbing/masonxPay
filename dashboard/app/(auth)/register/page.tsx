@@ -48,7 +48,7 @@ export default function RegisterPage() {
       });
 
       setAuth(
-        { id: res.userId, email: res.email },
+        { id: res.userId, email: res.email, mfaEnabled: false },
         res.accessToken,
         res.refreshToken,
         res.memberships ?? [],

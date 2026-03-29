@@ -9,6 +9,7 @@ export type AppMode = 'TEST' | 'LIVE';
 export interface AuthUser {
   id: string;
   email: string;
+  mfaEnabled: boolean;
 }
 
 export interface MerchantMembership {
@@ -39,6 +40,7 @@ interface AuthState {
     refreshToken: string,
     memberships: OrgMembership[],
   ) => void;
+  setMfaEnabled: (enabled: boolean) => void;
   setMemberships: (memberships: OrgMembership[]) => void;
   setActiveMerchant: (orgId: string, merchantId: string) => void;
   toggleMode: () => void;
@@ -76,6 +78,9 @@ export const useAuthStore = create<AuthState>()(
           ...defaultSelection(memberships),
         });
       },
+
+      setMfaEnabled: (enabled) =>
+        set((s) => ({ user: s.user ? { ...s.user, mfaEnabled: enabled } : null })),
 
       setMemberships: (memberships) =>
         set((s) => ({

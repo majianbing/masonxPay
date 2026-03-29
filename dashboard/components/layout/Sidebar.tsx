@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch,
-  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap,
+  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
@@ -28,6 +28,7 @@ const nav = [
   },
   { href: '/team', label: 'Team', icon: Users },
   { href: '/settings/merchant', label: 'Settings', icon: Settings },
+  { href: '/settings/security', label: 'Security', icon: ShieldCheck },
 ];
 
 export default function Sidebar() {

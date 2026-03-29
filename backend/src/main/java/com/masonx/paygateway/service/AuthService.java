@@ -38,6 +38,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
+    private final MfaService mfaService;
 
     @Value("${app.jwt.refresh-token-expiry-ms}")
     private long refreshTokenExpiryMs;
@@ -50,7 +51,8 @@ public class AuthService {
                        RefreshTokenRepository refreshTokenRepository,
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
-                       AuthenticationManager authenticationManager) {
+                       AuthenticationManager authenticationManager,
+                       MfaService mfaService) {
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
         this.organizationUserRepository = organizationUserRepository;
@@ -60,6 +62,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.authenticationManager = authenticationManager;
+        this.mfaService = mfaService;
     }
 
     /**
@@ -106,6 +109,22 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(req.email(), req.password()));
         MerchantUserDetails principal = (MerchantUserDetails) auth.getPrincipal();
         User user = userRepository.findByEmail(principal.getUsername()).orElseThrow();
+
+        if (user.isMfaEnabled()) {
+            return AuthResponse.mfaPending(jwtService.generateMfaSessionToken(user.getId()));
+        }
+        return issueTokens(user);
+    }
+
+    /** Second step of login: validates the TOTP/backup code and issues full tokens. */
+    public AuthResponse verifyMfa(String mfaSessionToken, String code) {
+        UUID userId = jwtService.extractUserIdFromMfaToken(mfaSessionToken);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (!mfaService.verify(user, code)) {
+            throw new IllegalArgumentException("Invalid MFA code");
+        }
         return issueTokens(user);
     }
 
@@ -147,7 +166,8 @@ public class AuthService {
 
         List<AuthResponse.OrgMembership> memberships = buildMemberships(user.getId());
 
-        return new AuthResponse(accessToken, rawRefresh, "Bearer", user.getId(), user.getEmail(), memberships);
+        return new AuthResponse(accessToken, rawRefresh, "Bearer", user.getId(), user.getEmail(),
+                memberships, false, null, user.isMfaEnabled());
     }
 
     public List<AuthResponse.OrgMembership> buildMemberships(UUID userId) {

@@ -94,6 +94,13 @@
             <version>3.19.0</version>
         </dependency>
 
+        <!-- TOTP (Google/Microsoft Authenticator) -->
+        <dependency>
+            <groupId>dev.samstevens.totp</groupId>
+            <artifactId>totp</artifactId>
+            <version>1.7.1</version>
+        </dependency>
+
         <!-- Dotenv -->
         <dependency>
             <groupId>me.paulschwarz</groupId>

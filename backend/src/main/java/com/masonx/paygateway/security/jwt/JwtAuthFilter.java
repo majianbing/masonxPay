@@ -36,7 +36,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(7);
-        if (!jwtService.isValid(token)) {
+        if (!jwtService.isValid(token) || jwtService.isMfaSessionToken(token)) {
+            // MFA session tokens are only valid at /auth/mfa/verify, not as bearer access tokens
             filterChain.doFilter(request, response);
             return;
         }
