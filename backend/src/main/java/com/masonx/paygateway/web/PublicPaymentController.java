@@ -20,6 +20,7 @@ import com.masonx.paygateway.web.dto.PublicCheckoutResponse;
 import com.stripe.exception.StripeException;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.PaymentIntentRetrieveParams;
 import jakarta.validation.Valid;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
@@ -235,7 +236,10 @@ public class PublicPaymentController {
 
         try {
             RequestOptions opts = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
-            com.stripe.model.PaymentIntent pi = com.stripe.model.PaymentIntent.retrieve(piId, opts);
+            PaymentIntentRetrieveParams retrieveParams = PaymentIntentRetrieveParams.builder()
+                    .addExpand("payment_method")
+                    .build();
+            com.stripe.model.PaymentIntent pi = com.stripe.model.PaymentIntent.retrieve(piId, retrieveParams, opts);
             boolean succeeded = "succeeded".equals(pi.getStatus());
 
             // Claim the link atomically — if someone else already claimed it (e.g. webhook),
@@ -245,9 +249,12 @@ public class PublicPaymentController {
                         true, "SUCCEEDED", null, null, null, link.getRedirectUrl()));
             }
 
-            // Determine payment method type from the PI
-            String pmType = (pi.getPaymentMethodTypes() != null && !pi.getPaymentMethodTypes().isEmpty())
-                    ? pi.getPaymentMethodTypes().get(0) : "unknown";
+            // Determine payment method type from the actual payment method used (not allowed types list)
+            com.stripe.model.PaymentMethod pm = pi.getPaymentMethodObject();
+            String pmType = (pm != null && pm.getType() != null)
+                    ? pm.getType()
+                    : (pi.getPaymentMethodTypes() != null && !pi.getPaymentMethodTypes().isEmpty()
+                            ? pi.getPaymentMethodTypes().get(0) : "unknown");
 
             // Failure details
             String failureCode = null;
