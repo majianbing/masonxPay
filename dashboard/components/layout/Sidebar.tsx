@@ -27,14 +27,25 @@ const nav = [
     ],
   },
   { href: '/team', label: 'Team', icon: Users },
-  { href: '/settings/merchant', label: 'Settings', icon: Settings },
-  { href: '/settings/security', label: 'Security', icon: ShieldCheck },
+  {
+    label: 'Settings', icon: Settings,
+    children: [
+      { href: '/settings/merchant', label: 'Merchant', icon: Settings },
+      { href: '/settings/security', label: 'Security', icon: ShieldCheck },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const isInDevelopers = pathname.startsWith('/developers');
-  const [devOpen, setDevOpen] = useState(isInDevelopers);
+  const [open, setOpen] = useState<Record<string, boolean>>({
+    Developers: pathname.startsWith('/developers'),
+    Settings: pathname.startsWith('/settings'),
+  });
+
+  function toggle(label: string) {
+    setOpen((prev) => ({ ...prev, [label]: !prev[label] }));
+  }
 
   return (
     <aside className="w-60 shrink-0 border-r bg-white flex flex-col h-full">
@@ -51,14 +62,14 @@ export default function Sidebar() {
           'children' in item ? (
             <div key={item.label} className="mb-1">
               <button
-                onClick={() => setDevOpen((o) => !o)}
+                onClick={() => toggle(item.label)}
                 className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
               >
                 <item.icon className="size-4" />
                 {item.label}
-                <ChevronRight className={cn('size-3 ml-auto transition-transform', devOpen && 'rotate-90')} />
+                <ChevronRight className={cn('size-3 ml-auto transition-transform', open[item.label] && 'rotate-90')} />
               </button>
-              {devOpen && item.children?.map((child) => (
+              {open[item.label] && item.children?.map((child) => (
                 <NavLink key={child.href} href={child.href} label={child.label} icon={child.icon} pathname={pathname} indent />
               ))}
             </div>
