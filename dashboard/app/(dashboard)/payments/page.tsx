@@ -145,7 +145,7 @@ export default function PaymentsPage() {
           onChange={(e) => setIdSearch(e.target.value)}
           className="w-44"
         />
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v)}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? 'ALL')}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -157,7 +157,7 @@ export default function PaymentsPage() {
             <SelectItem value="CANCELED">Canceled</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={providerFilter} onValueChange={(v) => setProviderFilter(v)}>
+        <Select value={providerFilter} onValueChange={(v) => setProviderFilter(v ?? 'ALL')}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="All providers" />
           </SelectTrigger>
