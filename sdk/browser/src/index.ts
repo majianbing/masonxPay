@@ -78,9 +78,13 @@ const STYLES = `
 .gw-submit:hover:not(:disabled) { opacity: 0.9; }
 .gw-card-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: white; }
 .gw-wallets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
-@keyframes gw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-.gw-skeleton { animation: gw-pulse 1.5s ease-in-out infinite; }
-.gw-skeleton-line { height: 40px; background: #f1f5f9; border-radius: 6px; margin-bottom: 10px; }
+@keyframes gw-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.gw-skeleton-line {
+  height: 40px; border-radius: 6px; margin-bottom: 10px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e8edf5 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: gw-shimmer 1.4s ease-in-out infinite;
+}
 .gw-skeleton-row { display: flex; gap: 10px; }
 .gw-skeleton-row .gw-skeleton-line { flex: 1; margin-bottom: 0; }
 `;
