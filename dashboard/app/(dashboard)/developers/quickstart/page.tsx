@@ -133,17 +133,36 @@ link = res.json()
 print(link['payUrl'])   # share this with your customer`,
 };
 
-const EMBED_CHECKOUT = `<!-- After creating a payment link on your server, embed it on your page -->
+const EMBED_CHECKOUT = `<!-- Option 1: raw iframe — paste the payUrl directly into your page -->
 <iframe
   src="{{PAY_URL}}"
   width="460"
   height="520"
   style="border:none; border-radius:12px"
   allow="payment"
-></iframe>
+></iframe>`;
 
-<!-- The iframe handles card input. Your server is notified via webhook.  -->
-<!-- Card details never touch your server — you stay out of PCI scope.   -->`;
+const MOUNT_CHECKOUT = `// Option 2: JavaScript SDK — no iframe, mounts directly into your page.
+// The SDK renders the provider picker, payment form, and Pay button.
+// <script src="https://pay.yourgateway.com/gateway-sdk.js"></script>
+// <div id="payment-container"></div>
+
+const gw = new GatewayEmbedded('', { baseUrl: '{{API_URL}}' });
+
+gw.on('ready', () => { /* form is interactive */ });
+
+await gw.mountCheckout('#payment-container', {
+  linkToken: link.token,   // the token from the payUrl: /pay/<token>
+  onSuccess: (result) => {
+    console.log('Payment complete', result.paymentIntentId);
+  },
+  onError: (err) => {
+    console.error(err.message);
+  },
+});
+
+// Cleanup when your component unmounts
+// gw.destroy();`;
 
 const CREATE_PAYMENT: Record<Lang, string> = {
   curl: `# Step 1: Create payment intent
@@ -355,24 +374,26 @@ export default function QuickstartPage() {
         </div>
       </Section>
 
-      {/* Step 2 — Hosted checkout (our SDK) */}
+      {/* Step 2 — Hosted checkout */}
       <Section step={2} title="Option A — Hosted checkout (recommended)"
-        description="Create a payment link from your server. The customer opens it (or you embed it as an iframe) — our hosted page collects the card, runs it through our provider network, and redirects back.">
+        description="Create a payment link from your server. The customer opens the URL, or you embed it on your page — our SDK renders the provider picker, payment form, and Pay button. Card details never touch your server.">
         <div className="space-y-3">
           <p className="text-sm font-medium">1. Create the payment link (server-side)</p>
           <CodeBlock code={CREATE_LINK[lang]} language={lang === 'curl' ? 'bash' : lang} vars={vars} />
-          <p className="text-sm font-medium mt-4">2. Embed the checkout on your page</p>
+          <p className="text-sm font-medium mt-4">2a. Embed as a raw iframe</p>
           <CodeBlock code={EMBED_CHECKOUT} language="html" vars={vars} />
+          <p className="text-sm font-medium mt-2">2b. Or mount with the JavaScript SDK (no iframe)</p>
+          <CodeBlock code={MOUNT_CHECKOUT} language="javascript" vars={vars} />
           <div className="rounded-lg border bg-blue-50 border-blue-200 p-3 text-xs text-blue-700 mt-2">
-            <strong>Why this keeps you out of PCI scope:</strong> card details are entered inside our hosted iframe.
+            <strong>Why this keeps you out of PCI scope:</strong> card details are entered inside the SDK-rendered form.
             Your server only ever sees a payment status — never a card number or provider token.
           </div>
         </div>
       </Section>
 
-      {/* Step 3 — Direct API */}
-      <Section step={3} title="Option B — Direct API"
-        description="For full control over the checkout UX. Your frontend tokenizes the card using the provider's JS SDK embedded in our hosted fields, gets back a gateway token, then your server calls our API.">
+      {/* Step 3 — Embedded SDK */}
+      <Section step={3} title="Option B — Embedded SDK (Pattern B)"
+        description="Drop the SDK form into your own checkout page. The browser collects the card and returns a gateway token (gw_tok_xxx) — your server uses it to create and confirm a payment intent. Routing is resolved browser-side.">
         <CodeBlock code={CREATE_PAYMENT[lang]} language={lang === 'curl' ? 'bash' : lang} vars={vars} />
         <div className="mt-3 rounded-lg border overflow-hidden">
           <div className="bg-gray-50 px-4 py-2 border-b text-xs font-medium text-muted-foreground">Response</div>

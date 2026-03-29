@@ -91,7 +91,7 @@
       <div style="display:flex;flex-direction:column;gap:12px;">
         <div class="field">
           <label>Gateway URL</label>
-          <input id="apiUrl" value="http://localhost:8012" placeholder="https://api.yourgateway.com" />
+          <input id="apiUrl" value="http://localhost:8080" placeholder="https://api.yourgateway.com" />
         </div>
         <div class="field">
           <label>Your Secret Key</label>
@@ -314,25 +314,40 @@ link = response.<span class="fn">json</span>()
 <span class="cm">&lt;!-- Your server is notified via webhook when payment completes.  --&gt;</span>
 <span class="cm">&lt;!-- Card details never touch your server — you stay out of PCI.  --&gt;</span></pre>
 
-      <pre id="code-sdk" style="display:none"><span class="cm">&lt;!-- 1. Add to your page (no build step needed) --&gt;</span>
+      <pre id="code-sdk" style="display:none"><span class="cm">&lt;!-- Load once on your page --&gt;</span>
 <span class="str">&lt;script src="https://pay.yourgateway.com/gateway-sdk.js"&gt;&lt;/script&gt;</span>
-<span class="str">&lt;div id="payment-form"&gt;&lt;/div&gt;</span>
+<span class="str">&lt;div id="payment-container"&gt;&lt;/div&gt;</span>
 
-<span class="cm">// 2. Mount the form with your publishable key</span>
-<span class="kw">const</span> gw = <span class="kw">new</span> <span class="fn">GatewayEmbedded</span>(<span class="str">'pk_test_xxxx'</span>, {
+<span class="cm">// ── Hosted mode: mount a payment link's checkout (no iframe needed) ──────────</span>
+<span class="cm">// Provider picker, form, and Pay button are all rendered by the SDK.</span>
+<span class="kw">const</span> gw = <span class="kw">new</span> <span class="fn">GatewayEmbedded</span>(<span class="str">''</span>, {
   baseUrl: <span class="str">'https://api.yourgateway.com'</span>
 });
 
-<span class="kw">await</span> gw.<span class="fn">mount</span>(<span class="str">'#payment-form'</span>);
+gw.<span class="fn">on</span>(<span class="str">'ready'</span>, () => { <span class="cm">/* form is interactive */</span> });
 
-<span class="cm">// 3. When customer clicks Pay, you get a gateway token</span>
-gw.<span class="fn">on</span>(<span class="str">'token'</span>, <span class="kw">async</span> ({ gatewayToken, provider }) => {
-  <span class="cm">// gatewayToken = "gw_tok_xxx" — safe to send to your server</span>
-  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'/your-server/pay'</span>, {
+<span class="kw">await</span> gw.<span class="fn">mountCheckout</span>(<span class="str">'#payment-container'</span>, {
+  linkToken: <span class="str">'lnk_xxx'</span>,  <span class="cm">// token from the payUrl: /pay/&lt;token&gt;</span>
+  onSuccess: (result) => <span class="fn">console</span>.<span class="fn">log</span>(<span class="str">'paid'</span>, result.paymentIntentId),
+  onError:   (err)    => <span class="fn">console</span>.<span class="fn">error</span>(err.message),
+});
+
+gw.<span class="fn">destroy</span>(); <span class="cm">// call when your component/page unmounts</span>
+
+<span class="cm">// ── Embedded mode (Pattern B): mount with pk_xxx, receive a gateway token ────</span>
+<span class="cm">// Use when you want the card form on your own page and confirm server-side.</span>
+<span class="kw">const</span> gw2 = <span class="kw">new</span> <span class="fn">GatewayEmbedded</span>(<span class="str">'pk_test_xxxx'</span>, {
+  baseUrl: <span class="str">'https://api.yourgateway.com'</span>
+});
+
+<span class="kw">await</span> gw2.<span class="fn">mount</span>(<span class="str">'#payment-container'</span>);
+
+gw2.<span class="fn">on</span>(<span class="str">'token'</span>, <span class="kw">async</span> ({ gatewayToken }) => {
+  <span class="cm">// send gatewayToken to your server → create + confirm PaymentIntent</span>
+  <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'/your-server/pay'</span>, {
     method: <span class="str">'POST'</span>,
     body: <span class="fn">JSON.stringify</span>({ gatewayToken, amount: <span class="str">4200</span>, currency: <span class="str">'usd'</span> }),
   });
-  <span class="cm">// Your server creates + confirms a PaymentIntent with sk_xxx + gatewayToken</span>
 });</pre>
     </div>
   </div>
