@@ -106,6 +106,7 @@ export class GatewayEmbedded {
 
   private selectedProvider: string | null = null;
   private skeletonEl: HTMLElement | null = null;
+  private stripeClientSecret: string | null = null;  // cached per instance; cleared only on destroy()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private stripe: any = null;
@@ -164,6 +165,32 @@ export class GatewayEmbedded {
     this.checkoutOnSuccess = options.onSuccess;
     this.checkoutOnError = options.onError ?? null;
 
+    // Detect redirect return from Stripe (iDEAL, Amazon Pay, etc.)
+    // Stripe appends ?payment_intent_client_secret=... to the return URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const piClientSecret = urlParams.get('payment_intent_client_secret');
+    if (piClientSecret) {
+      this.renderReturnLoading();
+      try {
+        const resultRes = await fetch(
+          `${this.baseUrl}/pub/pay/${encodeURIComponent(options.linkToken)}/stripe-result` +
+          `?piClientSecret=${encodeURIComponent(piClientSecret)}`
+        );
+        const data = await resultRes.json() as CheckoutResult;
+        if (!resultRes.ok) throw new Error((data as unknown as { detail?: string }).detail ?? 'Payment result check failed');
+        if (data.success && data.redirectUrl) {
+          window.location.href = data.redirectUrl;
+        } else if (data.success) {
+          this.checkoutOnSuccess?.(data);
+        } else {
+          this.checkoutOnError?.(new Error(data.failureMessage ?? 'Payment was not successful'));
+        }
+      } catch (e) {
+        this.checkoutOnError?.(e as Error);
+      }
+      return this;
+    }
+
     const res = await fetch(
       `${this.baseUrl}/pub/checkout-session?linkToken=${encodeURIComponent(options.linkToken)}`
     );
@@ -212,6 +239,7 @@ export class GatewayEmbedded {
     this.submitBtn = null;
     this.session = null;
     this.selectedProvider = null;
+    this.stripeClientSecret = null;
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -311,11 +339,22 @@ export class GatewayEmbedded {
     this.stripe = window.Stripe(opt.clientKey);
 
     if (this.isHostedMode) {
+      // Lazy-create the Stripe PaymentIntent — cached so switching providers and back reuses it
+      if (!this.stripeClientSecret) {
+        const prepRes = await fetch(
+          `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken!)}/prepare-stripe`,
+          { method: 'POST' }
+        );
+        if (!prepRes.ok) {
+          const err = await prepRes.json().catch(() => ({})) as { detail?: string };
+          throw new Error(err.detail ?? 'Failed to prepare Stripe checkout');
+        }
+        const { clientSecret } = await prepRes.json() as { clientSecret: string };
+        this.stripeClientSecret = clientSecret;
+      }
+
       const elements = this.stripe.elements({
-        mode: 'payment',
-        amount: this.session.amount ?? 0,
-        currency: (this.session.currency ?? 'usd').toLowerCase(),
-        paymentMethodCreation: 'manual',
+        clientSecret: this.stripeClientSecret,
         appearance: { theme: 'stripe' },
       });
       this.stripeElements = elements;
@@ -463,11 +502,29 @@ export class GatewayEmbedded {
     if (!this.stripe) throw new Error('Stripe not ready');
 
     if (this.isHostedMode && this.stripeElements) {
-      const { error: submitError } = await this.stripeElements.submit();
-      if (submitError) throw new Error(submitError.message ?? 'Validation error');
-      const { paymentMethod, error } = await this.stripe.createPaymentMethod({ elements: this.stripeElements });
-      if (error || !paymentMethod) throw new Error(error?.message ?? 'Payment method error');
-      await this.tokenizeAndSubmit('STRIPE', paymentMethod.id);
+      // confirmPayment handles all method types:
+      // - Card/wallets: completes in-place (redirect: 'if_required' stays on page)
+      // - Redirect methods (iDEAL, Amazon Pay, etc.): navigates to provider, returns via return_url
+      const { error } = await this.stripe.confirmPayment({
+        elements: this.stripeElements,
+        confirmParams: { return_url: window.location.href },
+        redirect: 'if_required',
+      });
+      if (error) throw new Error(error.message ?? 'Payment failed');
+
+      // No redirect — payment confirmed in-place (card, Apple Pay, etc.)
+      // Call stripe-result to create our DB record and get the CheckoutResult
+      const res = await fetch(
+        `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken!)}/stripe-result` +
+        `?piClientSecret=${encodeURIComponent(this.stripeClientSecret!)}`
+      );
+      const data = await res.json() as CheckoutResult;
+      if (!res.ok) throw new Error((data as unknown as { detail?: string }).detail ?? 'Payment failed');
+      if (data.success && data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      } else {
+        this.checkoutOnSuccess?.(data);
+      }
     } else {
       if (!this.stripeCard) throw new Error('Stripe card not ready');
       const { paymentMethod, error } = await this.stripe.createPaymentMethod({ type: 'card', card: this.stripeCard });
@@ -548,6 +605,23 @@ export class GatewayEmbedded {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /** Shows a loading skeleton while checking a Stripe redirect return */
+  private renderReturnLoading(): void {
+    if (!this.container) return;
+    this.container.innerHTML = '';
+    this.container.className = 'gw-checkout';
+    const el = document.createElement('div');
+    el.className = 'gw-skeleton';
+    el.style.padding = '16px 0';
+    el.innerHTML = `
+      <div class="gw-skeleton-line"></div>
+      <div class="gw-skeleton-row">
+        <div class="gw-skeleton-line"></div>
+        <div class="gw-skeleton-line"></div>
+      </div>`;
+    this.container.appendChild(el);
+  }
 
   private showError(msg: string | null): void {
     if (!this.errEl) return;
