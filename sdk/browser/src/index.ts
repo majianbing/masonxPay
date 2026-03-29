@@ -73,9 +73,11 @@ const STYLES = `
 .gw-pill--active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
 .gw-payment-area { margin-bottom: 16px; min-height: 42px; }
 .gw-error { color: #ef4444; font-size: 12px; margin-bottom: 8px; }
-.gw-submit { width: 100%; padding: 12px; background: #0f172a; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+.gw-submit { position: relative; overflow: hidden; width: 100%; padding: 12px; background: #0f172a; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
 .gw-submit:disabled { opacity: 0.5; cursor: not-allowed; }
 .gw-submit:hover:not(:disabled) { opacity: 0.9; }
+.gw-submit:not(:disabled)::after { content: ''; position: absolute; top: 0; left: -75%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent); transform: skewX(-20deg); animation: gw-btn-sheen 3s ease-in-out infinite; }
+@keyframes gw-btn-sheen { 0%, 65% { left: -75%; } 80% { left: 125%; } 100% { left: 125%; } }
 .gw-card-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: white; }
 .gw-wallets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 @keyframes gw-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
