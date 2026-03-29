@@ -33,7 +33,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     private static final Set<String> SENSITIVE_FIELDS = Set.of(
             "password", "passwordhash",
             "secretkey", "accesstoken", "privatekey", "publickey",
-            "refreshtoken", "accesstoken",
+            "refreshtoken",
             "mfasecret", "mfabackupcodes", "mfasessiontoken", "code",
             "btprivatekey", "btpublickey"
     );
