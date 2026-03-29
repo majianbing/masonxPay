@@ -104,6 +104,22 @@ export default function PreviewPage() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 
+  const SESSION_KEY = `preview_link_token_${params.accountId}`;
+
+  // On mount: if Stripe redirected back with a payment_intent_client_secret, restore the
+  // saved linkToken from sessionStorage so the SDK can complete the flow.
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment_intent_client_secret')) {
+      const saved = sessionStorage.getItem(SESSION_KEY);
+      if (saved) {
+        setMounting(true);
+        setLinkToken(saved);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { data: connectors = [] } = useQuery<ProviderAccount[]>({
     queryKey: ['connectors', activeMerchantId, 'TEST'],
     queryFn: () => apiFetch<ProviderAccount[]>(`/api/v1/merchants/${activeMerchantId}/connectors?mode=TEST`),
@@ -132,6 +148,7 @@ export default function PreviewPage() {
         `/api/v1/merchants/${activeMerchantId}/connectors/${params.accountId}/preview-link`,
         { method: 'POST', body: JSON.stringify({ amount: cents, currency: currency.toLowerCase() }) },
       );
+      sessionStorage.setItem(SESSION_KEY, data.linkToken);
       setLinkToken(data.linkToken);
     } catch (e) {
       setLinkError((e as Error).message ?? 'Failed to start preview');
@@ -148,8 +165,21 @@ export default function PreviewPage() {
 
     gw.mountCheckout(sdkContainerRef.current, {
       linkToken,
-      onSuccess: (r) => { setResult(r); setLinkToken(null); },
-      onError: (e) => { setLinkError(e.message); setLinkToken(null); },
+      onSuccess: (r) => {
+        sessionStorage.removeItem(SESSION_KEY);
+        // Strip Stripe redirect params from the URL without a page reload
+        const clean = window.location.pathname;
+        window.history.replaceState({}, '', clean);
+        setResult(r);
+        setLinkToken(null);
+      },
+      onError: (e) => {
+        sessionStorage.removeItem(SESSION_KEY);
+        const clean = window.location.pathname;
+        window.history.replaceState({}, '', clean);
+        setLinkError(e.message);
+        setLinkToken(null);
+      },
     }).finally(() => setMounting(false));
 
     return () => { gw.destroy(); gwRef.current = null; };
@@ -239,7 +269,7 @@ export default function PreviewPage() {
             <ResultOverlay
               result={result}
               currency={currency}
-              onReset={() => { setResult(null); setLinkToken(null); }}
+              onReset={() => { sessionStorage.removeItem(SESSION_KEY); setResult(null); setLinkToken(null); }}
             />
           ) : (
             <div className="space-y-4">
