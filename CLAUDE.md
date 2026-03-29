@@ -107,10 +107,11 @@ Always follow this order. Each layer depends on the previous one.
 - Add conditional field block in the form
 - Add brand entry to `lib/provider-brands.tsx` (name, SVG icon, color)
 
-### 3. SDK + Pay Page (update together — they share the same pattern)
-- **Pay page** (`dashboard/app/pay/[token]/page.tsx`): add `XxxCardForm` component and wire into `CheckoutForm`
-- **Browser SDK** (`sdk/browser/src/index.ts`): add `mountXxx`, `submitXxx`, update `selectProvider`, `submit`, `destroyProviderForms`, `brandName`
-- Both use the same tokenize → gateway token → checkout flow; only the provider-specific JS SDK init differs
+### 3. SDK only — pay page is a consumer, not an owner
+- **Browser SDK** (`sdk/browser/src/index.ts`) is the single source of truth for all client-side payment UI: provider picker, payment form, pay button, success/failure callbacks.
+- Add `mountXxx`, `submitXxx` for the new provider; update `selectProvider`, `submit`, `destroyProviderForms`, `brandName`, and the hosted-mode path in `mountCheckout`.
+- The pay page (`dashboard/app/pay/[token]/page.tsx`) calls `gw.mountCheckout(containerEl, { linkToken, onSuccess, onError })` and renders nothing provider-specific itself. **Do NOT add provider-specific React components or form logic to the pay page.**
+- Any other future consumer (embeddable widget, mobile webview, white-label page) follows the same pattern: mount the SDK, handle callbacks, own nothing provider-specific.
 
 ### Provider client-key pattern
 | Provider | `clientKey` returned by checkout-session | Client-side init |
@@ -135,6 +136,14 @@ Providers that require a dynamic server-generated token (like Braintree) need an
 ## New Features with New Tables
 
 Every new table must include a `merchant_id` column and all queries must be scoped to it. This is a multi-tenant system — data isolation between merchants is a hard requirement, not an afterthought. Before writing a migration or a repository method, verify that the tenant boundary is enforced at every read and write path.
+
+## SDK Architecture Rule
+
+**The browser SDK (`sdk/browser/src/index.ts`) is the single source of truth for all client-side payment UI.**
+
+- Provider picker, payment form inputs, pay button, and result handling all live in the SDK.
+- Pages and apps are consumers: they call `mountCheckout()` and handle `onSuccess`/`onError`. They own no provider-specific JSX or logic.
+- When adding a new provider, update the SDK. Pages update only if a new lifecycle callback is needed.
 
 ## Do NOT Suggest
 
