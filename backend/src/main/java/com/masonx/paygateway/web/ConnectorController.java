@@ -77,6 +77,14 @@ public class ConnectorController {
         return ResponseEntity.noContent().build();
     }
 
+    @PutMapping("/reorder")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CONNECTOR', 'UPDATE')")
+    public ResponseEntity<Void> reorder(@PathVariable UUID merchantId,
+                                        @Valid @RequestBody ReorderConnectorsRequest req) {
+        service.reorder(merchantId, req.items());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{accountId}/set-primary")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CONNECTOR', 'UPDATE')")
     public ResponseEntity<ProviderAccountResponse> setPrimary(@PathVariable UUID merchantId,

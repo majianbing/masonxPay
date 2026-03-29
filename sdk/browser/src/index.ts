@@ -1,14 +1,16 @@
 /**
- * @gateway/js — Browser SDK for the MasonXPay gateway (Pattern B)
+ * @gateway/js — Browser SDK for the MasonXPay gateway
  *
- * Usage:
- *   const gw = new GatewayEmbedded('pk_test_xxx', { baseUrl: 'http://localhost:8080' });
- *   await gw.mount('#payment-form');
- *   gw.on('token', ({ gatewayToken, provider }) => {
- *     // send gatewayToken to YOUR server, which calls:
- *     // POST /api/v1/payment-intents  (create)
- *     // POST /api/v1/payment-intents/{id}/confirm  { paymentMethodId: gatewayToken }
- *   });
+ * Two modes:
+ *
+ * 1. Embedded SDK (Pattern B) — merchant hosts their own checkout page:
+ *    const gw = new GatewayEmbedded('pk_test_xxx', { baseUrl: '...' });
+ *    await gw.mount('#payment-form');
+ *    gw.on('token', ({ gatewayToken }) => { // merchant confirms via their own server });
+ *
+ * 2. Hosted checkout (pay link / hosted page):
+ *    const gw = new GatewayEmbedded('', { baseUrl: '...' });
+ *    await gw.mountCheckout('#checkout-area', { linkToken, onSuccess, onError });
  */
 
 export interface GatewayEmbeddedOptions {
@@ -18,6 +20,15 @@ export interface GatewayEmbeddedOptions {
 export interface TokenEvent {
   gatewayToken: string;
   provider: string;
+}
+
+export interface CheckoutResult {
+  success: boolean;
+  status: string;
+  paymentIntentId: string;
+  redirectUrl?: string;
+  failureCode?: string;
+  failureMessage?: string;
 }
 
 type EventMap = {
@@ -54,6 +65,30 @@ declare global {
   }
 }
 
+const STYLES = `
+.gw-checkout { font-family: inherit; }
+.gw-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.gw-pill { padding: 8px 16px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: white; transition: all 0.15s; color: #64748b; }
+.gw-pill:hover { border-color: #cbd5e1; color: #334155; }
+.gw-pill--active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
+.gw-payment-area { margin-bottom: 16px; min-height: 42px; }
+.gw-error { color: #ef4444; font-size: 12px; margin-bottom: 8px; }
+.gw-submit { width: 100%; padding: 12px; background: #0f172a; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+.gw-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.gw-submit:hover:not(:disabled) { opacity: 0.9; }
+.gw-card-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: white; }
+.gw-wallets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+`;
+
+let stylesInjected = false;
+function injectStyles(): void {
+  if (stylesInjected || typeof document === 'undefined') return;
+  const style = document.createElement('style');
+  style.textContent = STYLES;
+  document.head.appendChild(style);
+  stylesInjected = true;
+}
+
 export class GatewayEmbedded {
   private readonly pk: string;
   private readonly baseUrl: string;
@@ -69,7 +104,9 @@ export class GatewayEmbedded {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private stripe: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private stripeCard: any = null;
+  private stripeElements: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private stripeCard: any = null;        // legacy Card Element — used by mount() only
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private squareCard: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,6 +116,11 @@ export class GatewayEmbedded {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private listeners: Partial<{ [K in keyof EventMap]: Listener<any> }> = {};
+
+  private checkoutLinkToken: string | null = null;
+  private checkoutOnSuccess: ((r: CheckoutResult) => void) | null = null;
+  private checkoutOnError: ((e: Error) => void) | null = null;
+  private isHostedMode = false;
 
   constructor(publishableKey: string, options: GatewayEmbeddedOptions = {}) {
     this.pk = publishableKey;
@@ -94,7 +136,47 @@ export class GatewayEmbedded {
     (this.listeners[event] as Listener<EventMap[K]> | undefined)?.(data);
   }
 
+  // ── Hosted checkout mode ───────────────────────────────────────────────────
+
+  async mountCheckout(
+    selector: string | HTMLElement,
+    options: {
+      linkToken: string;
+      onSuccess: (result: CheckoutResult) => void;
+      onError?: (err: Error) => void;
+    }
+  ): Promise<this> {
+    injectStyles();
+
+    const el = typeof selector === 'string'
+      ? document.querySelector<HTMLElement>(selector)
+      : selector;
+    if (!el) throw new Error(`GatewayEmbedded: element not found: ${selector}`);
+    this.container = el;
+    this.isHostedMode = true;
+    this.checkoutLinkToken = options.linkToken;
+    this.checkoutOnSuccess = options.onSuccess;
+    this.checkoutOnError = options.onError ?? null;
+
+    const res = await fetch(
+      `${this.baseUrl}/pub/checkout-session?linkToken=${encodeURIComponent(options.linkToken)}`
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(err.detail ?? `Failed to load checkout session (${res.status})`);
+    }
+    this.session = await res.json() as CheckoutSession;
+
+    this.render();
+    this.fire('ready', undefined as unknown as void);
+    return this;
+  }
+
+  // ── Embedded SDK mode ──────────────────────────────────────────────────────
+
   async mount(selector: string | HTMLElement): Promise<this> {
+    injectStyles();
+
     const el = typeof selector === 'string'
       ? document.querySelector<HTMLElement>(selector)
       : selector;
@@ -115,12 +197,25 @@ export class GatewayEmbedded {
     return this;
   }
 
+  destroy(): void {
+    this.destroyProviderForms().catch(() => {});
+    if (this.container) this.container.innerHTML = '';
+    this.container = null;
+    this.area = null;
+    this.errEl = null;
+    this.submitBtn = null;
+    this.session = null;
+    this.selectedProvider = null;
+  }
+
+  // ── Rendering ──────────────────────────────────────────────────────────────
+
   private render(): void {
     if (!this.container || !this.session) return;
     const providers = this.session.providers ?? [];
     this.container.innerHTML = '';
+    this.container.className = 'gw-checkout';
 
-    // Provider picker
     if (providers.length > 1) {
       const picker = document.createElement('div');
       picker.className = 'gw-picker';
@@ -179,36 +274,59 @@ export class GatewayEmbedded {
     else if (provider === 'BRAINTREE') await this.mountBraintree();
   }
 
-  // ── Stripe ──────────────────────────────────────────────────────────────────
+  // ── Stripe ─────────────────────────────────────────────────────────────────
+  // Hosted mode  : Payment Element (multi-method, accordion layout)
+  // Embedded mode: Card Element (backwards-compatible for existing integrations)
 
   private async mountStripe(opt: ProviderOption): Promise<void> {
-    if (!this.area || !this.submitBtn) return;
+    if (!this.area || !this.submitBtn || !this.session) return;
     this.submitBtn.disabled = true;
 
     if (!window.Stripe) await this.loadScript('https://js.stripe.com/v3/');
     if (!window.Stripe) { this.showError('Failed to load Stripe.js'); return; }
 
     this.stripe = window.Stripe(opt.clientKey);
-    const elements = this.stripe.elements();
-    const card = elements.create('card', {
-      style: {
-        base: { fontSize: '15px', fontFamily: 'inherit', color: '#0f172a', '::placeholder': { color: '#94a3b8' } },
-        invalid: { color: '#ef4444' },
-      },
-    });
 
-    const mountDiv = document.createElement('div');
-    mountDiv.className = 'gw-card-input';
-    this.area.appendChild(mountDiv);
-    card.mount(mountDiv);
+    if (this.isHostedMode) {
+      const elements = this.stripe.elements({
+        mode: 'payment',
+        amount: this.session.amount ?? 0,
+        currency: (this.session.currency ?? 'usd').toLowerCase(),
+        paymentMethodCreation: 'manual',
+        appearance: { theme: 'stripe' },
+      });
+      this.stripeElements = elements;
 
-    card.on('ready', () => { if (this.submitBtn) this.submitBtn.disabled = false; });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    card.on('change', (e: any) => this.showError(e.error?.message ?? null));
-    this.stripeCard = card;
+      const mountDiv = document.createElement('div');
+      this.area.appendChild(mountDiv);
+
+      const paymentElement = elements.create('payment', { layout: 'accordion' });
+      paymentElement.mount(mountDiv);
+      paymentElement.on('ready', () => { if (this.submitBtn) this.submitBtn.disabled = false; });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      paymentElement.on('change', (e: any) => { if (e.complete) this.showError(null); });
+    } else {
+      const elements = this.stripe.elements();
+      const card = elements.create('card', {
+        style: {
+          base: { fontSize: '15px', fontFamily: 'inherit', color: '#0f172a', '::placeholder': { color: '#94a3b8' } },
+          invalid: { color: '#ef4444' },
+        },
+      });
+
+      const mountDiv = document.createElement('div');
+      mountDiv.className = 'gw-card-input';
+      this.area.appendChild(mountDiv);
+      card.mount(mountDiv);
+
+      card.on('ready', () => { if (this.submitBtn) this.submitBtn.disabled = false; });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      card.on('change', (e: any) => this.showError(e.error?.message ?? null));
+      this.stripeCard = card;
+    }
   }
 
-  // ── Square ───────────────────────────────────────────────────────────────────
+  // ── Square ─────────────────────────────────────────────────────────────────
 
   private async mountSquare(opt: ProviderOption): Promise<void> {
     if (!this.area || !this.submitBtn || !this.session) return;
@@ -222,7 +340,6 @@ export class GatewayEmbedded {
 
     const payments = window.Square.payments(opt.clientKey, opt.clientConfig?.['locationId'] ?? '');
 
-    // Payment request used for wallet buttons
     const paymentRequest = payments.paymentRequest({
       countryCode: 'US',
       currencyCode: (this.session.currency ?? 'USD').toUpperCase(),
@@ -232,7 +349,6 @@ export class GatewayEmbedded {
       },
     });
 
-    // Wallet buttons (best-effort, above card)
     const walletsContainer = document.createElement('div');
     walletsContainer.className = 'gw-wallets';
     this.area.appendChild(walletsContainer);
@@ -254,14 +370,13 @@ export class GatewayEmbedded {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         method.addEventListener('ontokenization', async (evt: any) => {
           const { tokenResult } = evt.detail;
-          if (tokenResult.status === 'OK') await this.tokenizeGateway('SQUARE', tokenResult.token);
+          if (tokenResult.status === 'OK') await this.tokenizeAndSubmit('SQUARE', tokenResult.token);
         });
       } catch {
         // wallet not available in this browser/env — skip
       }
     }
 
-    // Card form
     const card = await payments.card();
     const cardDiv = document.createElement('div');
     cardDiv.className = 'gw-card-input';
@@ -273,16 +388,20 @@ export class GatewayEmbedded {
     if (this.submitBtn) this.submitBtn.disabled = false;
   }
 
-  // ── Braintree ─────────────────────────────────────────────────────────────────
+  // ── Braintree ──────────────────────────────────────────────────────────────
 
   private async mountBraintree(): Promise<void> {
     if (!this.area || !this.submitBtn) return;
     this.submitBtn.disabled = true;
 
-    // Fetch dynamic client token from gateway (Braintree requires server-generated token)
-    const res = await fetch(`${this.baseUrl}/pub/braintree-client-token`, {
-      headers: { 'Authorization': `Bearer ${this.pk}`, 'Accept': 'application/json' },
-    });
+    const tokenUrl = this.checkoutLinkToken
+      ? `${this.baseUrl}/pub/braintree-client-token?linkToken=${encodeURIComponent(this.checkoutLinkToken)}`
+      : `${this.baseUrl}/pub/braintree-client-token`;
+    const headers: Record<string, string> = this.checkoutLinkToken
+      ? {}
+      : { 'Authorization': `Bearer ${this.pk}` };
+
+    const res = await fetch(tokenUrl, { headers });
     if (!res.ok) { this.showError('Failed to get Braintree client token'); return; }
     const { clientToken } = await res.json() as { clientToken: string };
 
@@ -292,7 +411,6 @@ export class GatewayEmbedded {
     if (!window.braintree?.dropin) { this.showError('Failed to load Braintree SDK'); return; }
 
     const mountDiv = document.createElement('div');
-    mountDiv.className = 'gw-card-input';
     this.area.appendChild(mountDiv);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -306,6 +424,7 @@ export class GatewayEmbedded {
 
   private async destroyProviderForms(): Promise<void> {
     if (this.stripeCard) { this.stripeCard.destroy(); this.stripeCard = null; }
+    this.stripeElements = null;
     if (this.squareCard) { const c = this.squareCard; this.squareCard = null; c.destroy().catch(() => {}); }
     const methods = this.squareMethods.splice(0);
     methods.forEach(m => m.destroy().catch(() => {}));
@@ -313,7 +432,7 @@ export class GatewayEmbedded {
     this.stripe = null;
   }
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
+  // ── Submit ─────────────────────────────────────────────────────────────────
 
   private async submit(): Promise<void> {
     if (!this.submitBtn) return;
@@ -327,16 +446,27 @@ export class GatewayEmbedded {
       const msg = (e as Error).message ?? 'Payment error';
       this.showError(msg);
       this.fire('error', { message: msg });
+      this.checkoutOnError?.(e as Error);
     } finally {
       if (this.submitBtn) this.submitBtn.disabled = false;
     }
   }
 
   private async submitStripe(): Promise<void> {
-    if (!this.stripe || !this.stripeCard) throw new Error('Stripe not ready');
-    const { paymentMethod, error } = await this.stripe.createPaymentMethod({ type: 'card', card: this.stripeCard });
-    if (error || !paymentMethod) throw new Error(error?.message ?? 'Card error');
-    await this.tokenizeGateway('STRIPE', paymentMethod.id);
+    if (!this.stripe) throw new Error('Stripe not ready');
+
+    if (this.isHostedMode && this.stripeElements) {
+      const { error: submitError } = await this.stripeElements.submit();
+      if (submitError) throw new Error(submitError.message ?? 'Validation error');
+      const { paymentMethod, error } = await this.stripe.createPaymentMethod({ elements: this.stripeElements });
+      if (error || !paymentMethod) throw new Error(error?.message ?? 'Payment method error');
+      await this.tokenizeAndSubmit('STRIPE', paymentMethod.id);
+    } else {
+      if (!this.stripeCard) throw new Error('Stripe card not ready');
+      const { paymentMethod, error } = await this.stripe.createPaymentMethod({ type: 'card', card: this.stripeCard });
+      if (error || !paymentMethod) throw new Error(error?.message ?? 'Card error');
+      await this.tokenizeGateway('STRIPE', paymentMethod.id);
+    }
   }
 
   private async submitSquare(): Promise<void> {
@@ -346,13 +476,51 @@ export class GatewayEmbedded {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       throw new Error(result.errors?.map((e: any) => e.message).join(', ') ?? 'Card error');
     }
-    await this.tokenizeGateway('SQUARE', result.token);
+    await this.tokenizeAndSubmit('SQUARE', result.token);
   }
 
   private async submitBraintree(): Promise<void> {
     if (!this.braintreeDropin) throw new Error('Braintree not ready');
     const { nonce } = await this.braintreeDropin.requestPaymentMethod();
-    await this.tokenizeGateway('BRAINTREE', nonce);
+    await this.tokenizeAndSubmit('BRAINTREE', nonce);
+  }
+
+  private async tokenizeAndSubmit(provider: string, providerPmId: string): Promise<void> {
+    if (this.isHostedMode && this.checkoutLinkToken) {
+      const gwToken = await this.tokenizeHosted(provider, providerPmId);
+      const result = await this.submitCheckout(gwToken);
+      if (result.success && result.redirectUrl) {
+        window.location.href = result.redirectUrl;
+      } else {
+        this.checkoutOnSuccess?.(result);
+      }
+    } else {
+      await this.tokenizeGateway(provider, providerPmId);
+    }
+  }
+
+  private async tokenizeHosted(provider: string, providerPmId: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/pub/tokenize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, providerPmId, linkToken: this.checkoutLinkToken }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(err.detail ?? 'Tokenization failed');
+    }
+    return ((await res.json()) as { gatewayToken: string }).gatewayToken;
+  }
+
+  private async submitCheckout(gatewayToken: string): Promise<CheckoutResult> {
+    const res = await fetch(`${this.baseUrl}/pub/pay/${this.checkoutLinkToken}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gatewayToken }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Payment failed');
+    return data as CheckoutResult;
   }
 
   private async tokenizeGateway(provider: string, providerPmId: string): Promise<void> {
@@ -372,7 +540,7 @@ export class GatewayEmbedded {
     this.fire('token', { gatewayToken: data.gatewayToken, provider });
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   private showError(msg: string | null): void {
     if (!this.errEl) return;

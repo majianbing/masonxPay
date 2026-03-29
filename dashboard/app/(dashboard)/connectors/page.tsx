@@ -6,9 +6,25 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Trash2, Star, PlayCircle } from 'lucide-react';
+import { Plus, Trash2, Star, PlayCircle, GripVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/button';
@@ -84,18 +100,131 @@ const createSchema = z.object({
 });
 type CreateForm = z.infer<typeof createSchema>;
 
+// ─── Sortable brand card ──────────────────────────────────────────────────────
+
+function SortableProviderCard({
+  provider,
+  connectors,
+  onSetPrimary,
+  onDelete,
+  onPreview,
+}: {
+  provider: Provider;
+  connectors: ProviderAccount[];
+  onSetPrimary: (id: string) => void;
+  onDelete: (account: ProviderAccount) => void;
+  onPreview: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: provider });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-start gap-2">
+            <button
+              {...attributes}
+              {...listeners}
+              className="mt-0.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              aria-label="Drag to reorder"
+            >
+              <GripVertical className="size-4" />
+            </button>
+            <div>
+              <CardTitle className="text-base">{PROVIDER_META[provider].label}</CardTitle>
+              <CardDescription>{PROVIDER_META[provider].description}</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead className="border-b bg-gray-50">
+              <tr>
+                {['Label', 'Credential', 'Client Key', 'Weight', 'Status', 'Added', ''].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {connectors.filter((c) => c.provider === provider).map((c) => (
+                <tr key={c.id} className="border-b last:border-0">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{c.label}</span>
+                      {c.primary && <Badge variant="secondary" className="text-xs px-1.5 py-0">Primary</Badge>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{c.credentialHint}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[140px] truncate">
+                    {c.clientKey ?? <span className="text-orange-500">not set</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{c.weight}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${c.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {c.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{format(new Date(c.createdAt), 'MMM d, yyyy')}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      <Button variant="ghost" size="icon" title="Preview cashier" onClick={() => onPreview(c.id)}>
+                        <PlayCircle className="size-4 text-muted-foreground hover:text-primary" />
+                      </Button>
+                      {!c.primary && (
+                        <Button variant="ghost" size="icon" title="Set as primary" onClick={() => onSetPrimary(c.id)}>
+                          <Star className="size-4 text-muted-foreground" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost" size="icon" className="text-red-500 hover:text-red-700"
+                        onClick={() => onDelete(c)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function ConnectorsPage() {
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
   const mode = useAuthStore((s) => s.mode);
   const router = useRouter();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<ProviderAccount | null>(null);
 
   const { data: connectors = [], isLoading } = useQuery<ProviderAccount[]>({
     queryKey: ['connectors', activeMerchantId, mode],
     queryFn: () => apiFetch<ProviderAccount[]>(`/api/v1/merchants/${activeMerchantId}/connectors?mode=${mode}`),
     enabled: !!activeMerchantId,
   });
+
+  // Brand order — seeded from active providers, manipulated by drag
+  const activeProviders = PROVIDERS.filter((p) => connectors.some((c) => c.provider === p));
+  const [brandOrder, setBrandOrder] = useState<Provider[]>([]);
+
+  // Merge: use local order for known brands, append newly active brands at the end
+  const orderedProviders = (() => {
+    const known = brandOrder.filter((p) => activeProviders.includes(p));
+    const added = activeProviders.filter((p) => !known.includes(p));
+    return [...known, ...added];
+  })();
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<CreateForm>({
     resolver: zodResolver(createSchema) as any,
@@ -134,13 +263,40 @@ export default function ConnectorsPage() {
       apiFetch(`/api/v1/merchants/${activeMerchantId}/connectors/${accountId}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['connectors', activeMerchantId, mode] });
+      setConfirmDelete(null);
       toast.success('Connector removed');
     },
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: (items: { provider: string; displayOrder: number }[]) =>
+      apiFetch(`/api/v1/merchants/${activeMerchantId}/connectors/reorder`, {
+        method: 'PUT',
+        body: JSON.stringify({ items }),
+      }),
+    onError: () => toast.error('Failed to save order'),
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = orderedProviders.indexOf(active.id as Provider);
+    const newIndex = orderedProviders.indexOf(over.id as Provider);
+    const newOrder = arrayMove(orderedProviders, oldIndex, newIndex);
+    setBrandOrder(newOrder);
+
+    reorderMutation.mutate(
+      newOrder.map((provider, idx) => ({ provider, displayOrder: idx })),
+    );
+  }
+
   const providerValue = watch('provider') as Provider;
   const currentMode = mode as 'TEST' | 'LIVE';
-  const activeProviders = PROVIDERS.filter((p) => connectors.some((c) => c.provider === p));
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -168,66 +324,44 @@ export default function ConnectorsPage() {
         </Card>
       )}
 
-      {activeProviders.map((provider) => (
-        <Card key={provider}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">{PROVIDER_META[provider].label}</CardTitle>
-            <CardDescription>{PROVIDER_META[provider].description}</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-gray-50">
-                <tr>
-                  {['Label', 'Credential', 'Client Key', 'Weight', 'Status', 'Added', ''].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {connectors.filter((c) => c.provider === provider).map((c) => (
-                  <tr key={c.id} className="border-b last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{c.label}</span>
-                        {c.primary && <Badge variant="secondary" className="text-xs px-1.5 py-0">Primary</Badge>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{c.credentialHint}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-[140px] truncate">
-                      {c.clientKey ?? <span className="text-orange-500">not set</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{c.weight}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${c.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{format(new Date(c.createdAt), 'MMM d, yyyy')}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        <Button variant="ghost" size="icon" title="Preview cashier" onClick={() => router.push(`/connectors/${c.id}/preview`)}>
-                          <PlayCircle className="size-4 text-muted-foreground hover:text-primary" />
-                        </Button>
-                        {!c.primary && (
-                          <Button variant="ghost" size="icon" title="Set as primary" onClick={() => setPrimaryMutation.mutate(c.id)}>
-                            <Star className="size-4 text-muted-foreground" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost" size="icon" className="text-red-500 hover:text-red-700"
-                          onClick={() => { if (confirm(`Remove "${c.label}"?`)) deleteMutation.mutate(c.id); }}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      ))}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={orderedProviders} strategy={verticalListSortingStrategy}>
+          <div className="space-y-4">
+            {orderedProviders.map((provider) => (
+              <SortableProviderCard
+                key={provider}
+                provider={provider}
+                connectors={connectors}
+                onSetPrimary={(id) => setPrimaryMutation.mutate(id)}
+                onDelete={(account) => setConfirmDelete(account)}
+                onPreview={(id) => router.push(`/connectors/${id}/preview`)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {/* ── Delete confirmation dialog ── */}
+      <Dialog open={!!confirmDelete} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove connector</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Remove <span className="font-medium text-foreground">&ldquo;{confirmDelete?.label}&rdquo;</span>? This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => confirmDelete && deleteMutation.mutate(confirmDelete.id)}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Add connector dialog ── */}
       <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) reset(); }}>

@@ -5,6 +5,7 @@ import type { NextConfig } from "next";
 // omit it there by setting NEXT_STANDALONE=false (or leaving it unset).
 const nextConfig: NextConfig = {
   ...(process.env.NEXT_STANDALONE === "true" ? { output: "standalone" } : {}),
+  transpilePackages: ['@gateway/browser'],
 };
 
 export default nextConfig;

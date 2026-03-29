@@ -52,6 +52,10 @@ public class ProviderAccount {
     @Column(nullable = false)
     private int weight = 1;
 
+    /** Display order of this provider brand on the checkout picker (lower = first). */
+    @Column(name = "display_order", nullable = false)
+    private int displayOrder = 0;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private ApiKeyMode mode = ApiKeyMode.TEST;
@@ -94,6 +98,8 @@ public class ProviderAccount {
     public String getProviderConfig() { return providerConfig; }
     public void setProviderConfig(String providerConfig) { this.providerConfig = providerConfig; }
 
+    public int getDisplayOrder() { return displayOrder; }
+    public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

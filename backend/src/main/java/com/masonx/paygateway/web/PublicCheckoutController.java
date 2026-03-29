@@ -23,8 +23,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -107,25 +109,26 @@ public class PublicCheckoutController {
         Merchant merchant = merchantRepository.findById(resolvedMerchantId).orElse(null);
         String merchantName = merchant != null ? merchant.getName() : "";
 
-        List<PaymentProvider> brands = routingEngine.availableProviders(resolvedMerchantId, resolvedMode);
-
-        List<CheckoutSessionResponse.ProviderOption> options = brands.stream()
-                .map(provider -> {
-                    ProviderAccount account = providerAccountRepository
-                            .findAllByMerchantIdAndProviderAndModeAndStatus(
-                                    resolvedMerchantId, provider, resolvedMode, ProviderAccountStatus.ACTIVE)
-                            .stream()
-                            .filter(a -> a.getEncryptedPublishableKey() != null
-                                    || a.getProviderConfig() != null)
-                            .findFirst()
-                            .orElse(null);
-                    if (account == null) return null;
+        // Fetch all active accounts sorted by displayOrder, then deduplicate by provider brand
+        // (first account per brand wins — brand position = its lowest displayOrder account).
+        List<CheckoutSessionResponse.ProviderOption> options = providerAccountRepository
+                .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
+                        resolvedMerchantId, resolvedMode, ProviderAccountStatus.ACTIVE)
+                .stream()
+                .filter(a -> a.getEncryptedPublishableKey() != null || a.getProviderConfig() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        ProviderAccount::getProvider, a -> a,
+                        (existing, dupe) -> existing,   // keep the one with lower displayOrder
+                        LinkedHashMap::new))
+                .values().stream()
+                .map(account -> {
                     String clientKey = credentialsCodec.clientKeyFor(account);
                     if (clientKey == null) return null;
                     return new CheckoutSessionResponse.ProviderOption(
-                            provider.name(), clientKey, credentialsCodec.clientConfigFor(account));
+                            account.getProvider().name(), clientKey,
+                            credentialsCodec.clientConfigFor(account));
                 })
-                .filter(o -> o != null)
+                .filter(Objects::nonNull)
                 .toList();
 
         return ResponseEntity.ok(new CheckoutSessionResponse(

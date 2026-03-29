@@ -8,6 +8,7 @@ import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.CreateProviderAccountRequest;
+import com.masonx.paygateway.web.dto.ReorderConnectorsRequest;
 import com.masonx.paygateway.web.dto.ProviderAccountResponse;
 import com.masonx.paygateway.web.dto.UpdateProviderAccountRequest;
 import org.springframework.stereotype.Service;
@@ -107,6 +108,13 @@ public class ProviderAccountService {
                 .map(codec::decode)
                 .orElseThrow(() -> new IllegalStateException(
                         "No active primary connector for " + provider + " / " + mode));
+    }
+
+    public void reorder(UUID merchantId, List<ReorderConnectorsRequest.BrandOrder> items) {
+        for (ReorderConnectorsRequest.BrandOrder item : items) {
+            PaymentProvider provider = PaymentProvider.valueOf(item.provider().toUpperCase());
+            repo.updateDisplayOrderByMerchantIdAndProvider(merchantId, provider, item.displayOrder());
+        }
     }
 
     private ProviderAccount loadOwned(UUID merchantId, UUID accountId) {
