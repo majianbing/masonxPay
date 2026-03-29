@@ -1,0 +1,19 @@
+# Backend build artifacts — Maven downloads its own deps inside the container
+backend/target/
+
+# Dashboard build artifacts
+dashboard/.next/
+dashboard/node_modules/
+
+# SDK build artifacts
+sdk/browser/dist/
+sdk/browser/node_modules/
+
+# Git / IDE
+.git/
+.idea/
+*.iml
+
+# Env files with secrets
+.env
+.env.local

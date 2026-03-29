@@ -1,14 +1,19 @@
 # ── Stage 1: Install dependencies ────────────────────────────────────────────
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+# The SDK is referenced as file:../sdk/browser in package.json.
+# npm resolves that relative to /app, so it expects the SDK at /sdk/browser.
+COPY sdk/browser /sdk/browser
+COPY dashboard/package.json dashboard/package-lock.json* ./
 RUN npm ci
 
 # ── Stage 2: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+# Re-copy SDK so the symlink node_modules/@gateway/browser -> /sdk/browser resolves
+COPY sdk/browser /sdk/browser
+COPY dashboard/ .
 
 # NEXT_PUBLIC_ vars are inlined at build time
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080

@@ -22,7 +22,7 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: dashboard/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -65,8 +65,8 @@ services:
   # ── Dashboard (Next.js) ─────────────────────────────────────────────────────
   dashboard:
     build:
-      context: ./dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: dashboard/Dockerfile
       args:
         # Baked in at build time — must match the host-accessible backend URL
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
