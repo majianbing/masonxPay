@@ -8,6 +8,8 @@ import com.masonx.paygateway.web.dto.MfaSetupResponse;
 import dev.samstevens.totp.code.*;
 import dev.samstevens.totp.secret.DefaultSecretGenerator;
 import dev.samstevens.totp.time.SystemTimeProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,7 @@ import java.util.List;
 @Transactional
 public class MfaService {
 
+    private static final Logger log = LoggerFactory.getLogger(MfaService.class);
     private static final int BACKUP_CODE_COUNT = 8;
 
     private final EncryptionService encryptionService;
@@ -84,7 +87,20 @@ public class MfaService {
      */
     public boolean verify(User user, String code) {
         if (!user.isMfaEnabled() || user.getMfaSecret() == null) return false;
-        String secret = encryptionService.decrypt(user.getMfaSecret());
+        final String secret;
+        try {
+            secret = encryptionService.decrypt(user.getMfaSecret());
+        } catch (RuntimeException e) {
+            // Decrypt failure means the stored secret is unreadable with the current
+            // ENCRYPTION_KEY — most commonly caused by the key being rotated after MFA
+            // was set up, or the container being rebuilt with a fresh key while the DB
+            // volume was kept.  The user must re-setup MFA to recover.
+            log.error("Cannot decrypt MFA secret for user {} — possible ENCRYPTION_KEY mismatch. " +
+                      "User must disable and re-enable MFA.", user.getId(), e);
+            throw new IllegalStateException(
+                    "MFA data cannot be read. This is a server configuration issue — " +
+                    "please contact support or reset MFA via an admin endpoint.");
+        }
 
         // Try TOTP first
         if (codeVerifier.isValidCode(secret, code.replace(" ", ""))) return true;
