@@ -63,3 +63,63 @@ app:
   logs:
     retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)
   pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs
+
+  # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
+  # Rules are loaded at startup from these properties.
+  # To migrate to Nacos: add sentinel-datasource-nacos, push these values as
+  # JSON to a Nacos config key, replace loadRules() with NacosDataSource binding.
+  # Resource names match the "HTTP_METHOD:/path" pattern from the WebMVC adapter.
+  sentinel:
+    flow-rules:
+      # Payment intent creation — leaky bucket, queue bursts at steady rate
+      # 60 req/min per merchant = 1/s; requests wait up to 5s before rejection
+      - resource: "POST:/api/v1/payment-intents"
+        grade: QPS
+        count: 60
+        control-behavior: RATE_LIMITER
+        max-queueing-time-ms: 5000
+        limit-app: default
+
+      # Confirm (actual charge) — tighter limit, longer queue tolerance
+      - resource: "POST:/api/v1/payment-intents/{id}/confirm"
+        grade: QPS
+        count: 30
+        control-behavior: RATE_LIMITER
+        max-queueing-time-ms: 8000
+        limit-app: default
+
+    degrade-rules:
+      # Circuit break each provider independently.
+      # Opens when >50% of calls exceed 3s within a 10s window (min 5 requests).
+      # Stays open 30s, then half-open for a single probe before fully recovering.
+      - resource: stripe-charge
+        grade: SLOW_REQUEST_RATIO
+        count: 3000            # slow threshold: 3000ms
+        slow-ratio-threshold: 0.5
+        min-request-amount: 5
+        stat-interval-ms: 10000
+        time-window: 30
+
+      - resource: square-charge
+        grade: SLOW_REQUEST_RATIO
+        count: 3000
+        slow-ratio-threshold: 0.5
+        min-request-amount: 5
+        stat-interval-ms: 10000
+        time-window: 30
+
+      - resource: braintree-charge
+        grade: SLOW_REQUEST_RATIO
+        count: 3000
+        slow-ratio-threshold: 0.5
+        min-request-amount: 5
+        stat-interval-ms: 10000
+        time-window: 30
+
+    system:
+      # Reject all incoming requests if JVM/OS is overloaded.
+      # -1 disables the individual check.
+      highest-system-load: 3.0   # 1-min load average
+      highest-cpu-usage: 0.85    # 85% CPU
+      avg-rt: -1
+      max-thread: -1

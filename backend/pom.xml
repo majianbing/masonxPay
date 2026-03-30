@@ -101,6 +101,16 @@
             <version>1.7.1</version>
         </dependency>
 
+        <!-- Alibaba Sentinel — rate limiting + circuit breaking -->
+        <!-- sentinel-core only: the webmvc adapter still uses javax.servlet  -->
+        <!-- (incompatible with Spring Boot 3 / Jakarta EE 10).               -->
+        <!-- Rate limiting is wired via a custom OncePerRequestFilter below.  -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-core</artifactId>
+            <version>1.8.9</version>
+        </dependency>
+
         <!-- Dotenv -->
         <dependency>
             <groupId>me.paulschwarz</groupId>
