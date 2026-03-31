@@ -54,11 +54,11 @@ type Provider = typeof PROVIDERS[number];
 const PROVIDER_META: Record<Provider, { label: string; description: string }> = {
   STRIPE: {
     label: 'Stripe',
-    description: 'Weighted-random account selection when multiple connectors exist for the same provider.',
+    description: 'Cards, iDEAL, Amazon Pay, Link, Sofort, and other redirect-based methods via Stripe.js.',
   },
   SQUARE: {
     label: 'Square',
-    description: 'Weighted-random account selection when multiple connectors exist for the same provider.',
+    description: 'Card payments and Google Pay via the Square Web Payments SDK.',
   },
   BRAINTREE: {
     label: 'Braintree',

@@ -141,6 +141,7 @@ export default function PaymentsPage() {
   const [labelSearch, setLabelSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const debouncedId = useDebounce(idSearch, 400);
   const debouncedLabel = useDebounce(labelSearch, 400);
@@ -178,8 +179,18 @@ export default function PaymentsPage() {
     pageCount: data?.totalPages ?? 0,
   });
 
-  const hasFilters = statusFilter !== 'ALL' || providerFilter !== 'ALL' || methodFilter !== 'ALL'
-    || idSearch || labelSearch || dateFrom || dateTo;
+  const moreFilterCount = [methodFilter !== 'ALL', !!labelSearch, !!dateFrom, !!dateTo].filter(Boolean).length;
+  const hasFilters = statusFilter !== 'ALL' || providerFilter !== 'ALL' || moreFilterCount > 0 || !!idSearch;
+
+  function clearAllFilters() {
+    setStatusFilter('ALL');
+    setProviderFilter('ALL');
+    setMethodFilter('ALL');
+    setIdSearch('');
+    setLabelSearch('');
+    setDateFrom('');
+    setDateTo('');
+  }
 
   return (
     <div className="space-y-4">
@@ -187,7 +198,7 @@ export default function PaymentsPage() {
         <h1 className="text-2xl font-semibold">Payments</h1>
       </div>
 
-      {/* Filter bar */}
+      {/* Primary filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
         <Input
           placeholder="Search by ID…"
@@ -218,62 +229,67 @@ export default function PaymentsPage() {
             <SelectItem value="BRAINTREE">Braintree</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={methodFilter} onValueChange={(v) => setMethodFilter(v ?? 'ALL')}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="All methods" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All methods</SelectItem>
-            <SelectItem value="card">Card</SelectItem>
-            <SelectItem value="google_pay">Google Pay</SelectItem>
-            <SelectItem value="apple_pay">Apple Pay</SelectItem>
-            <SelectItem value="ideal">iDEAL</SelectItem>
-            <SelectItem value="amazon_pay">Amazon Pay</SelectItem>
-            <SelectItem value="sofort">Sofort</SelectItem>
-            <SelectItem value="link">Link</SelectItem>
-            <SelectItem value="paypal">PayPal</SelectItem>
-            <SelectItem value="cash_app">Cash App</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input
-          placeholder="Connector label…"
-          value={labelSearch}
-          onChange={(e) => setLabelSearch(e.target.value)}
-          className="w-40"
-        />
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          title="From date"
-        />
-        <span className="text-muted-foreground text-sm">→</span>
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          title="To date"
-        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setShowMoreFilters((v) => !v)}
+        >
+          Filters
+          {moreFilterCount > 0 && (
+            <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+              {moreFilterCount}
+            </span>
+          )}
+        </Button>
         {hasFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setStatusFilter('ALL');
-              setProviderFilter('ALL');
-              setMethodFilter('ALL');
-              setIdSearch('');
-              setLabelSearch('');
-              setDateFrom('');
-              setDateTo('');
-            }}
-          >
-            Clear
-          </Button>
+          <Button variant="ghost" size="sm" onClick={clearAllFilters}>Clear</Button>
         )}
       </div>
+
+      {/* Secondary filters — method, connector label, date range */}
+      {showMoreFilters && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <Select value={methodFilter} onValueChange={(v) => setMethodFilter(v ?? 'ALL')}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="All methods" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All methods</SelectItem>
+              <SelectItem value="card">Card</SelectItem>
+              <SelectItem value="google_pay">Google Pay</SelectItem>
+              <SelectItem value="apple_pay">Apple Pay</SelectItem>
+              <SelectItem value="ideal">iDEAL</SelectItem>
+              <SelectItem value="amazon_pay">Amazon Pay</SelectItem>
+              <SelectItem value="sofort">Sofort</SelectItem>
+              <SelectItem value="link">Link</SelectItem>
+              <SelectItem value="paypal">PayPal</SelectItem>
+              <SelectItem value="cash_app">Cash App</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Connector label…"
+            value={labelSearch}
+            onChange={(e) => setLabelSearch(e.target.value)}
+            className="w-40"
+          />
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-36"
+            title="From date"
+          />
+          <span className="text-muted-foreground text-sm">→</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-36"
+            title="To date"
+          />
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
