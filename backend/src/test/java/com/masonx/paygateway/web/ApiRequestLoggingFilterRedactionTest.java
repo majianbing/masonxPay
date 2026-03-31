@@ -3,7 +3,6 @@ package com.masonx.paygateway.web;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
 
@@ -15,12 +14,20 @@ import static org.assertj.core.api.Assertions.*;
  */
 class ApiRequestLoggingFilterRedactionTest {
 
+    private static final Method REDACT_METHOD;
+    static {
+        try {
+            REDACT_METHOD = ApiRequestLoggingFilter.class
+                    .getDeclaredMethod("redactSensitiveFields", String.class);
+            REDACT_METHOD.setAccessible(true);
+        } catch (NoSuchMethodException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static String redact(String body) {
         try {
-            Method m = ApiRequestLoggingFilter.class
-                    .getDeclaredMethod("redactSensitiveFields", String.class);
-            m.setAccessible(true);
-            return (String) m.invoke(null, body);
+            return (String) REDACT_METHOD.invoke(null, body);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

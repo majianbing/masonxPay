@@ -5,7 +5,6 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
-import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
@@ -57,12 +56,8 @@ class PaymentIntentServiceTest {
                 objectMapper, eventPublisher, txManager);
     }
 
-    private ApiKeyAuthentication secretKey() {
-        return new ApiKeyAuthentication(keyId, merchantId, ApiKeyMode.TEST, ApiKeyType.SECRET);
-    }
-
-    private ApiKeyAuthentication publishableKey() {
-        return new ApiKeyAuthentication(keyId, merchantId, ApiKeyMode.TEST, ApiKeyType.PUBLISHABLE);
+    private ApiKeyAuthentication auth(ApiKeyType type) {
+        return new ApiKeyAuthentication(keyId, merchantId, ApiKeyMode.TEST, type);
     }
 
     private PaymentIntent savedIntent(UUID id) {
@@ -93,7 +88,7 @@ class PaymentIntentServiceTest {
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
                 1000L, "USD", "idem-key", null, null, null, null, null);
 
-        PaymentIntentResponse resp = service.create(secretKey(), req);
+        PaymentIntentResponse resp = service.create(auth(ApiKeyType.SECRET), req);
 
         assertThat(resp.id()).isEqualTo(existingId);
         verify(paymentIntentRepository, never()).save(any());
@@ -105,7 +100,7 @@ class PaymentIntentServiceTest {
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
                 1000L, "USD", "idem-key-2", null, null, null, null, null);
 
-        assertThatThrownBy(() -> service.create(publishableKey(), req))
+        assertThatThrownBy(() -> service.create(auth(ApiKeyType.PUBLISHABLE), req))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -125,10 +120,10 @@ class PaymentIntentServiceTest {
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
                 2500L, "EUR", "new-key", null, null, null, null, null);
 
-        PaymentIntentResponse resp = service.create(secretKey(), req);
+        PaymentIntentResponse resp = service.create(auth(ApiKeyType.SECRET), req);
 
         assertThat(resp.id()).isEqualTo(newId);
-        assertThat(resp.status()).isEqualTo("REQUIRES_PAYMENT_METHOD");
+        assertThat(resp.status()).isEqualTo(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD.name());
         assertThat(resp.amount()).isEqualTo(2500L);
         assertThat(resp.currency()).isEqualTo("EUR");
     }
@@ -144,7 +139,7 @@ class PaymentIntentServiceTest {
                 .thenReturn(Optional.of(pi));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
 
-        PaymentIntentResponse resp = service.get(secretKey(), intentId);
+        PaymentIntentResponse resp = service.get(auth(ApiKeyType.SECRET), intentId);
         assertThat(resp.id()).isEqualTo(intentId);
     }
 
@@ -154,7 +149,7 @@ class PaymentIntentServiceTest {
         when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.get(secretKey(), intentId))
+        assertThatThrownBy(() -> service.get(auth(ApiKeyType.SECRET), intentId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not found");
     }
@@ -172,9 +167,9 @@ class PaymentIntentServiceTest {
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
 
-        PaymentIntentResponse resp = service.cancel(secretKey(), intentId);
+        PaymentIntentResponse resp = service.cancel(auth(ApiKeyType.SECRET), intentId);
 
-        assertThat(resp.status()).isEqualTo("CANCELED");
+        assertThat(resp.status()).isEqualTo(PaymentIntentStatus.CANCELED.name());
     }
 
     @Test
@@ -186,7 +181,7 @@ class PaymentIntentServiceTest {
         when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
 
-        assertThatThrownBy(() -> service.cancel(secretKey(), intentId))
+        assertThatThrownBy(() -> service.cancel(auth(ApiKeyType.SECRET), intentId))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("cannot be canceled");
     }
@@ -200,7 +195,7 @@ class PaymentIntentServiceTest {
         when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
 
-        assertThatThrownBy(() -> service.cancel(secretKey(), intentId))
+        assertThatThrownBy(() -> service.cancel(auth(ApiKeyType.SECRET), intentId))
                 .isInstanceOf(IllegalStateException.class);
     }
 }

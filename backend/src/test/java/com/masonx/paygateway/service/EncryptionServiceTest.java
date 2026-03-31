@@ -8,31 +8,27 @@ import static org.assertj.core.api.Assertions.*;
 
 class EncryptionServiceTest {
 
-    // 32 zero bytes — valid 256-bit key
     private static final String VALID_KEY =
             Base64.getEncoder().encodeToString(new byte[32]);
 
-    private EncryptionService svc() {
-        return new EncryptionService(VALID_KEY);
-    }
+    private static final EncryptionService SVC = new EncryptionService(VALID_KEY);
 
     @Test
     void roundTrip_returnsOriginalPlaintext() {
         String plaintext = "sk_test_super_secret_stripe_key";
-        assertThat(svc().decrypt(svc().encrypt(plaintext))).isEqualTo(plaintext);
+        assertThat(SVC.decrypt(SVC.encrypt(plaintext))).isEqualTo(plaintext);
     }
 
     @Test
     void encrypt_sameInput_producesDifferentCiphertexts_dueToRandomIv() {
-        EncryptionService e = svc();
-        String a = e.encrypt("same");
-        String b = e.encrypt("same");
+        String a = SVC.encrypt("same");
+        String b = SVC.encrypt("same");
         assertThat(a).isNotEqualTo(b);
     }
 
     @Test
     void storedFormat_containsColon_separator() {
-        String stored = svc().encrypt("payload");
+        String stored = SVC.encrypt("payload");
         assertThat(stored).contains(":");
         String[] parts = stored.split(":", 2);
         assertThat(parts).hasSize(2);
@@ -43,16 +39,15 @@ class EncryptionServiceTest {
 
     @Test
     void decrypt_tamperedCiphertext_throwsRuntimeException() {
-        EncryptionService e = svc();
-        String stored = e.encrypt("secret");
+        String stored = SVC.encrypt("secret");
         String tampered = stored.substring(0, stored.lastIndexOf(':') + 1) + "AAAAAAAAAAAAAAAA";
-        assertThatThrownBy(() -> e.decrypt(tampered))
+        assertThatThrownBy(() -> SVC.decrypt(tampered))
                 .isInstanceOf(RuntimeException.class);
     }
 
     @Test
     void decrypt_missingColon_throws() {
-        assertThatThrownBy(() -> svc().decrypt("notvalidformat"))
+        assertThatThrownBy(() -> SVC.decrypt("notvalidformat"))
                 .isInstanceOf(RuntimeException.class);
     }
 
