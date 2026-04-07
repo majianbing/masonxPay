@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Base64;
 import java.util.Optional;
 
 /**
@@ -22,8 +21,8 @@ import java.util.Optional;
  * bt_payload is a base64-encoded XML document.
  *
  * Signature verification requires a BraintreeGateway instance (merchantId + publicKey +
- * privateKey). Configure via app.braintree.* properties. Without configuration, signature
- * verification is skipped and we parse the payload directly — dev/sandbox mode only.
+ * privateKey). Configure via app.braintree.* properties. If credentials are not configured
+ * the endpoint rejects all requests with 400.
  *
  * Webhook endpoint to register in Braintree Control Panel:
  *   POST /api/v1/providers/braintree/webhook
@@ -58,30 +57,29 @@ public class BraintreeWebhookController {
             @RequestParam(value = "bt_signature", required = false) String btSignature,
             @RequestParam(value = "bt_payload",   required = false) String btPayload) {
 
+        if (!isVerificationConfigured()) {
+            log.warn("Braintree webhook received but gateway credentials not configured — rejecting");
+            return ResponseEntity.badRequest().build();
+        }
+
         if (btPayload == null) {
             log.warn("Braintree webhook received with no bt_payload");
             return ResponseEntity.badRequest().build();
         }
 
-        if (isVerificationConfigured() && btSignature != null) {
-            try {
-                BraintreeGateway gateway = buildGateway();
-                WebhookNotification notification = gateway.webhookNotification()
-                        .parse(btSignature, btPayload);
-                reconcileFromNotification(notification);
-            } catch (Exception e) {
-                log.warn("Braintree webhook verification/parse failed: {}", e.getMessage());
-                return ResponseEntity.badRequest().build();
-            }
-        } else {
-            // No gateway credentials configured — parse raw XML (dev/sandbox mode only)
-            try {
-                String xml = new String(Base64.getDecoder().decode(btPayload.trim()));
-                reconcileFromRawXml(xml);
-            } catch (Exception e) {
-                log.error("Failed to parse Braintree webhook payload: {}", e.getMessage());
-                return ResponseEntity.badRequest().build();
-            }
+        if (btSignature == null || btSignature.isBlank()) {
+            log.warn("Braintree webhook missing bt_signature");
+            return ResponseEntity.badRequest().build();
+        }
+
+        try {
+            BraintreeGateway gateway = buildGateway();
+            WebhookNotification notification = gateway.webhookNotification()
+                    .parse(btSignature, btPayload);
+            reconcileFromNotification(notification);
+        } catch (Exception e) {
+            log.warn("Braintree webhook verification/parse failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
 
         return ResponseEntity.ok().build();
@@ -111,32 +109,6 @@ public class BraintreeWebhookController {
             updateIntent(providerPaymentId, newStatus, kind);
         } else {
             log.debug("Unhandled Braintree webhook kind: {}", kind);
-        }
-    }
-
-    /**
-     * Minimal XML parsing for dev mode (no gateway credentials).
-     * Extracts <kind> and <transaction><id> from the Braintree XML envelope.
-     */
-    private void reconcileFromRawXml(String xml) {
-        String kind          = extractXmlValue(xml, "kind");
-        String transactionId = extractXmlTagValue(xml, "transaction", "id");
-
-        if (transactionId == null || kind == null) {
-            log.debug("Braintree raw webhook: could not extract kind or transaction id");
-            return;
-        }
-
-        PaymentIntentStatus newStatus = switch (kind.toUpperCase()) {
-            case "TRANSACTION_SETTLED"             -> PaymentIntentStatus.SUCCEEDED;
-            case "TRANSACTION_SETTLEMENT_DECLINED" -> PaymentIntentStatus.FAILED;
-            default -> null;
-        };
-
-        if (newStatus != null) {
-            updateIntent(transactionId, newStatus, kind);
-        } else {
-            log.debug("Unhandled Braintree webhook kind (raw): {}", kind);
         }
     }
 
@@ -170,29 +142,4 @@ public class BraintreeWebhookController {
                 merchantId, publicKey, privateKey);
     }
 
-    /** Extracts the text content of the first occurrence of <tagName>value</tagName>. */
-    private String extractXmlValue(String xml, String tagName) {
-        String open  = "<" + tagName + ">";
-        String close = "</" + tagName + ">";
-        int start = xml.indexOf(open);
-        if (start < 0) return null;
-        int end = xml.indexOf(close, start);
-        if (end < 0) return null;
-        return xml.substring(start + open.length(), end).trim();
-    }
-
-    /**
-     * Extracts the text content of <fieldName> inside the first <parentTag> block.
-     * e.g. extractXmlTagValue(xml, "transaction", "id") finds <id> inside <transaction>.
-     */
-    private String extractXmlTagValue(String xml, String parentTag, String fieldName) {
-        String open  = "<" + parentTag + ">";
-        String close = "</" + parentTag + ">";
-        int start = xml.indexOf(open);
-        if (start < 0) return null;
-        int end = xml.indexOf(close, start);
-        if (end < 0) return null;
-        String block = xml.substring(start + open.length(), end);
-        return extractXmlValue(block, fieldName);
-    }
 }
