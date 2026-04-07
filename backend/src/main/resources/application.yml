@@ -58,6 +58,9 @@ app:
   stripe:
     secret-key: ${STRIPE_SECRET_KEY:}
     webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  square:
+    webhook-signature-key: ${SQUARE_WEBHOOK_SIGNATURE_KEY:}
+    webhook-notification-url: ${SQUARE_WEBHOOK_NOTIFICATION_URL:}
   encryption:
     key: ${ENCRYPTION_KEY:}       # base64-encoded 32-byte key — generate: openssl rand -base64 32
   logs:

@@ -221,6 +221,42 @@ POST /api/v1/auth/mfa/verify  { mfaSessionToken, code }
 - `/settings/security` — QR code display (`qrcode.react`), confirm flow, backup codes panel, disable flow
 - Login page shows TOTP step 2 when `mfaRequired: true`; supports backup code toggle
 
+## Webhook Security Rules — STRICT, NO EXCEPTIONS
+
+All provider webhook controllers (`POST /api/v1/providers/*/webhook`) are `permitAll()` — unauthenticated by design so providers can POST to them. This makes signature verification the **only** security boundary. The following rules are mandatory:
+
+1. **Reject if not configured** — if the webhook secret/signature-key property is blank, return `400` immediately. Never fall through to an unverified code path. There is no "dev mode" that skips verification — use sandbox credentials instead.
+
+2. **Reject if signature header is absent** — if the provider's signature header is missing or blank, return `400`. Never process a payload without a signature even when credentials are configured.
+
+3. **No unverified fallback path** — the `if (configured) { verify } else { parse anyway }` pattern is forbidden. Every incoming request must be verified or rejected. Delete any such fallback if found.
+
+4. **Constant-time comparison** — use `MessageDigest.isEqual()` (Java) when comparing computed vs received signatures to prevent timing attacks.
+
+5. **Never log the raw body or signature header** — they contain HMAC material and payment data.
+
+### Per-provider signature details
+| Provider | Header | Algorithm | Input |
+|---|---|---|---|
+| Stripe | `Stripe-Signature` | HMAC-SHA256 (Stripe SDK `Webhook.constructEvent`) | SDK handles internally |
+| Braintree | `bt_signature` (form param) | Braintree SDK `gateway.webhookNotification().parse()` | SDK handles internally |
+| Square | `x-square-hmacsha256-signature` | HMAC-SHA256 | `notificationUrl + rawBody` → Base64 |
+
+### Template — every new webhook controller must follow this skeleton
+```java
+if (secret == null || secret.isBlank()) {
+    log.warn("Xxx webhook received but secret not configured — rejecting");
+    return ResponseEntity.badRequest().build();
+}
+if (signatureHeader == null || signatureHeader.isBlank()) {
+    log.warn("Xxx webhook missing signature header");
+    return ResponseEntity.badRequest().build();
+}
+// provider-specific signature verification here — throws / returns false on mismatch
+// → return ResponseEntity.badRequest().build() on failure
+// reconcile only if verification passed
+```
+
 ## Logging Security Rules
 
 `ApiRequestLoggingFilter` stores API request/response bodies in `gateway_logs`. The following rules MUST be maintained:
