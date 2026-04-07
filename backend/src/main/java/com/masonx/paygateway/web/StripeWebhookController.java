@@ -43,27 +43,22 @@ public class StripeWebhookController {
             @RequestBody String payload,
             @RequestHeader(value = "Stripe-Signature", required = false) String sigHeader) {
 
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            log.warn("Stripe webhook received but webhook secret not configured — rejecting");
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (sigHeader == null || sigHeader.isBlank()) {
+            log.warn("Stripe webhook missing Stripe-Signature header");
+            return ResponseEntity.badRequest().build();
+        }
+
         Event event;
-        if (webhookSecret != null && !webhookSecret.isBlank() && sigHeader != null) {
-            try {
-                event = Webhook.constructEvent(payload, sigHeader, webhookSecret);
-            } catch (SignatureVerificationException e) {
-                log.warn("Stripe webhook signature verification failed: {}", e.getMessage());
-                return ResponseEntity.badRequest().build();
-            }
-        } else {
-            // No secret configured — parse without verification (dev/test only)
-            try {
-                JsonNode root = objectMapper.readTree(payload);
-                // Minimal parse for dev mode
-                String type = root.path("type").asText();
-                JsonNode dataObject = root.path("data").path("object");
-                reconcileFromJson(type, dataObject);
-                return ResponseEntity.ok().build();
-            } catch (Exception e) {
-                log.error("Failed to parse Stripe webhook: {}", e.getMessage());
-                return ResponseEntity.badRequest().build();
-            }
+        try {
+            event = Webhook.constructEvent(payload, sigHeader, webhookSecret);
+        } catch (SignatureVerificationException e) {
+            log.warn("Stripe webhook signature verification failed: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
 
         reconcileFromEvent(event);
