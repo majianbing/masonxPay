@@ -111,6 +111,13 @@
             <version>1.8.9</version>
         </dependency>
 
+        <!-- Structured JSON logging (prod) -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
         <!-- Dotenv -->
         <dependency>
             <groupId>me.paulschwarz</groupId>

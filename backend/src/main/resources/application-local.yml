@@ -1,3 +1,12 @@
+logging:
+  level:
+    root: INFO
+    com.masonx.paygateway: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: INFO
+    org.hibernate: WARN
+    com.zaxxer.hikari: WARN
+    com.alibaba.csp.sentinel: WARN
 
 spring:
   datasource:
