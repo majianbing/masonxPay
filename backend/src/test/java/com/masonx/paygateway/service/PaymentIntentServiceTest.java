@@ -86,7 +86,7 @@ class PaymentIntentServiceTest {
                 .thenReturn(List.of());
 
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
-                1000L, "USD", "idem-key", null, null, null, null, null);
+                1000L, "USD", "idem-key", null, null, null, null, null, null, null, null, null);
 
         PaymentIntentResponse resp = service.create(auth(ApiKeyType.SECRET), req);
 
@@ -98,7 +98,7 @@ class PaymentIntentServiceTest {
     void create_publishableKey_throwsAccessDenied() {
         // requireSecretKey() throws before any repo is consulted
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
-                1000L, "USD", "idem-key-2", null, null, null, null, null);
+                1000L, "USD", "idem-key-2", null, null, null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(auth(ApiKeyType.PUBLISHABLE), req))
                 .isInstanceOf(AccessDeniedException.class);
@@ -118,7 +118,7 @@ class PaymentIntentServiceTest {
         when(paymentRequestRepository.findByPaymentIntentId(newId)).thenReturn(List.of());
 
         CreatePaymentIntentRequest req = new CreatePaymentIntentRequest(
-                2500L, "EUR", "new-key", null, null, null, null, null);
+                2500L, "EUR", "new-key", null, null, null, null, null, null, null, null, null);
 
         PaymentIntentResponse resp = service.create(auth(ApiKeyType.SECRET), req);
 
