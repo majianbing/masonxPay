@@ -1,6 +1,8 @@
 package com.masonx.paygateway.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.masonx.paygateway.domain.payment.Address;
+import com.masonx.paygateway.domain.payment.BillingDetails;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
@@ -13,6 +15,8 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,14 +53,22 @@ public class SquarePaymentProviderService implements PaymentProviderService {
         }
 
         try {
-            Map<String, Object> body = Map.of(
-                    "source_id",       req.paymentMethodId(),
-                    "idempotency_key", squareKey(req.idempotencyKey()),
-                    "amount_money",    Map.of(
-                            "amount",   req.amount(),
-                            "currency", req.currency().toUpperCase()),
-                    "location_id",     square.locationId()
-            );
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("source_id",       req.paymentMethodId());
+            body.put("idempotency_key", squareKey(req.idempotencyKey()));
+            body.put("amount_money",    Map.of(
+                    "amount",   req.amount(),
+                    "currency", req.currency().toUpperCase()));
+            body.put("location_id",     square.locationId());
+
+            // Buyer email for receipts and risk scoring
+            if (req.billingDetails() != null && req.billingDetails().email() != null) {
+                body.put("buyer_email_address", req.billingDetails().email());
+            }
+
+            // Billing address — used by Square for AVS and risk scoring
+            Map<String, Object> billingAddr = buildSquareAddress(req.billingDetails());
+            if (billingAddr != null) body.put("billing_address", billingAddr);
 
             JsonNode response = restClient.post()
                     .uri(square.baseUrl() + "/v2/payments")
@@ -187,6 +199,23 @@ public class SquarePaymentProviderService implements PaymentProviderService {
             log.error("Square refund error", e);
             return new RefundResult(false, null, e.getMessage());
         }
+    }
+
+    private Map<String, Object> buildSquareAddress(BillingDetails bd) {
+        if (bd == null) return null;
+        Address addr = bd.address();
+        Map<String, Object> map = new HashMap<>();
+        if (bd.firstName() != null)              map.put("first_name", bd.firstName());
+        if (bd.lastName() != null)               map.put("last_name", bd.lastName());
+        if (addr != null) {
+            if (addr.line1() != null)            map.put("address_line_1", addr.line1());
+            if (addr.line2() != null)            map.put("address_line_2", addr.line2());
+            if (addr.city() != null)             map.put("locality", addr.city());
+            if (addr.state() != null)            map.put("administrative_district_level_1", addr.state());
+            if (addr.postalCode() != null)       map.put("postal_code", addr.postalCode());
+            if (addr.country() != null)          map.put("country", addr.country());
+        }
+        return map.isEmpty() ? null : map;
     }
 
     /**

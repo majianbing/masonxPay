@@ -1,12 +1,16 @@
 package com.masonx.paygateway.provider;
 
 import com.braintreegateway.BraintreeGateway;
+import com.braintreegateway.CustomerRequest;
 import com.braintreegateway.Environment;
 import com.braintreegateway.Result;
 import com.braintreegateway.Transaction;
 import com.braintreegateway.TransactionRequest;
+import com.masonx.paygateway.domain.payment.Address;
+import com.masonx.paygateway.domain.payment.BillingDetails;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.payment.ShippingDetails;
 import com.masonx.paygateway.provider.credentials.BraintreeCredentials;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 
@@ -67,8 +71,51 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
             TransactionRequest transactionRequest = new TransactionRequest()
                     .amount(amount)
                     .paymentMethodNonce(req.paymentMethodId())  // nonce from Drop-in UI
-                    .orderId(req.idempotencyKey())              // stored for our audit trail
-                    .options()
+                    .orderId(req.idempotencyKey());             // stored for our audit trail
+
+            // Customer details — used by Braintree for risk scoring and receipts
+            if (req.billingDetails() != null) {
+                BillingDetails bd = req.billingDetails();
+                CustomerRequest customer = transactionRequest.customer();
+                if (bd.firstName() != null) customer.firstName(bd.firstName());
+                if (bd.lastName() != null)  customer.lastName(bd.lastName());
+                if (bd.email() != null)     customer.email(bd.email());
+                if (bd.phone() != null)     customer.phone(bd.phone());
+                customer.done();
+
+                // Billing address — used for AVS verification
+                if (bd.address() != null) {
+                    Address addr = bd.address();
+                    var billing = transactionRequest.billingAddress();
+                    if (bd.firstName() != null)    billing.firstName(bd.firstName());
+                    if (bd.lastName() != null)     billing.lastName(bd.lastName());
+                    if (addr.line1() != null)      billing.streetAddress(addr.line1());
+                    if (addr.line2() != null)      billing.extendedAddress(addr.line2());
+                    if (addr.city() != null)       billing.locality(addr.city());
+                    if (addr.state() != null)      billing.region(addr.state());
+                    if (addr.postalCode() != null) billing.postalCode(addr.postalCode());
+                    if (addr.country() != null)    billing.countryCodeAlpha2(addr.country());
+                    billing.done();
+                }
+            }
+
+            // Shipping address — used for dispute evidence
+            if (req.shippingDetails() != null && req.shippingDetails().address() != null) {
+                ShippingDetails sd = req.shippingDetails();
+                Address addr = sd.address();
+                var shipping = transactionRequest.shippingAddress();
+                if (sd.firstName() != null)    shipping.firstName(sd.firstName());
+                if (sd.lastName() != null)     shipping.lastName(sd.lastName());
+                if (addr.line1() != null)      shipping.streetAddress(addr.line1());
+                if (addr.line2() != null)      shipping.extendedAddress(addr.line2());
+                if (addr.city() != null)       shipping.locality(addr.city());
+                if (addr.state() != null)      shipping.region(addr.state());
+                if (addr.postalCode() != null) shipping.postalCode(addr.postalCode());
+                if (addr.country() != null)    shipping.countryCodeAlpha2(addr.country());
+                shipping.done();
+            }
+
+            transactionRequest.options()
                         .submitForSettlement(true)
                     .done();
 

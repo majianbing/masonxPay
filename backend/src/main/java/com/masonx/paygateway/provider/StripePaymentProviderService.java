@@ -1,7 +1,9 @@
 package com.masonx.paygateway.provider;
 
+import com.masonx.paygateway.domain.payment.BillingDetails;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.payment.ShippingDetails;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.stripe.exception.StripeException;
@@ -36,13 +38,23 @@ public class StripePaymentProviderService implements PaymentProviderService {
         }
 
         try {
-            PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
+            PaymentIntentCreateParams.Builder paramsBuilder = PaymentIntentCreateParams.builder()
                     .setAmount(req.amount())
                     .setCurrency(req.currency().toLowerCase())
                     .setConfirm(true)
                     .setPaymentMethod(req.paymentMethodId())
-                    .addPaymentMethodType("card")
-                    .build();
+                    .addPaymentMethodType("card");
+
+            // Receipt email
+            if (req.billingDetails() != null && req.billingDetails().email() != null) {
+                paramsBuilder.setReceiptEmail(req.billingDetails().email());
+            }
+
+            // Shipping — used by Stripe Radar and stored as dispute evidence
+            PaymentIntentCreateParams.Shipping stripeShipping = buildStripeShipping(req.shippingDetails());
+            if (stripeShipping != null) paramsBuilder.setShipping(stripeShipping);
+
+            PaymentIntentCreateParams params = paramsBuilder.build();
 
             RequestOptions options = RequestOptions.builder()
                     .setApiKey(stripe.secretKey())
@@ -65,6 +77,32 @@ public class StripePaymentProviderService implements PaymentProviderService {
             // StripeException from the API call itself is a technical/transient failure → retryable
             return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true);
         }
+    }
+
+    private PaymentIntentCreateParams.Shipping buildStripeShipping(ShippingDetails sd) {
+        if (sd == null || sd.address() == null) return null;
+        PaymentIntentCreateParams.Shipping.Address.Builder addrBuilder =
+                PaymentIntentCreateParams.Shipping.Address.builder()
+                        .setLine1(sd.address().line1())
+                        .setCity(sd.address().city())
+                        .setCountry(sd.address().country());
+        if (sd.address().line2() != null)       addrBuilder.setLine2(sd.address().line2());
+        if (sd.address().state() != null)       addrBuilder.setState(sd.address().state());
+        if (sd.address().postalCode() != null)  addrBuilder.setPostalCode(sd.address().postalCode());
+
+        PaymentIntentCreateParams.Shipping.Builder builder =
+                PaymentIntentCreateParams.Shipping.builder()
+                        .setAddress(addrBuilder.build())
+                        .setName(fullName(sd.firstName(), sd.lastName()));
+        if (sd.phone() != null) builder.setPhone(sd.phone());
+        return builder.build();
+    }
+
+    private String fullName(String first, String last) {
+        if (first == null && last == null) return "";
+        if (first == null) return last;
+        if (last == null)  return first;
+        return first + " " + last;
     }
 
     @Override

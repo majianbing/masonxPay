@@ -105,7 +105,9 @@ public class PublicPaymentController {
                 link.getCurrency(),
                 "card",
                 paymentToken.getProviderPmId(),
-                idempotencyKey
+                idempotencyKey,
+                null,
+                null
         ), creds);
 
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);

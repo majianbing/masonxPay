@@ -138,7 +138,9 @@ public class ConnectorController {
                 req.currency().toLowerCase(),
                 "card",
                 req.testCard(),
-                idempotencyKey
+                idempotencyKey,
+                null,
+                null
         ), creds);
 
         // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest

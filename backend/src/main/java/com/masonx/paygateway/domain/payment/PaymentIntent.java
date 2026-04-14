@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 
+
 @Entity
 @Table(name = "payment_intents")
 public class PaymentIntent {
@@ -64,6 +65,20 @@ public class PaymentIntent {
 
     @Column(name = "payment_method_type", length = 50)
     private String paymentMethodType;
+
+    @Column(name = "order_id", length = 255)
+    private String orderId;
+
+    @Column(name = "description", length = 500)
+    private String description;
+
+    @Convert(converter = BillingDetailsConverter.class)
+    @Column(name = "billing_details", columnDefinition = "TEXT")
+    private BillingDetails billingDetails;
+
+    @Convert(converter = ShippingDetailsConverter.class)
+    @Column(name = "shipping_details", columnDefinition = "TEXT")
+    private ShippingDetails shippingDetails;
 
     @Column(name = "expires_at")
     private Instant expiresAt;
@@ -126,6 +141,18 @@ public class PaymentIntent {
 
     public String getPaymentMethodType() { return paymentMethodType; }
     public void setPaymentMethodType(String paymentMethodType) { this.paymentMethodType = paymentMethodType; }
+
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public BillingDetails getBillingDetails() { return billingDetails; }
+    public void setBillingDetails(BillingDetails billingDetails) { this.billingDetails = billingDetails; }
+
+    public ShippingDetails getShippingDetails() { return shippingDetails; }
+    public void setShippingDetails(ShippingDetails shippingDetails) { this.shippingDetails = shippingDetails; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

@@ -92,6 +92,10 @@ public class PaymentIntentService {
         intent.setCancelUrl(req.cancelUrl());
         intent.setFailureUrl(req.failureUrl());
         intent.setMetadata(serializeMetadata(req.metadata()));
+        intent.setOrderId(req.orderId());
+        intent.setDescription(req.description());
+        intent.setBillingDetails(req.billingDetails());
+        intent.setShippingDetails(req.shippingDetails());
         intent.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
 
         return toResponse(paymentIntentRepository.save(intent));
@@ -174,6 +178,9 @@ public class PaymentIntentService {
             }
 
             intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
+            // Confirm-time billing/shipping overrides (or sets) what was supplied at create time
+            if (req.billingDetails() != null) intent.setBillingDetails(req.billingDetails());
+            if (req.shippingDetails() != null) intent.setShippingDetails(req.shippingDetails());
             intent.setStatus(PaymentIntentStatus.PROCESSING);
             intent.setResolvedProvider(provider);
             intent.setConnectorAccountId(firstAccount.getId());
@@ -210,7 +217,9 @@ public class PaymentIntentService {
             ChargeResult result = dispatcher.charge(setup.provider(), new ChargeRequest(
                     setup.intent().getId(), setup.intent().getAmount(), setup.intent().getCurrency(),
                     setup.pmType(), setup.rawPmId(),
-                    "pi-" + setup.intent().getId() + "-" + attemptId
+                    "pi-" + setup.intent().getId() + "-" + attemptId,
+                    setup.intent().getBillingDetails(),
+                    setup.intent().getShippingDetails()
             ), creds);
             lastResult = result;
 

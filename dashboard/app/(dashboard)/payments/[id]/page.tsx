@@ -40,6 +40,30 @@ interface PaymentAttempt {
   createdAt: string;
 }
 
+interface Address {
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+}
+
+interface BillingDetails {
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: Address | null;
+}
+
+interface ShippingDetails {
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  address: Address | null;
+}
+
 interface PaymentIntent {
   id: string;
   merchantId: string;
@@ -52,6 +76,10 @@ interface PaymentIntent {
   providerPaymentId: string;
   metadata: Record<string, string>;
   idempotencyKey: string;
+  orderId: string | null;
+  description: string | null;
+  billingDetails: BillingDetails | null;
+  shippingDetails: ShippingDetails | null;
   createdAt: string;
   updatedAt: string;
   attempts: PaymentAttempt[];
@@ -121,6 +149,8 @@ export default function PaymentDetailPage() {
           <Field label="Idempotency Key" value={<span className="font-mono text-xs">{payment.idempotencyKey ?? '—'}</span>} />
           <Field label="Created" value={format(new Date(payment.createdAt), 'MMM d, yyyy HH:mm:ss')} />
           <Field label="Updated" value={format(new Date(payment.updatedAt), 'MMM d, yyyy HH:mm:ss')} />
+          {payment.orderId && <Field label="Order ID" value={<span className="font-mono text-xs">{payment.orderId}</span>} />}
+          {payment.description && <Field label="Description" value={payment.description} />}
         </CardContent>
       </Card>
 
@@ -134,6 +164,43 @@ export default function PaymentDetailPage() {
                 <span className="text-muted-foreground">{v}</span>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {payment.billingDetails && (
+        <Card>
+          <CardHeader><CardTitle className="text-sm font-medium">Customer / Billing</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-2 gap-4 text-sm">
+            {(payment.billingDetails.firstName || payment.billingDetails.lastName) && (
+              <Field label="Name" value={[payment.billingDetails.firstName, payment.billingDetails.lastName].filter(Boolean).join(' ')} />
+            )}
+            {payment.billingDetails.email && <Field label="Email" value={payment.billingDetails.email} />}
+            {payment.billingDetails.phone && <Field label="Phone" value={payment.billingDetails.phone} />}
+            {payment.billingDetails.address && (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-0.5">Billing Address</p>
+                <AddressBlock addr={payment.billingDetails.address} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {payment.shippingDetails && (
+        <Card>
+          <CardHeader><CardTitle className="text-sm font-medium">Shipping</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-2 gap-4 text-sm">
+            {(payment.shippingDetails.firstName || payment.shippingDetails.lastName) && (
+              <Field label="Name" value={[payment.shippingDetails.firstName, payment.shippingDetails.lastName].filter(Boolean).join(' ')} />
+            )}
+            {payment.shippingDetails.phone && <Field label="Phone" value={payment.shippingDetails.phone} />}
+            {payment.shippingDetails.address && (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-0.5">Shipping Address</p>
+                <AddressBlock addr={payment.shippingDetails.address} />
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -226,6 +293,20 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
     <div>
       <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
       <div>{value}</div>
+    </div>
+  );
+}
+
+function AddressBlock({ addr }: { addr: Address }) {
+  const lines = [
+    addr.line1,
+    addr.line2,
+    [addr.city, addr.state, addr.postalCode].filter(Boolean).join(', '),
+    addr.country,
+  ].filter(Boolean);
+  return (
+    <div className="text-sm">
+      {lines.map((line, i) => <div key={i}>{line}</div>)}
     </div>
   );
 }
