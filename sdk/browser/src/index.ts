@@ -81,6 +81,8 @@ const STYLES = `
 .gw-card-input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; background: white; }
 .gw-wallets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 @keyframes gw-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes gw-spin { to { transform: rotate(360deg); } }
+.gw-btn-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: gw-spin 0.65s linear infinite; vertical-align: middle; margin-right: 8px; }
 .gw-skeleton-line {
   height: 40px; border-radius: 6px; margin-bottom: 10px;
   background: linear-gradient(90deg, #f1f5f9 25%, #e8edf5 50%, #f1f5f9 75%);
@@ -489,7 +491,11 @@ export class GatewayEmbedded {
   private async submit(): Promise<void> {
     if (!this.submitBtn) return;
     this.showError(null);
+
+    const originalText = this.submitBtn.textContent ?? 'Pay';
     this.submitBtn.disabled = true;
+    this.submitBtn.innerHTML = '<span class="gw-btn-spinner"></span>Processing\u2026';
+
     try {
       if (this.selectedProvider === 'STRIPE') await this.submitStripe();
       else if (this.selectedProvider === 'SQUARE') await this.submitSquare();
@@ -500,7 +506,10 @@ export class GatewayEmbedded {
       this.fire('error', { message: msg });
       this.checkoutOnError?.(e as Error);
     } finally {
-      if (this.submitBtn) this.submitBtn.disabled = false;
+      if (this.submitBtn) {
+        this.submitBtn.disabled = false;
+        this.submitBtn.textContent = originalText;
+      }
     }
   }
 
