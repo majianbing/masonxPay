@@ -173,6 +173,7 @@ public class PaymentIntentService {
                         : List.of(routing.primary());
             }
 
+            intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
             intent.setStatus(PaymentIntentStatus.PROCESSING);
             intent.setResolvedProvider(provider);
             intent.setConnectorAccountId(firstAccount.getId());

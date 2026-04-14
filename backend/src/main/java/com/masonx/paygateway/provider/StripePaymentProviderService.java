@@ -1,5 +1,6 @@
 package com.masonx.paygateway.provider;
 
+import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
@@ -9,6 +10,8 @@ import com.stripe.model.Refund;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.RefundCreateParams;
+
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -61,6 +64,45 @@ public class StripePaymentProviderService implements PaymentProviderService {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
             // StripeException from the API call itself is a technical/transient failure → retryable
             return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true);
+        }
+    }
+
+    @Override
+    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) return Optional.empty();
+        try {
+            RequestOptions options = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
+            PaymentIntent pi = PaymentIntent.retrieve(providerPaymentId, options);
+            PaymentIntentStatus mapped = switch (pi.getStatus()) {
+                case "succeeded"                -> PaymentIntentStatus.SUCCEEDED;
+                case "canceled"                 -> PaymentIntentStatus.CANCELED;
+                case "requires_payment_method"  -> {
+                    // Stripe sets this after a failed attempt — check lastPaymentError
+                    yield pi.getLastPaymentError() != null
+                            ? PaymentIntentStatus.FAILED
+                            : PaymentIntentStatus.CANCELED;
+                }
+                default -> null; // still in-flight: processing, requires_action, requires_capture, etc.
+            };
+            return Optional.ofNullable(mapped);
+        } catch (StripeException e) {
+            log.warn("Stripe syncStatus failed for {}: {}", providerPaymentId, e.getCode());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) return false;
+        try {
+            RequestOptions options = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
+            PaymentIntent pi = PaymentIntent.retrieve(providerPaymentId, options);
+            if ("succeeded".equals(pi.getStatus()) || "canceled".equals(pi.getStatus())) return false;
+            pi.cancel(options);
+            return true;
+        } catch (StripeException e) {
+            log.warn("Stripe cancelAtProvider failed for {}: {}", providerPaymentId, e.getCode());
+            return false;
         }
     }
 

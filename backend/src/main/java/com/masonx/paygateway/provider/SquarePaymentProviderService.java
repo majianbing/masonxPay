@@ -1,6 +1,7 @@
 package com.masonx.paygateway.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.SquareCredentials;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -94,6 +96,52 @@ public class SquarePaymentProviderService implements PaymentProviderService {
             log.error("Square charge error", e);
             // Network / unexpected error — worth retrying on another connector
             return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true);
+        }
+    }
+
+    @Override
+    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof SquareCredentials square)) return Optional.empty();
+        try {
+            JsonNode response = restClient.get()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId)
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            PaymentIntentStatus mapped = switch (status.toUpperCase()) {
+                case "COMPLETED" -> PaymentIntentStatus.SUCCEEDED;
+                case "CANCELED"  -> PaymentIntentStatus.CANCELED;
+                case "FAILED"    -> PaymentIntentStatus.FAILED;
+                default          -> null; // APPROVED / PENDING — still in-flight
+            };
+            return Optional.ofNullable(mapped);
+        } catch (Exception e) {
+            log.warn("Square syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof SquareCredentials square)) return false;
+        try {
+            JsonNode response = restClient.post()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/cancel")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            return "CANCELED".equalsIgnoreCase(status);
+        } catch (Exception e) {
+            log.warn("Square cancelAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
+            return false;
         }
     }
 

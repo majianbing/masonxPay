@@ -1,5 +1,6 @@
 package com.masonx.paygateway.provider;
 
+import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,14 @@ public class PaymentProviderDispatcher {
 
     public RefundResult refund(PaymentProvider provider, RefundRequest req, ProviderCredentials creds) {
         return get(provider).refund(req, creds);
+    }
+
+    public Optional<PaymentIntentStatus> syncStatus(PaymentProvider provider, String providerPaymentId, ProviderCredentials creds) {
+        return get(provider).syncStatus(providerPaymentId, creds);
+    }
+
+    public boolean cancelAtProvider(PaymentProvider provider, String providerPaymentId, ProviderCredentials creds) {
+        return get(provider).cancelAtProvider(providerPaymentId, creds);
     }
 
     private PaymentProviderService get(PaymentProvider provider) {

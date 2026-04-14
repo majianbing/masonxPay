@@ -62,6 +62,9 @@ public class PaymentIntent {
     @Column(name = "failure_url", length = 500)
     private String failureUrl;
 
+    @Column(name = "payment_method_type", length = 50)
+    private String paymentMethodType;
+
     @Column(name = "expires_at")
     private Instant expiresAt;
 
@@ -120,6 +123,9 @@ public class PaymentIntent {
 
     public String getFailureUrl() { return failureUrl; }
     public void setFailureUrl(String failureUrl) { this.failureUrl = failureUrl; }
+
+    public String getPaymentMethodType() { return paymentMethodType; }
+    public void setPaymentMethodType(String paymentMethodType) { this.paymentMethodType = paymentMethodType; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

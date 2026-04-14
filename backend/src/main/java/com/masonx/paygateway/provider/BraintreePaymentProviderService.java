@@ -5,9 +5,12 @@ import com.braintreegateway.Environment;
 import com.braintreegateway.Result;
 import com.braintreegateway.Transaction;
 import com.braintreegateway.TransactionRequest;
+import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.BraintreeCredentials;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+
+import java.util.Optional;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.RefundRequest;
@@ -99,6 +102,38 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
         } catch (Exception e) {
             log.error("Braintree charge error", e);
             return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true);
+        }
+    }
+
+    @Override
+    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return Optional.empty();
+        try {
+            Transaction tx = buildGateway(bt).transaction().find(providerPaymentId);
+            PaymentIntentStatus mapped = switch (tx.getStatus()) {
+                case SETTLED, SETTLEMENT_CONFIRMED           -> PaymentIntentStatus.SUCCEEDED;
+                case VOIDED, FAILED, SETTLEMENT_DECLINED,
+                     PROCESSOR_DECLINED, GATEWAY_REJECTED    -> PaymentIntentStatus.FAILED;
+                default                                      -> null; // AUTHORIZED / SUBMITTED / SETTLING — in-flight
+            };
+            return Optional.ofNullable(mapped);
+        } catch (Exception e) {
+            log.warn("Braintree syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return false;
+        try {
+            Result<Transaction> result = buildGateway(bt).transaction().voidTransaction(providerPaymentId);
+            if (result.isSuccess()) return true;
+            log.warn("Braintree cancelAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.warn("Braintree cancelAtProvider error for {}: {}", providerPaymentId, e.getMessage());
+            return false;
         }
     }
 
