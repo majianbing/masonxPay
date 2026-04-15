@@ -3,6 +3,7 @@ package com.masonx.paygateway.provider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.masonx.paygateway.domain.payment.Address;
 import com.masonx.paygateway.domain.payment.BillingDetails;
+import com.masonx.paygateway.domain.payment.CaptureMethod;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
@@ -70,6 +71,11 @@ public class SquarePaymentProviderService implements PaymentProviderService {
             Map<String, Object> billingAddr = buildSquareAddress(req.billingDetails());
             if (billingAddr != null) body.put("billing_address", billingAddr);
 
+            // Manual capture: authorize now, settle later via captureAtProvider()
+            if (req.captureMethod() == CaptureMethod.MANUAL) {
+                body.put("autocomplete", false);
+            }
+
             JsonNode response = restClient.post()
                     .uri(square.baseUrl() + "/v2/payments")
                     .header("Authorization", "Bearer " + square.accessToken())
@@ -134,6 +140,25 @@ public class SquarePaymentProviderService implements PaymentProviderService {
         } catch (Exception e) {
             log.warn("Square syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof SquareCredentials square)) return false;
+        try {
+            JsonNode response = restClient.post()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/complete")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            return "COMPLETED".equalsIgnoreCase(status);
+        } catch (Exception e) {
+            log.warn("Square captureAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
+            return false;
         }
     }
 

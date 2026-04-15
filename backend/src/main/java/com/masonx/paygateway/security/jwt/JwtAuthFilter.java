@@ -45,7 +45,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String email = jwtService.extractEmail(token);
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             MerchantUserDetails userDetails = (MerchantUserDetails) userDetailsService.loadUserByUsername(email);
-            if (userDetails.isEnabled()) {
+            // Reject tokens issued before the user's last logout (token_version check)
+            int tokenVersion = jwtService.extractTokenVersion(token);
+            if (userDetails.isEnabled() && tokenVersion >= userDetails.getTokenVersion()) {
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

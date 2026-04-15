@@ -18,15 +18,18 @@ public class MerchantUserDetails implements UserDetails {
     private final String email;
     private final String passwordHash;
     private final boolean active;
+    private final int tokenVersion;
 
     public MerchantUserDetails(User user) {
         this.userId = user.getId();
         this.email = user.getEmail();
         this.passwordHash = user.getPasswordHash();
         this.active = user.getStatus().name().equals("ACTIVE");
+        this.tokenVersion = user.getTokenVersion();
     }
 
     public UUID getUserId() { return userId; }
+    public int getTokenVersion() { return tokenVersion; }
 
     @Override
     public String getUsername() { return email; }

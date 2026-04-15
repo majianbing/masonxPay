@@ -1,6 +1,7 @@
 package com.masonx.paygateway.provider;
 
 import com.masonx.paygateway.domain.payment.BillingDetails;
+import com.masonx.paygateway.domain.payment.CaptureMethod;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.ShippingDetails;
@@ -45,6 +46,11 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .setPaymentMethod(req.paymentMethodId())
                     .addPaymentMethodType("card");
 
+            // Manual capture: authorize now, settle later via captureAtProvider()
+            if (req.captureMethod() == CaptureMethod.MANUAL) {
+                paramsBuilder.setCaptureMethod(PaymentIntentCreateParams.CaptureMethod.MANUAL);
+            }
+
             // Receipt email
             if (req.billingDetails() != null && req.billingDetails().email() != null) {
                 paramsBuilder.setReceiptEmail(req.billingDetails().email());
@@ -62,7 +68,9 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             PaymentIntent pi = PaymentIntent.create(params, options);
-            boolean succeeded = "succeeded".equals(pi.getStatus());
+            // For MANUAL capture, Stripe transitions to "requires_capture" on success
+            boolean succeeded = "succeeded".equals(pi.getStatus())
+                    || "requires_capture".equals(pi.getStatus());
 
             String failureCode = succeeded ? null
                     : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getCode() : "unknown";
@@ -140,6 +148,20 @@ public class StripePaymentProviderService implements PaymentProviderService {
             return true;
         } catch (StripeException e) {
             log.warn("Stripe cancelAtProvider failed for {}: {}", providerPaymentId, e.getCode());
+            return false;
+        }
+    }
+
+    @Override
+    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) return false;
+        try {
+            RequestOptions options = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
+            PaymentIntent pi = PaymentIntent.retrieve(providerPaymentId, options);
+            pi.capture(options);
+            return true;
+        } catch (StripeException e) {
+            log.warn("Stripe captureAtProvider failed for {}: {}", providerPaymentId, e.getCode());
             return false;
         }
     }

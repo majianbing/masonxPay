@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEvent;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEventRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,6 +50,7 @@ public class SquareWebhookController {
     private static final String SIGNATURE_HEADER = "x-square-hmacsha256-signature";
 
     private final PaymentIntentRepository paymentIntentRepository;
+    private final ProcessedWebhookEventRepository processedEventRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${app.square.webhook-signature-key:}")
@@ -56,8 +60,10 @@ public class SquareWebhookController {
     private String notificationUrl;
 
     public SquareWebhookController(PaymentIntentRepository paymentIntentRepository,
+                                   ProcessedWebhookEventRepository processedEventRepository,
                                    ObjectMapper objectMapper) {
         this.paymentIntentRepository = paymentIntentRepository;
+        this.processedEventRepository = processedEventRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -84,9 +90,22 @@ public class SquareWebhookController {
 
         try {
             JsonNode root = objectMapper.readTree(payload);
+            String eventId = root.path("event_id").asText(null);
             String type = root.path("type").asText(null);
             JsonNode paymentNode = root.path("data").path("object").path("payment");
+
+            // Idempotency guard — Square retries on timeout
+            if (eventId != null) {
+                try {
+                    processedEventRepository.save(new ProcessedWebhookEvent("SQUARE", eventId));
+                } catch (DataIntegrityViolationException e) {
+                    return ResponseEntity.ok().build(); // already processed
+                }
+            }
+
             reconcile(type, paymentNode);
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.ok().build();
         } catch (Exception e) {
             log.error("Failed to parse Square webhook payload: {}", e.getMessage());
             return ResponseEntity.badRequest().build();

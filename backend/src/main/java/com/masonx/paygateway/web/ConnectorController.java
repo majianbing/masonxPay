@@ -140,7 +140,8 @@ public class ConnectorController {
                 req.testCard(),
                 idempotencyKey,
                 null,
-                null
+                null,
+                null  // always AUTOMATIC for connector preview
         ), creds);
 
         // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest

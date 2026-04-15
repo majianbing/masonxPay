@@ -4,18 +4,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
-import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
-import org.springframework.context.ApplicationEventPublisher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -31,6 +33,7 @@ import java.util.UUID;
 @Service
 public class PaymentIntentService {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentIntentService.class);
     private static final int MAX_FAILOVER_ATTEMPTS = 3;
 
     private final PaymentIntentRepository paymentIntentRepository;
@@ -42,7 +45,7 @@ public class PaymentIntentService {
     private final PaymentTokenService paymentTokenService;
     private final FailoverPolicy failoverPolicy;
     private final ObjectMapper objectMapper;
-    private final ApplicationEventPublisher eventPublisher;
+    private final OutboxEventRepository outboxEventRepository;
     private final TransactionTemplate txTemplate;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
@@ -54,7 +57,7 @@ public class PaymentIntentService {
                                 PaymentTokenService paymentTokenService,
                                 FailoverPolicy failoverPolicy,
                                 ObjectMapper objectMapper,
-                                ApplicationEventPublisher eventPublisher,
+                                OutboxEventRepository outboxEventRepository,
                                 PlatformTransactionManager txManager) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
@@ -65,7 +68,7 @@ public class PaymentIntentService {
         this.paymentTokenService = paymentTokenService;
         this.failoverPolicy = failoverPolicy;
         this.objectMapper = objectMapper;
-        this.eventPublisher = eventPublisher;
+        this.outboxEventRepository = outboxEventRepository;
         this.txTemplate = new TransactionTemplate(txManager);
     }
 
@@ -117,7 +120,7 @@ public class PaymentIntentService {
      * TX flow:
      *   1. TX-setup   — validate intent, resolve routing, set PROCESSING, save intent
      *   2. per attempt — TX-create-attempt → remote call → TX-update-attempt (repeated up to MAX_FAILOVER_ATTEMPTS)
-     *   3. TX-finalize — re-read intent, set final status, save
+     *   3. TX-finalize — re-read intent, set final status, write OutboxEvent, save
      */
     public PaymentIntentResponse confirm(ApiKeyAuthentication auth, UUID intentId,
                                          ConfirmPaymentIntentRequest req) {
@@ -178,7 +181,6 @@ public class PaymentIntentService {
             }
 
             intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
-            // Confirm-time billing/shipping overrides (or sets) what was supplied at create time
             if (req.billingDetails() != null) intent.setBillingDetails(req.billingDetails());
             if (req.shippingDetails() != null) intent.setShippingDetails(req.shippingDetails());
             intent.setStatus(PaymentIntentStatus.PROCESSING);
@@ -219,7 +221,8 @@ public class PaymentIntentService {
                     setup.pmType(), setup.rawPmId(),
                     "pi-" + setup.intent().getId() + "-" + attemptId,
                     setup.intent().getBillingDetails(),
-                    setup.intent().getShippingDetails()
+                    setup.intent().getShippingDetails(),
+                    setup.intent().getCaptureMethod()
             ), creds);
             lastResult = result;
 
@@ -239,47 +242,139 @@ public class PaymentIntentService {
             if (!failoverPolicy.isRetryable(result.failureCode())) break;
         }
 
-        // --- TX 3: finalize intent status ---
+        // --- TX 3: finalize intent status + write outbox event atomically ---
         final ChargeResult finalResult = lastResult;
         final UUID usedAccountId = usedAccount != null ? usedAccount.getId() : null;
 
-        PaymentIntentResponse response = txTemplate.execute(ts -> {
+        return txTemplate.execute(ts -> {
             PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+
+            final String eventType;
             if (finalResult != null && finalResult.success()) {
-                intent.setStatus(PaymentIntentStatus.SUCCEEDED);
+                // MANUAL capture: authorized but not yet settled
+                boolean manualCapture = intent.getCaptureMethod() == CaptureMethod.MANUAL;
+                intent.setStatus(manualCapture
+                        ? PaymentIntentStatus.REQUIRES_CAPTURE
+                        : PaymentIntentStatus.SUCCEEDED);
                 intent.setConnectorAccountId(usedAccountId);
                 intent.setProviderPaymentId(finalResult.providerPaymentId());
                 intent.setProviderResponse(finalResult.providerResponseJson());
+                eventType = manualCapture ? "payment_intent.requires_capture" : "payment_intent.succeeded";
             } else {
                 intent.setStatus(PaymentIntentStatus.FAILED);
+                eventType = "payment_intent.failed";
             }
+
             PaymentIntent saved = paymentIntentRepository.save(intent);
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
-            return PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+            PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+
+            // Write outbox event in the same TX as the intent save — atomic
+            writeOutboxEvent(saved.getMerchantId(), eventType, saved.getId(), response);
+
+            return response;
         });
-
-        // Publish event outside TX — async, best-effort
-        String eventType = (finalResult != null && finalResult.success())
-                ? "payment_intent.succeeded" : "payment_intent.failed";
-        publishEvent(setup.intent().getMerchantId(), setup.intent().getId(), eventType, response);
-
-        return response;
     }
 
-    @Transactional
-    public PaymentIntentResponse cancel(ApiKeyAuthentication auth, UUID intentId) {
-        PaymentIntent intent = loadOwned(auth, intentId);
+    /**
+     * Captures an authorized payment intent (status REQUIRES_CAPTURE).
+     * No @Transactional — the provider capture call must not hold a DB connection.
+     */
+    public PaymentIntentResponse capture(ApiKeyAuthentication auth, UUID intentId) {
+        requireSecretKey(auth);
 
-        if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
-                && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION) {
-            throw new IllegalStateException(
-                    "PaymentIntent cannot be canceled in status: " + intent.getStatus());
+        record CaptureSetup(PaymentIntent intent, ProviderCredentials creds) {}
+
+        CaptureSetup setup = txTemplate.execute(ts -> {
+            PaymentIntent intent = loadOwned(auth, intentId);
+            if (intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
+                throw new IllegalStateException(
+                        "PaymentIntent cannot be captured in status: " + intent.getStatus());
+            }
+            if (intent.getConnectorAccountId() == null || intent.getProviderPaymentId() == null) {
+                throw new IllegalStateException("PaymentIntent has no provider payment ID to capture");
+            }
+            ProviderCredentials creds = providerAccountService.loadCredentials(intent.getConnectorAccountId());
+            return new CaptureSetup(intent, creds);
+        });
+
+        // Remote call — outside any transaction
+        boolean captured = dispatcher.captureAtProvider(
+                setup.intent().getResolvedProvider(),
+                setup.intent().getProviderPaymentId(),
+                setup.creds());
+
+        // TX: update status + write outbox event
+        return txTemplate.execute(ts -> {
+            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            // Race guard: only update if still waiting for capture
+            if (intent.getStatus() == PaymentIntentStatus.REQUIRES_CAPTURE) {
+                intent.setStatus(captured ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
+                intent = paymentIntentRepository.save(intent);
+                String eventType = captured ? "payment_intent.succeeded" : "payment_intent.failed";
+                List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
+                PaymentIntentResponse response = PaymentIntentResponse.from(intent, attempts, objectMapper, null);
+                writeOutboxEvent(intent.getMerchantId(), eventType, intent.getId(), response);
+                return response;
+            }
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
+            return PaymentIntentResponse.from(intent, attempts, objectMapper, null);
+        });
+    }
+
+    /**
+     * Cancels a payment intent.
+     * For REQUIRES_CAPTURE intents, also releases the authorization hold at the provider.
+     * No @Transactional — may include a remote call when canceling a REQUIRES_CAPTURE intent.
+     */
+    public PaymentIntentResponse cancel(ApiKeyAuthentication auth, UUID intentId) {
+        requireSecretKey(auth);
+
+        // TX 1: validate and snapshot
+        PaymentIntent snapshot = txTemplate.execute(ts -> {
+            PaymentIntent intent = loadOwned(auth, intentId);
+            if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
+                throw new IllegalStateException(
+                        "PaymentIntent cannot be canceled in status: " + intent.getStatus());
+            }
+            return intent;
+        });
+
+        // If authorized but not captured, release the hold at the provider (best-effort)
+        if (snapshot.getStatus() == PaymentIntentStatus.REQUIRES_CAPTURE
+                && snapshot.getProviderPaymentId() != null
+                && snapshot.getConnectorAccountId() != null) {
+            try {
+                ProviderCredentials creds = providerAccountService.loadCredentials(
+                        snapshot.getConnectorAccountId());
+                dispatcher.cancelAtProvider(snapshot.getResolvedProvider(),
+                        snapshot.getProviderPaymentId(), creds);
+            } catch (Exception e) {
+                log.warn("Failed to release authorization hold for intent {}: {}",
+                        intentId, e.getMessage());
+                // Continue to cancel locally regardless — the hold will expire at the provider
+            }
         }
 
-        intent.setStatus(PaymentIntentStatus.CANCELED);
-        PaymentIntentResponse response = toResponse(paymentIntentRepository.save(intent));
-        publishEvent(intent.getMerchantId(), intent.getId(), "payment_intent.canceled", response);
-        return response;
+        // TX 2: set CANCELED + write outbox event
+        return txTemplate.execute(ts -> {
+            PaymentIntent intent = paymentIntentRepository.findById(snapshot.getId()).orElseThrow();
+            // Race guard: re-validate status
+            if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
+                throw new IllegalStateException(
+                        "PaymentIntent cannot be canceled in status: " + intent.getStatus());
+            }
+            intent.setStatus(PaymentIntentStatus.CANCELED);
+            intent = paymentIntentRepository.save(intent);
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
+            PaymentIntentResponse response = PaymentIntentResponse.from(intent, attempts, objectMapper, null);
+            writeOutboxEvent(intent.getMerchantId(), "payment_intent.canceled", intent.getId(), response);
+            return response;
+        });
     }
 
     // --- helpers ---
@@ -300,27 +395,22 @@ public class PaymentIntentService {
         return PaymentIntentResponse.from(intent, attempts, objectMapper, null);
     }
 
-    // TODO: Transactional Outbox — this publish is NOT atomic with the DB write above it.
-    //   If the JVM crashes between save() and publishEvent(), the payment state is persisted
-    //   but the webhook event is silently lost — the merchant's endpoint never gets notified.
-    //
-    //   This is an accepted trade-off: at the transaction volumes this gateway targets the
-    //   crash window is extremely narrow, and the operational cost of a full outbox table
-    //   (poller, deduplication, cleanup job) outweighs the risk.
-    //
-    //   If zero event loss becomes a requirement, the fix is:
-    //     1. Add an `outbox_events` table (id, event_type, payload, published, created_at).
-    //     2. Write the outbox row in the SAME @Transactional as the intent save — atomic.
-    //     3. Replace publishEvent() here with outboxRepo.save(new OutboxEvent(...)).
-    //     4. A @Scheduled poller reads unpublished rows, fires the Spring event, marks published.
-    //   No Kafka/MQ needed — Postgres continues to be the durable queue.
-    private void publishEvent(UUID merchantId, UUID intentId, String eventType, PaymentIntentResponse payload) {
+    /**
+     * Writes an OutboxEvent row in the CURRENT transaction (must be called from within a
+     * txTemplate.execute() or @Transactional context). The event is picked up by
+     * WebhookDeliveryService.processOutbox() and dispatched to merchant webhook endpoints.
+     *
+     * Failure to serialize the payload is non-fatal: the payment state is already persisted,
+     * and the worst case is that the merchant webhook is not delivered for this event.
+     */
+    private void writeOutboxEvent(UUID merchantId, String eventType, UUID resourceId,
+                                   PaymentIntentResponse payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
-            eventPublisher.publishEvent(
-                    new PaymentGatewayEvent(this, merchantId, eventType, intentId, json));
+            outboxEventRepository.save(new OutboxEvent(merchantId, eventType, resourceId, json));
         } catch (JsonProcessingException e) {
-            // non-critical — log and move on
+            log.warn("Failed to serialize outbox payload for event {} on intent {}: {}",
+                    eventType, resourceId, e.getMessage());
         }
     }
 

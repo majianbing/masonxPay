@@ -18,21 +18,19 @@
 
 ---
 
-## Phase 1 — Core correctness
-
-These are gaps where the system can produce **wrong or lost state** today. Fix before growing.
+## Phase 1 — Core correctness ✅ (complete)
 
 | # | Item | Status | Why it matters |
 |---|---|---|---|
-| 1.1 | **Transactional outbox** | [ ] | Crash between `save()` and `publishEvent()` silently drops a webhook. TODO already in `PaymentIntentService`. Fix: `outbox_events` table written in same TX, poller publishes. |
-| 1.2 | **Manual capture endpoint** | [ ] | `CaptureMethod.MANUAL` is stored but `POST /payment-intents/{id}/capture` doesn't exist. Hotels, pre-orders, B2B all need authorize-now / capture-later. |
-| 1.3 | **Refund amount guard** | [ ] | No validation that sum of refunds ≤ captured amount. Possible to over-refund today. |
-| 1.4 | **Inbound webhook deduplication** | [ ] | Providers retry webhooks on timeout. Processing the same event twice can double-update state. Need an idempotency key on `gateway_events`. |
-| 1.5 | **JWT token_version on logout** | [ ] | TODO in `JwtService`. Logout revokes refresh token but 24h access token stays valid. Increment `token_version` on logout, validate on each request. |
+| 1.1 | **Transactional outbox** | ✅ | `outbox_events` table written in same TX as intent save. `WebhookDeliveryService.processOutbox()` polls every 5s, creates `GatewayEvent` + `WebhookDelivery` rows and marks published atomically. |
+| 1.2 | **Manual capture endpoint** | ✅ | `POST /payment-intents/{id}/capture` added. All 3 providers support `captureAtProvider()`. MANUAL flow: charge returns `REQUIRES_CAPTURE`, capture() transitions to `SUCCEEDED`. Cancel of `REQUIRES_CAPTURE` releases hold at provider. |
+| 1.3 | **Refund amount guard** | ✅ | `RefundRepository.sumActiveByPaymentIntentId()` sums PENDING + SUCCEEDED refunds. `RefundService` rejects if `existing + requested > original`. |
+| 1.4 | **Inbound webhook deduplication** | ✅ | `processed_webhook_events` table with UNIQUE(provider, provider_event_id). All 3 webhook controllers check before processing; duplicate → 200 idempotent response. |
+| 1.5 | **JWT token_version on logout** | ✅ | `token_version INT` on `users` table, embedded as `tv` claim in every access token. `JwtAuthFilter` rejects tokens where `tv < user.token_version`. `AuthService.logout()` increments `token_version`. |
 
 ---
 
-## Phase 2 — Observability ← current
+## Phase 2 — Observability ← next
 
 No metrics, no tracing, no alerting today. Foundation that Phases 3 and 4 depend on — smart routing needs success-rate data; merchant analytics needs aggregated metrics; connector health needs measurement before it can be acted on.
 

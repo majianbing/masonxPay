@@ -6,6 +6,9 @@ import com.braintreegateway.WebhookNotification;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEvent;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEventRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +41,7 @@ public class BraintreeWebhookController {
     private static final Logger log = LoggerFactory.getLogger(BraintreeWebhookController.class);
 
     private final PaymentIntentRepository paymentIntentRepository;
+    private final ProcessedWebhookEventRepository processedEventRepository;
 
     @Value("${app.braintree.merchant-id:}")
     private String merchantId;
@@ -48,8 +52,10 @@ public class BraintreeWebhookController {
     @Value("${app.braintree.sandbox:true}")
     private boolean sandbox;
 
-    public BraintreeWebhookController(PaymentIntentRepository paymentIntentRepository) {
+    public BraintreeWebhookController(PaymentIntentRepository paymentIntentRepository,
+                                       ProcessedWebhookEventRepository processedEventRepository) {
         this.paymentIntentRepository = paymentIntentRepository;
+        this.processedEventRepository = processedEventRepository;
     }
 
     @PostMapping("/webhook")
@@ -76,7 +82,21 @@ public class BraintreeWebhookController {
             BraintreeGateway gateway = buildGateway();
             WebhookNotification notification = gateway.webhookNotification()
                     .parse(btSignature, btPayload);
+
+            // Idempotency guard — derive a unique key from kind + transaction id
+            String txId = notification.getTransaction() != null ? notification.getTransaction().getId() : null;
+            if (txId != null && notification.getKind() != null) {
+                String eventKey = notification.getKind() + "_" + txId;
+                try {
+                    processedEventRepository.save(new ProcessedWebhookEvent("BRAINTREE", eventKey));
+                } catch (DataIntegrityViolationException e) {
+                    return ResponseEntity.ok().build(); // already processed
+                }
+            }
+
             reconcileFromNotification(notification);
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.ok().build();
         } catch (Exception e) {
             log.warn("Braintree webhook verification/parse failed: {}", e.getMessage());
             return ResponseEntity.badRequest().build();

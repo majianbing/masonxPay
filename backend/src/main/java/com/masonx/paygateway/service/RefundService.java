@@ -53,8 +53,13 @@ public class RefundService {
             }
 
             long refundAmount = req.amount() != null ? req.amount() : intent.getAmount();
-            if (refundAmount > intent.getAmount()) {
-                throw new IllegalArgumentException("Refund amount exceeds original payment amount");
+            long alreadyRefunded = refundRepository.sumActiveByPaymentIntentId(paymentIntentId);
+            if (alreadyRefunded + refundAmount > intent.getAmount()) {
+                throw new IllegalArgumentException(
+                        "Refund amount exceeds remaining refundable amount " +
+                        "(original: " + intent.getAmount() +
+                        ", already refunded: " + alreadyRefunded +
+                        ", requested: " + refundAmount + ")");
             }
 
             Refund refund = new Refund();

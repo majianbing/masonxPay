@@ -107,7 +107,8 @@ public class PublicPaymentController {
                 paymentToken.getProviderPmId(),
                 idempotencyKey,
                 null,
-                null
+                null,
+                null  // always AUTOMATIC for payment links
         ), creds);
 
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);

@@ -29,4 +29,10 @@ public interface PaymentProviderService {
      * mark the local record CANCELED after logging the outcome).
      */
     boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds);
+
+    /**
+     * Captures (settles) an authorized payment that was created with CaptureMethod.MANUAL.
+     * Returns true if the provider accepted the capture, false otherwise.
+     */
+    boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds);
 }

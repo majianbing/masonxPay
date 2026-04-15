@@ -48,10 +48,15 @@ public class JwtService {
                 .claim("email", userDetails.getUsername())
                 .claim("type", "MERCHANT_USER")
                 .claim("jwtType", "ACCESS")
+                .claim("tv", userDetails.getTokenVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(accessTokenExpiryMs)))
                 .signWith(signingKey)
                 .compact();
+    }
+
+    public int extractTokenVersion(String token) {
+        return parseToken(token).get("tv", Integer.class);
     }
 
     /** Short-lived token (5 min) used only at /auth/mfa/verify — rejected by JwtAuthFilter. */

@@ -41,6 +41,10 @@ public class PaymentProviderDispatcher {
         return get(provider).cancelAtProvider(providerPaymentId, creds);
     }
 
+    public boolean captureAtProvider(PaymentProvider provider, String providerPaymentId, ProviderCredentials creds) {
+        return get(provider).captureAtProvider(providerPaymentId, creds);
+    }
+
     private PaymentProviderService get(PaymentProvider provider) {
         return Optional.ofNullable(services.get(provider))
                 .orElseThrow(() -> new IllegalStateException(

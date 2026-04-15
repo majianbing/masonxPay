@@ -1,16 +1,19 @@
 package com.masonx.paygateway.service;
 
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.webhook.*;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
@@ -28,46 +31,85 @@ public class WebhookDeliveryService {
     private final WebhookEndpointRepository webhookEndpointRepository;
     private final WebhookDeliveryRepository webhookDeliveryRepository;
     private final WebhookSigningService signingService;
+    private final OutboxEventRepository outboxEventRepository;
     private final RestTemplate webhookRestTemplate;
+    private final TransactionTemplate txTemplate;
 
     public WebhookDeliveryService(GatewayEventRepository gatewayEventRepository,
                                    WebhookEndpointRepository webhookEndpointRepository,
                                    WebhookDeliveryRepository webhookDeliveryRepository,
                                    WebhookSigningService signingService,
-                                   RestTemplate webhookRestTemplate) {
+                                   OutboxEventRepository outboxEventRepository,
+                                   RestTemplate webhookRestTemplate,
+                                   PlatformTransactionManager txManager) {
         this.gatewayEventRepository = gatewayEventRepository;
         this.webhookEndpointRepository = webhookEndpointRepository;
         this.webhookDeliveryRepository = webhookDeliveryRepository;
         this.signingService = signingService;
+        this.outboxEventRepository = outboxEventRepository;
         this.webhookRestTemplate = webhookRestTemplate;
+        this.txTemplate = new TransactionTemplate(txManager);
     }
 
-    @Async("webhookExecutor")
-    @EventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void onPaymentEvent(PaymentGatewayEvent springEvent) {
-        // Persist gateway event
-        GatewayEvent event = new GatewayEvent();
-        event.setMerchantId(springEvent.getMerchantId());
-        event.setEventType(springEvent.getEventType());
-        event.setResourceId(springEvent.getResourceId());
-        event.setPayload(springEvent.getPayload());
-        event = gatewayEventRepository.save(event);
+    /**
+     * Transactional outbox poller — runs every 5 seconds.
+     *
+     * Reads unpublished OutboxEvent rows (written atomically with the payment intent save)
+     * and fans them out to active merchant webhook endpoints. Each event is processed in its
+     * own transaction: GatewayEvent + WebhookDelivery rows are created and the OutboxEvent is
+     * marked published atomically, so a JVM crash during delivery cannot drop an event.
+     *
+     * HTTP delivery happens outside the transaction — failures are handled by retryPending().
+     */
+    @Scheduled(fixedDelay = 5_000)
+    public void processOutbox() {
+        List<OutboxEvent> pending = outboxEventRepository
+                .findByPublishedFalseOrderByCreatedAtAsc(PageRequest.of(0, 100));
+        for (OutboxEvent outboxEvt : pending) {
+            try {
+                // Create GatewayEvent + WebhookDelivery rows and mark published — all in one TX
+                List<WebhookDelivery> deliveries = txTemplate.execute(ts -> {
+                    // Re-read inside the TX to prevent concurrent processing
+                    OutboxEvent fresh = outboxEventRepository.findById(outboxEvt.getId()).orElse(null);
+                    if (fresh == null || fresh.isPublished()) return List.of();
 
-        // Fan out to active endpoints that subscribe to this event
-        List<WebhookEndpoint> endpoints = webhookEndpointRepository
-                .findAllByMerchantIdAndStatus(springEvent.getMerchantId(), WebhookEndpointStatus.ACTIVE);
+                    GatewayEvent event = new GatewayEvent();
+                    event.setMerchantId(fresh.getMerchantId());
+                    event.setEventType(fresh.getEventType());
+                    event.setResourceId(fresh.getResourceId());
+                    event.setPayload(fresh.getPayload());
+                    event = gatewayEventRepository.save(event);
 
-        for (WebhookEndpoint endpoint : endpoints) {
-            if (!endpoint.getSubscribedEventList().contains(springEvent.getEventType())) continue;
+                    List<WebhookEndpoint> endpoints = webhookEndpointRepository
+                            .findAllByMerchantIdAndStatus(fresh.getMerchantId(), WebhookEndpointStatus.ACTIVE);
 
-            WebhookDelivery delivery = new WebhookDelivery();
-            delivery.setGatewayEventId(event.getId());
-            delivery.setWebhookEndpointId(endpoint.getId());
-            delivery.setNextRetryAt(Instant.now()); // deliver immediately
-            webhookDeliveryRepository.save(delivery);
+                    List<WebhookDelivery> created = new java.util.ArrayList<>();
+                    for (WebhookEndpoint endpoint : endpoints) {
+                        if (!endpoint.getSubscribedEventList().contains(fresh.getEventType())) continue;
+                        WebhookDelivery delivery = new WebhookDelivery();
+                        delivery.setGatewayEventId(event.getId());
+                        delivery.setWebhookEndpointId(endpoint.getId());
+                        delivery.setNextRetryAt(Instant.now());
+                        created.add(webhookDeliveryRepository.save(delivery));
+                    }
 
-            deliver(delivery, endpoint, event.getPayload());
+                    fresh.setPublished(true);
+                    outboxEventRepository.save(fresh);
+                    return created;
+                });
+
+                // Deliver outside the TX — failures are retried by retryPending()
+                if (deliveries != null) {
+                    for (WebhookDelivery delivery : deliveries) {
+                        webhookEndpointRepository.findById(delivery.getWebhookEndpointId())
+                                .ifPresent(endpoint -> deliver(delivery, endpoint,
+                                        gatewayEventRepository.findById(delivery.getGatewayEventId())
+                                                .map(GatewayEvent::getPayload).orElse("")));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to process outbox event {}: {}", outboxEvt.getId(), e.getMessage());
+            }
         }
     }
 
@@ -76,7 +118,7 @@ public class WebhookDeliveryService {
     public void retryPending() {
         List<WebhookDelivery> due = webhookDeliveryRepository.findDueForRetry(Instant.now());
         for (WebhookDelivery delivery : due) {
-            // Skip deliveries that were just created and already attempted in onPaymentEvent
+            // Skip deliveries that were just created and already attempted in processOutbox
             if (delivery.getAttemptCount() == 0) continue;
 
             webhookEndpointRepository.findById(delivery.getWebhookEndpointId()).ifPresent(endpoint ->

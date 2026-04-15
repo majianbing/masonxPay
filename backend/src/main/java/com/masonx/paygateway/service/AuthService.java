@@ -148,6 +148,12 @@ public class AuthService {
         refreshTokenRepository.findByTokenHash(hash).ifPresent(t -> {
             t.setRevoked(true);
             refreshTokenRepository.save(t);
+            // Increment token_version to immediately invalidate all outstanding access tokens.
+            // The 24h access token expiry is no longer the blast radius — any token issued
+            // before this logout will be rejected on the next request.
+            User user = t.getUser();
+            user.setTokenVersion(user.getTokenVersion() + 1);
+            userRepository.save(user);
         });
     }
 

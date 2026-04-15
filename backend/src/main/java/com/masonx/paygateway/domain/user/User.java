@@ -33,6 +33,13 @@ public class User {
     @Column(name = "mfa_backup_codes", columnDefinition = "TEXT")
     private String mfaBackupCodes;
 
+    /**
+     * Incremented on logout to immediately invalidate all outstanding access tokens.
+     * Embedded as the "tv" claim in every JWT; tokens with a lower version are rejected.
+     */
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -65,6 +72,9 @@ public class User {
 
     public String getMfaBackupCodes() { return mfaBackupCodes; }
     public void setMfaBackupCodes(String mfaBackupCodes) { this.mfaBackupCodes = mfaBackupCodes; }
+
+    public int getTokenVersion() { return tokenVersion; }
+    public void setTokenVersion(int tokenVersion) { this.tokenVersion = tokenVersion; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

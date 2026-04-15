@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEvent;
+import com.masonx.paygateway.domain.webhook.ProcessedWebhookEventRepository;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,14 +30,17 @@ public class StripeWebhookController {
     private static final Logger log = LoggerFactory.getLogger(StripeWebhookController.class);
 
     private final PaymentIntentRepository paymentIntentRepository;
+    private final ProcessedWebhookEventRepository processedEventRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${app.stripe.webhook-secret:}")
     private String webhookSecret;
 
     public StripeWebhookController(PaymentIntentRepository paymentIntentRepository,
+                                    ProcessedWebhookEventRepository processedEventRepository,
                                     ObjectMapper objectMapper) {
         this.paymentIntentRepository = paymentIntentRepository;
+        this.processedEventRepository = processedEventRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -59,6 +65,13 @@ public class StripeWebhookController {
         } catch (SignatureVerificationException e) {
             log.warn("Stripe webhook signature verification failed: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
+        }
+
+        // Idempotency guard — Stripe retries on timeout; ignore events we've already processed
+        try {
+            processedEventRepository.save(new ProcessedWebhookEvent("STRIPE", event.getId()));
+        } catch (DataIntegrityViolationException e) {
+            return ResponseEntity.ok().build(); // already processed
         }
 
         reconcileFromEvent(event);

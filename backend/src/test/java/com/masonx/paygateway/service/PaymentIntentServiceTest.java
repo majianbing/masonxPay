@@ -1,8 +1,11 @@
 package com.masonx.paygateway.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
@@ -14,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,11 +40,13 @@ class PaymentIntentServiceTest {
     @Mock ProviderAccountRepository providerAccountRepository;
     @Mock PaymentTokenService paymentTokenService;
     @Mock FailoverPolicy failoverPolicy;
-    @Mock ApplicationEventPublisher eventPublisher;
+    @Mock OutboxEventRepository outboxEventRepository;
     @Mock PlatformTransactionManager txManager;
 
     private PaymentIntentService service;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private final UUID merchantId = UUID.randomUUID();
     private final UUID keyId = UUID.randomUUID();
@@ -53,7 +57,7 @@ class PaymentIntentServiceTest {
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentTokenService, failoverPolicy,
-                objectMapper, eventPublisher, txManager);
+                objectMapper, outboxEventRepository, txManager);
     }
 
     private ApiKeyAuthentication auth(ApiKeyType type) {
@@ -164,8 +168,10 @@ class PaymentIntentServiceTest {
 
         when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
+        when(paymentIntentRepository.findById(intentId)).thenReturn(Optional.of(pi));
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
+        when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         PaymentIntentResponse resp = service.cancel(auth(ApiKeyType.SECRET), intentId);
 
@@ -178,6 +184,7 @@ class PaymentIntentServiceTest {
         PaymentIntent pi = savedIntent(intentId);
         pi.setStatus(PaymentIntentStatus.PROCESSING);
 
+        // TX 1 snapshot read
         when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
 

@@ -61,6 +61,11 @@ public class PaymentIntentController {
         return ResponseEntity.ok(paymentIntentService.cancel(apiKey(auth), id));
     }
 
+    @PostMapping("/{id}/capture")
+    public ResponseEntity<PaymentIntentResponse> capture(Authentication auth, @PathVariable UUID id) {
+        return ResponseEntity.ok(paymentIntentService.capture(apiKey(auth), id));
+    }
+
     @PostMapping("/{id}/refunds")
     public ResponseEntity<RefundResponse> createRefund(Authentication auth,
                                                         @PathVariable UUID id,

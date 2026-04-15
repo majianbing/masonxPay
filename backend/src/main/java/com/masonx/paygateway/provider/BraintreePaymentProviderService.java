@@ -8,6 +8,7 @@ import com.braintreegateway.Transaction;
 import com.braintreegateway.TransactionRequest;
 import com.masonx.paygateway.domain.payment.Address;
 import com.masonx.paygateway.domain.payment.BillingDetails;
+import com.masonx.paygateway.domain.payment.CaptureMethod;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.ShippingDetails;
@@ -115,8 +116,10 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
                 shipping.done();
             }
 
+            // MANUAL capture: authorize only, do not submit for settlement yet
+            boolean submitForSettlement = req.captureMethod() != CaptureMethod.MANUAL;
             transactionRequest.options()
-                        .submitForSettlement(true)
+                        .submitForSettlement(submitForSettlement)
                     .done();
 
             Result<Transaction> result = gateway.transaction().sale(transactionRequest);
@@ -167,6 +170,20 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
         } catch (Exception e) {
             log.warn("Braintree syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    @Override
+    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
+        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return false;
+        try {
+            Result<Transaction> result = buildGateway(bt).transaction().submitForSettlement(providerPaymentId);
+            if (result.isSuccess()) return true;
+            log.warn("Braintree captureAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.warn("Braintree captureAtProvider error for {}: {}", providerPaymentId, e.getMessage());
+            return false;
         }
     }
 
