@@ -1,0 +1,102 @@
+# MasonXPay — Product Roadmap
+
+---
+
+## Phase 0 — MVP ✅ (complete)
+
+| Area | Delivered |
+|---|---|
+| Auth | JWT, refresh tokens, MFA (TOTP), RBAC 5 roles |
+| Payment intents | Create / confirm / cancel, failover retry loop, stale reconciliation |
+| Connectors | Stripe, Square, Braintree (charge, refund, sync, cancel) |
+| Routing | Static rules, primary + fallback per merchant |
+| Webhooks | DB-backed queue, exponential backoff, HMAC signing |
+| Hosted checkout | Payment links, browser SDK, connector preview |
+| Data | Billing / shipping details, AVS forwarding to all 3 providers |
+| Security | AES-256-GCM credential encryption, request log redaction, webhook signature enforcement |
+| Infra | Docker Compose, CloudFormation (standalone + managed), structured JSON logging |
+
+---
+
+## Phase 1 — Core correctness
+
+These are gaps where the system can produce **wrong or lost state** today. Fix before growing.
+
+| # | Item | Status | Why it matters |
+|---|---|---|---|
+| 1.1 | **Transactional outbox** | [ ] | Crash between `save()` and `publishEvent()` silently drops a webhook. TODO already in `PaymentIntentService`. Fix: `outbox_events` table written in same TX, poller publishes. |
+| 1.2 | **Manual capture endpoint** | [ ] | `CaptureMethod.MANUAL` is stored but `POST /payment-intents/{id}/capture` doesn't exist. Hotels, pre-orders, B2B all need authorize-now / capture-later. |
+| 1.3 | **Refund amount guard** | [ ] | No validation that sum of refunds ≤ captured amount. Possible to over-refund today. |
+| 1.4 | **Inbound webhook deduplication** | [ ] | Providers retry webhooks on timeout. Processing the same event twice can double-update state. Need an idempotency key on `gateway_events`. |
+| 1.5 | **JWT token_version on logout** | [ ] | TODO in `JwtService`. Logout revokes refresh token but 24h access token stays valid. Increment `token_version` on logout, validate on each request. |
+
+---
+
+## Phase 2 — Observability ← current
+
+No metrics, no tracing, no alerting today. Foundation that Phases 3 and 4 depend on — smart routing needs success-rate data; merchant analytics needs aggregated metrics; connector health needs measurement before it can be acted on.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| 2.1 | **Micrometer + Prometheus** | [ ] | Add `micrometer-registry-prometheus`. Expose `/actuator/prometheus`. Custom counters/timers: intent confirmed (by provider + status), charge latency (by provider), failover triggered, refund initiated, webhook delivered, stale intent resolved. |
+| 2.2 | **Trace ID propagation** | [ ] | Accept or generate `X-Request-Id` at gateway entry. Thread through MDC → `gateway_logs.trace_id` → `payment_intents.trace_id`. Zero-dep, pure plumbing. Turns log grep into a single-payment trace. |
+| 2.3 | **Enhanced actuator health** | [ ] | Extend `/actuator/health` with per-connector liveness check (lightweight ping or cached rolling result). Exposes connector degradation to load balancer and ops. |
+| 2.4 | **Connector health gauge** | [ ] | Scheduled job maintains a rolling 30-min success rate per connector. Stored in DB, exposed as Micrometer gauge. Input to routing engine (Phase 3) and dashboard (Phase 4). |
+| 2.5 | **Grafana dashboards** | [ ] | Standard dashboard: payment volume, success rate by connector, failure breakdown by code, charge latency p50/p95, webhook delivery rate, failover frequency. Runnable locally via `docker-compose`. |
+| 2.6 | **Alerting rules** | [ ] | Prometheus alerting rules: connector success rate < threshold, charge latency p95 > threshold, webhook queue depth growing, stale intents accumulating. |
+
+---
+
+## Phase 3 — Orchestration intelligence
+
+The core value-add of an orchestration layer over direct provider integration.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| 3.1 | **Dynamic routing by success rate** | [ ] | Use Phase 2 connector health gauge to influence routing decisions. If connector X drops below N% success rate in last 30 min, demote or exclude it from routing. |
+| 3.2 | **Circuit breaker per connector** | [ ] | If a connector returns consecutive retryable errors, open circuit for a cooldown window. Prevents the retry loop hammering a degraded provider. |
+| 3.3 | **3DS2 / SCA handling** | [ ] | `requires_action` from Stripe is returned today but the SDK doesn't handle the challenge flow. Add redirect + return URL handling for cards that require strong authentication. |
+| 3.4 | **More connectors** | [ ] | Mollie (EU), Razorpay (India) — listed in CLAUDE.md. ACH (via Stripe or Plaid) and PayPal are high-demand additions. Each follows the established connector pattern. |
+| 3.5 | **Cost-aware routing** | [ ] | Route by interchange fee / provider rate in addition to success rate. Requires fee schedule config per connector. |
+
+---
+
+## Phase 4 — Merchant operations
+
+What merchants need to run their business, not just process payments.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| 4.1 | **Merchant analytics API + dashboard** | [ ] | `GET /analytics?from=&to=&groupBy=connector\|currency\|status` — aggregates from existing tables. Dashboard page: volume, conversion rate, top failure codes, revenue over time. Powered by Phase 2 data. |
+| 4.2 | **Webhook endpoint management UI** | [ ] | Backend table exists. Merchants need to configure, test, and view delivery history for their own webhook URLs from the dashboard. |
+| 4.3 | **Event replay** | [ ] | Allow merchants to replay a failed/missed webhook delivery from the dashboard. |
+| 4.4 | **Customer vault** | [ ] | Save and reuse payment methods (tokenised). Unlocks "charge on file", one-click checkout, and subscription use cases. Requires a `customers` + `saved_payment_methods` table. |
+| 4.5 | **Disputes / chargebacks** | [ ] | Ingest dispute webhooks from providers, expose case management in dashboard, allow evidence submission back to provider. |
+| 4.6 | **Merchant audit log** | [ ] | Merchant-facing log: who changed connector credentials, who issued a refund, role changes. `admin_audit_logs` exists for the platform realm; mirror it for the merchant realm. |
+
+---
+
+## Phase 5 — Platform maturity
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| 5.1 | **Platform admin UI** | [ ] | `admin_users` table exists, zero endpoints or UI. Admin: merchant management, connector oversight, global event log. |
+| 5.2 | **Rate limiting** | [ ] | Per-merchant API rate limits. Without this, one runaway integration can starve others. Implemented at filter level (Bucket4j — no Redis needed at this scale). |
+| 5.3 | **API versioning strategy** | [ ] | All routes are `/v1/`. Define deprecation policy and version promotion path before breaking changes accumulate. |
+| 5.4 | **Mobile SDKs** | [ ] | iOS and Android native SDKs. Browser SDK is the model; same lifecycle pattern. |
+| 5.5 | **Reconciliation** | [ ] | Ingest provider settlement files / payout reports. Match against `payment_intents`. Expose discrepancies. |
+| 5.6 | **Subscription / recurring billing** | [ ] | Interval-based charge schedules against vaulted payment methods (depends on 4.4). |
+
+---
+
+## Dependency graph
+
+```
+Phase 0 (done)
+    └── Phase 1 (correctness — unblock everything)
+            ├── Phase 2 (observability — foundation for 3 and 4)
+            │       ├── Phase 3.1/3.2 (smart routing needs success-rate data)
+            │       └── Phase 4.1 (analytics needs metrics)
+            ├── Phase 3 (orchestration — connector breadth + intelligence)
+            └── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
+```
