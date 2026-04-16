@@ -148,8 +148,12 @@ public class StalePendingIntentJob {
      */
     private void applyLocalStatus(PaymentIntent intent, PaymentIntentStatus newStatus) {
         PaymentIntent updated = txTemplate.execute(ts -> {
-            PaymentIntent fresh = paymentIntentRepository.findById(intent.getId()).orElse(null);
-            if (fresh == null || fresh.getStatus() != PaymentIntentStatus.PROCESSING) return null;
+            // FOR UPDATE SKIP LOCKED: returns empty if another node holds the lock OR if
+            // the intent is no longer in PROCESSING (webhook already resolved it).
+            // Both cases correctly result in no action — no manual status check needed.
+            PaymentIntent fresh = paymentIntentRepository.findByIdProcessingForUpdate(intent.getId())
+                    .orElse(null);
+            if (fresh == null) return null;
             fresh.setStatus(newStatus);
             PaymentIntent saved = paymentIntentRepository.save(fresh);
 

@@ -1,6 +1,6 @@
 global:
-  scrape_interval:     15s   # how often to scrape targets
-  evaluation_interval: 15s   # how often to evaluate alerting rules
+  scrape_interval:     15s
+  evaluation_interval: 15s
   external_labels:
     environment: local
 
@@ -8,6 +8,10 @@ rule_files:
   - alert_rules.yml
 
 scrape_configs:
+
+  # ── Local docker-compose (single node) ─────────────────────────────────────
+  # Used when running `docker compose up`. Backend is reachable at backend:8080
+  # on the internal Docker network. Static target is fine for single-node local dev.
   - job_name: masonxpay-backend
     metrics_path: /actuator/prometheus
     static_configs:
@@ -15,3 +19,40 @@ scrape_configs:
           - backend:8080
         labels:
           application: masonxpay
+
+  # ── AWS EC2 multi-node (production) ────────────────────────────────────────
+  # Uncomment this block and remove the static_configs block above when deploying
+  # to multiple EC2 instances. Prometheus queries the EC2 API to discover all
+  # instances tagged with Name=masonxpay-backend and scrapes each one directly.
+  #
+  # Requirements:
+  #   1. The EC2 instance running Prometheus needs an IAM role with:
+  #        ec2:DescribeInstances
+  #   2. Each backend EC2 instance must have the tag:  app = masonxpay-backend
+  #   3. Security group must allow Prometheus → backend on port 8080 (internal only)
+  #   4. Set AWS_DEFAULT_REGION or configure region below
+  #
+  # - job_name: masonxpay-backend
+  #   metrics_path: /actuator/prometheus
+  #   ec2_sd_configs:
+  #     - region: us-east-1          # match your CloudFormation region
+  #       port: 8080
+  #       filters:
+  #         - name: tag:app
+  #           values: [masonxpay-backend]
+  #         - name: instance-state-name
+  #           values: [running]
+  #   relabel_configs:
+  #     # Use private IP for scraping (Prometheus runs inside the same VPC)
+  #     - source_labels: [__meta_ec2_private_ip]
+  #       target_label: __address__
+  #       replacement: '${1}:8080'
+  #     # Carry useful EC2 metadata into every metric series
+  #     - source_labels: [__meta_ec2_instance_id]
+  #       target_label: instance_id
+  #     - source_labels: [__meta_ec2_availability_zone]
+  #       target_label: az
+  #     - source_labels: [__meta_ec2_tag_Name]
+  #       target_label: instance_name
+  #     - target_label: application
+  #       replacement: masonxpay

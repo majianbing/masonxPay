@@ -100,7 +100,7 @@ class StalePendingIntentJobTest {
      * (i.e. no race condition — safe to write).
      */
     private void givenFreshIntentStillProcessing(PaymentIntent pi) {
-        when(paymentIntentRepository.findById(pi.getId())).thenReturn(Optional.of(pi));
+        when(paymentIntentRepository.findByIdProcessingForUpdate(pi.getId())).thenReturn(Optional.of(pi));
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRequestRepository.findByPaymentIntentId(pi.getId())).thenReturn(List.of());
     }
@@ -268,11 +268,10 @@ class StalePendingIntentJobTest {
         PaymentIntent staleSnapshot = processingIntent();
         givenStaleIntents(staleSnapshot);
 
-        PaymentIntent freshFromDb = processingIntent();
-        ReflectionTestUtils.setField(freshFromDb, "id", staleSnapshot.getId());
-        freshFromDb.setStatus(PaymentIntentStatus.SUCCEEDED); // already resolved
-        when(paymentIntentRepository.findById(staleSnapshot.getId()))
-                .thenReturn(Optional.of(freshFromDb));
+        // findByIdProcessingForUpdate returns empty when the row is already resolved
+        // (status != PROCESSING) or locked by another node — both cases skip the write.
+        when(paymentIntentRepository.findByIdProcessingForUpdate(staleSnapshot.getId()))
+                .thenReturn(Optional.empty());
         when(providerAccountService.loadCredentials(accountId)).thenReturn(STUB_CREDS);
         when(dispatcher.syncStatus(any(), any(), any()))
                 .thenReturn(Optional.of(PaymentIntentStatus.CANCELED));

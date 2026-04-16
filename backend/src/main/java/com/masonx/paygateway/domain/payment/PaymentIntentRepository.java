@@ -53,4 +53,18 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
           AND p.updatedAt < :threshold
         """)
     long countStaleProcessing(@Param("threshold") Instant threshold);
+
+    /**
+     * Re-reads a single PROCESSING intent with a row-level lock.
+     * FOR UPDATE SKIP LOCKED: if another node already holds the lock, returns empty
+     * immediately — preventing two nodes from both canceling the same intent at the provider.
+     *
+     * The status = 'PROCESSING' filter means returning empty also covers the case where
+     * a concurrent node or webhook already moved the intent out of PROCESSING.
+     *
+     * Must be called from within an active transaction (txTemplate.execute).
+     */
+    @Query(value = "SELECT * FROM payment_intents WHERE id = :id AND status = 'PROCESSING' FOR UPDATE SKIP LOCKED",
+           nativeQuery = true)
+    Optional<PaymentIntent> findByIdProcessingForUpdate(@Param("id") UUID id);
 }

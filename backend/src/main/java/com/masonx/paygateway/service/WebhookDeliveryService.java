@@ -73,9 +73,12 @@ public class WebhookDeliveryService {
             try {
                 // Create GatewayEvent + WebhookDelivery rows and mark published — all in one TX
                 List<WebhookDelivery> deliveries = txTemplate.execute(ts -> {
-                    // Re-read inside the TX to prevent concurrent processing
-                    OutboxEvent fresh = outboxEventRepository.findById(outboxEvt.getId()).orElse(null);
-                    if (fresh == null || fresh.isPublished()) return List.of();
+                    // Re-read with FOR UPDATE SKIP LOCKED — if another node holds the lock
+                    // on this row, findByIdUnpublishedForUpdate returns empty and we skip it,
+                    // preventing duplicate GatewayEvent / WebhookDelivery rows on multi-node deployments.
+                    OutboxEvent fresh = outboxEventRepository.findByIdUnpublishedForUpdate(outboxEvt.getId())
+                            .orElse(null);
+                    if (fresh == null) return List.of();
 
                     GatewayEvent event = new GatewayEvent();
                     event.setMerchantId(fresh.getMerchantId());
