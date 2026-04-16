@@ -49,7 +49,7 @@ management:
         include: health,prometheus
   endpoint:
     health:
-      show-details: never
+      show-details: always   # port 8080 is internal-only; details are safe to expose
     prometheus:
       enabled: true
   health:

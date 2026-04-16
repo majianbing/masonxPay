@@ -42,4 +42,15 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     List<PaymentIntent> findStaleProcessing(@Param("cardThreshold") Instant cardThreshold,
                                             @Param("otherThreshold") Instant otherThreshold,
                                             Pageable pageable);
+
+    /**
+     * Count of PROCESSING intents older than {@code threshold} — used as a stale-intent
+     * gauge for the Prometheus alerting rule (Phase 2.4 / 2.6).
+     */
+    @Query("""
+        SELECT COUNT(p) FROM PaymentIntent p
+        WHERE p.status = com.masonx.paygateway.domain.payment.PaymentIntentStatus.PROCESSING
+          AND p.updatedAt < :threshold
+        """)
+    long countStaleProcessing(@Param("threshold") Instant threshold);
 }

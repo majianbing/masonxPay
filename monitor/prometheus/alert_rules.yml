@@ -1,0 +1,78 @@
+groups:
+  - name: masonxpay
+    rules:
+
+      # ── Connector success rate ──────────────────────────────────────────────
+      # Fires when any single connector account's 30-min rolling success rate
+      # drops below 80%. Uses the gauge set by ConnectorHealthService.
+      - alert: ConnectorLowSuccessRate
+        expr: connector_success_rate < 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Connector {{ $labels.label }} ({{ $labels.provider }}) success rate is low"
+          description: >
+            Connector account {{ $labels.account_id }} ({{ $labels.provider }} / {{ $labels.label }})
+            has a 30-min success rate of {{ $value | humanizePercentage }}.
+            Threshold: 80%. Payments may be failing at this connector.
+
+      # ── Charge latency ─────────────────────────────────────────────────────
+      # Fires when p95 charge latency for any provider exceeds 5 seconds over
+      # the last 5 minutes.
+      - alert: HighChargeLatency
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(payment_charge_latency_seconds_bucket[5m])) by (le, provider)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Charge latency p95 is high for provider {{ $labels.provider }}"
+          description: >
+            p95 charge latency for {{ $labels.provider }} is {{ $value | humanizeDuration }}.
+            Threshold: 5s. Provider may be experiencing degraded response times.
+
+      # ── Webhook queue depth ─────────────────────────────────────────────────
+      # Fires when unprocessed outbox events accumulate — means the outbox
+      # poller is falling behind or webhook delivery is failing en masse.
+      - alert: WebhookQueueDepthHigh
+        expr: payment_outbox_queue_depth > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Webhook outbox queue depth is {{ $value }}"
+          description: >
+            {{ $value }} outbox events are waiting to be fanned out to webhook endpoints.
+            Threshold: 50. Check WebhookDeliveryService logs for processing errors.
+
+      # ── Stale PROCESSING intents ────────────────────────────────────────────
+      # Fires when too many payment intents are stuck in PROCESSING beyond the
+      # 30-min card threshold — likely missed webhooks or a provider outage.
+      - alert: StaleProcessingIntentsAccumulating
+        expr: payment_stale_processing_count > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} payment intents are stale in PROCESSING state"
+          description: >
+            {{ $value }} payment intents have been in PROCESSING for more than 30 minutes.
+            Threshold: 10. StalePendingIntentJob should reconcile these; check for provider
+            webhook delivery failures or job errors.
+
+      # ── Failover spike ──────────────────────────────────────────────────────
+      # Fires when the failover rate spikes — indicates primary connectors are
+      # failing repeatedly and traffic is falling through to fallbacks.
+      - alert: HighFailoverRate
+        expr: rate(payment_intent_failover_total[10m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payment failover rate is elevated ({{ $value | humanize }}/s)"
+          description: >
+            More than 0.5 failovers/s in the last 10 minutes. Primary connectors may be
+            degraded. Check connector success rates and provider status pages.

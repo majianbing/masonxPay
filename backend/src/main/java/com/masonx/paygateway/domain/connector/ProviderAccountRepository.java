@@ -28,6 +28,9 @@ public interface ProviderAccountRepository extends JpaRepository<ProviderAccount
     @Query("UPDATE ProviderAccount a SET a.primary = false WHERE a.merchantId = :merchantId AND a.provider = :provider AND a.mode = :mode")
     void clearPrimaryForProvider(UUID merchantId, PaymentProvider provider, ApiKeyMode mode);
 
+    /** All accounts with the given status — used by ConnectorHealthIndicator (Phase 2.3). */
+    List<ProviderAccount> findAllByStatus(ProviderAccountStatus status);
+
     /** All active accounts sorted by displayOrder — used by checkout session to build ordered provider list. */
     List<ProviderAccount> findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
             UUID merchantId, ApiKeyMode mode, ProviderAccountStatus status);
