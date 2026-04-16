@@ -35,6 +35,13 @@ pay.masonx/
 ├── sdk/
 │   ├── server/            @gateway/server — Node.js / TypeScript server SDK
 │   └── browser/           @gateway/browser — Browser SDK source (TypeScript)
+├── monitor/               Observability stack (Prometheus + Grafana)
+│   ├── prometheus/
+│   │   ├── prometheus.yml     Scrape config (targets backend:8080/actuator/prometheus)
+│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queue depth, stale intents)
+│   └── grafana/
+│       ├── provisioning/      Auto-wired datasource + dashboard loader
+│       └── dashboards/        payments.json — pre-built payments dashboard
 ├── cloud-deploy/
 │   └── aws/
 │       ├── standalone/    Single-EC2 CloudFormation stack
@@ -51,12 +58,13 @@ pay.masonx/
 - **Two checkout modes**
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
   - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
-- **Complete payment lifecycle** — create → confirm → refund, with idempotency keys
+- **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
 - **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
-- **Webhook delivery** — configurable endpoints with HMAC signing, filterable by event type
+- **Webhook delivery** — transactional outbox pattern, configurable endpoints with HMAC signing, exponential backoff retry
 - **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
 - **Merchant dashboard** — payments, refunds, routing rules, connectors, API keys, logs, members
 - **TypeScript SDKs** — server SDK (`@gateway/server`) and browser SDK (`@gateway/browser`)
+- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health, Prometheus alerting rules
 
 ---
 
@@ -68,6 +76,7 @@ pay.masonx/
 | Database | PostgreSQL + Flyway migrations |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square, Braintree |
+| Observability | Micrometer + Prometheus + Grafana |
 | Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | Browser SDK | Vanilla TypeScript, esbuild for bundling |
 | Server SDK | TypeScript, Node.js 18+ |
@@ -106,13 +115,15 @@ All other values have safe defaults for local development.
 docker compose up --build
 ```
 
-This builds and starts three containers:
+This builds and starts five containers:
 
 | Container | URL | Description |
 |-----------|-----|-------------|
 | `dashboard` | http://localhost:3000 | Next.js merchant portal |
 | `backend` | http://localhost:8080 | Spring Boot API |
 | `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
+| `prometheus` | http://localhost:9090 | Metrics scraper (scrapes `/actuator/prometheus` every 15s) |
+| `grafana` | http://localhost:3001 | Payments dashboard — login: admin / admin |
 
 > **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
 
