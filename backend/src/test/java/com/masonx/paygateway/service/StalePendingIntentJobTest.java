@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,7 +16,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -37,8 +38,9 @@ class StalePendingIntentJobTest {
     @Mock PaymentRequestRepository paymentRequestRepository;
     @Mock PaymentProviderDispatcher dispatcher;
     @Mock ProviderAccountService   providerAccountService;
-    @Mock ApplicationEventPublisher eventPublisher;
+    @Mock OutboxEventRepository    outboxEventRepository;
     @Mock PlatformTransactionManager txManager;
+    @Mock PaymentMetrics           metrics;
 
     private StalePendingIntentJob job;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -59,7 +61,7 @@ class StalePendingIntentJobTest {
         job = new StalePendingIntentJob(
                 paymentIntentRepository, paymentRequestRepository,
                 dispatcher, providerAccountService,
-                eventPublisher, objectMapper, txManager);
+                outboxEventRepository, objectMapper, txManager, metrics);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -114,7 +116,7 @@ class StalePendingIntentJobTest {
 
         verify(dispatcher, never()).syncStatus(any(), any(), any());
         verify(paymentIntentRepository, never()).save(any());
-        verify(eventPublisher, never()).publishEvent(any());
+        verify(outboxEventRepository, never()).save(any());
     }
 
     // ── no provider contact ───────────────────────────────────────────────────
@@ -163,13 +165,13 @@ class StalePendingIntentJobTest {
         job.reconcile();
 
         verify(paymentIntentRepository, never()).save(any());
-        verify(eventPublisher, never()).publishEvent(any());
+        verify(outboxEventRepository, never()).save(any());
     }
 
     // ── provider returns definitive status ────────────────────────────────────
 
     @Test
-    void reconcile_providerSaysSucceeded_appliesSucceededAndPublishesEvent() {
+    void reconcile_providerSaysSucceeded_appliesSucceededAndWritesOutboxEvent() {
         PaymentIntent pi = processingIntent();
         givenStaleIntents(pi);
         givenFreshIntentStillProcessing(pi);
@@ -182,13 +184,13 @@ class StalePendingIntentJobTest {
         ArgumentCaptor<PaymentIntent> saved = ArgumentCaptor.forClass(PaymentIntent.class);
         verify(paymentIntentRepository).save(saved.capture());
         assertThat(saved.getValue().getStatus()).isEqualTo(PaymentIntentStatus.SUCCEEDED);
-        verify(eventPublisher).publishEvent(any());
+        verify(outboxEventRepository).save(any());
         // cancelAtProvider must NOT be called when provider already gave a definitive status
         verify(dispatcher, never()).cancelAtProvider(any(), any(), any());
     }
 
     @Test
-    void reconcile_providerSaysFailed_appliesFailedAndPublishesEvent() {
+    void reconcile_providerSaysFailed_appliesFailedAndWritesOutboxEvent() {
         PaymentIntent pi = processingIntent();
         givenStaleIntents(pi);
         givenFreshIntentStillProcessing(pi);
@@ -201,7 +203,7 @@ class StalePendingIntentJobTest {
         ArgumentCaptor<PaymentIntent> saved = ArgumentCaptor.forClass(PaymentIntent.class);
         verify(paymentIntentRepository).save(saved.capture());
         assertThat(saved.getValue().getStatus()).isEqualTo(PaymentIntentStatus.FAILED);
-        verify(eventPublisher).publishEvent(any());
+        verify(outboxEventRepository).save(any());
     }
 
     @Test
@@ -279,7 +281,7 @@ class StalePendingIntentJobTest {
 
         // The re-read shows SUCCEEDED (not PROCESSING) → save must NOT be called
         verify(paymentIntentRepository, never()).save(any());
-        verify(eventPublisher, never()).publishEvent(any());
+        verify(outboxEventRepository, never()).save(any());
     }
 
     // ── batch resilience ──────────────────────────────────────────────────────

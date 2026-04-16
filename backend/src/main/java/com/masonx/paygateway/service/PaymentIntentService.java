@@ -7,6 +7,8 @@ import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.metrics.PaymentMetrics;
+import com.masonx.paygateway.web.TraceIdFilter;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
@@ -18,6 +20,7 @@ import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -47,6 +50,7 @@ public class PaymentIntentService {
     private final ObjectMapper objectMapper;
     private final OutboxEventRepository outboxEventRepository;
     private final TransactionTemplate txTemplate;
+    private final PaymentMetrics metrics;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
@@ -58,7 +62,8 @@ public class PaymentIntentService {
                                 FailoverPolicy failoverPolicy,
                                 ObjectMapper objectMapper,
                                 OutboxEventRepository outboxEventRepository,
-                                PlatformTransactionManager txManager) {
+                                PlatformTransactionManager txManager,
+                                PaymentMetrics metrics) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine = routingEngine;
@@ -70,6 +75,7 @@ public class PaymentIntentService {
         this.objectMapper = objectMapper;
         this.outboxEventRepository = outboxEventRepository;
         this.txTemplate = new TransactionTemplate(txManager);
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -99,6 +105,7 @@ public class PaymentIntentService {
         intent.setDescription(req.description());
         intent.setBillingDetails(req.billingDetails());
         intent.setShippingDetails(req.shippingDetails());
+        intent.setTraceId(MDC.get(TraceIdFilter.MDC_KEY));
         intent.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
 
         return toResponse(paymentIntentRepository.save(intent));
@@ -215,7 +222,11 @@ public class PaymentIntentService {
             });
 
             // Remote call — intentionally outside any transaction
+            if (attemptCount > 1) {
+                metrics.recordFailover(setup.provider().name());
+            }
             ProviderCredentials creds = providerAccountService.loadCredentials(candidate.getId());
+            long chargeStart = System.currentTimeMillis();
             ChargeResult result = dispatcher.charge(setup.provider(), new ChargeRequest(
                     setup.intent().getId(), setup.intent().getAmount(), setup.intent().getCurrency(),
                     setup.pmType(), setup.rawPmId(),
@@ -224,6 +235,7 @@ public class PaymentIntentService {
                     setup.intent().getShippingDetails(),
                     setup.intent().getCaptureMethod()
             ), creds);
+            metrics.recordChargeLatency(setup.provider().name(), System.currentTimeMillis() - chargeStart);
             lastResult = result;
 
             // TX 2b: record outcome of this attempt
@@ -246,6 +258,9 @@ public class PaymentIntentService {
         final ChargeResult finalResult = lastResult;
         final UUID usedAccountId = usedAccount != null ? usedAccount.getId() : null;
 
+        // Capture trace ID from MDC before entering the TX (MDC is thread-local)
+        final String traceId = MDC.get(TraceIdFilter.MDC_KEY);
+
         return txTemplate.execute(ts -> {
             PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
 
@@ -265,12 +280,23 @@ public class PaymentIntentService {
                 eventType = "payment_intent.failed";
             }
 
+            if (intent.getTraceId() == null && traceId != null) {
+                intent.setTraceId(traceId);
+            }
+
             PaymentIntent saved = paymentIntentRepository.save(intent);
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
             PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
 
             // Write outbox event in the same TX as the intent save — atomic
             writeOutboxEvent(saved.getMerchantId(), eventType, saved.getId(), response);
+
+            // Record metric outside the critical path (cheap — just increment a counter)
+            String failureCode = (finalResult != null) ? finalResult.failureCode() : null;
+            metrics.recordIntentConfirmed(
+                    setup.provider().name(),
+                    saved.getStatus().name(),
+                    failureCode);
 
             return response;
         });
@@ -315,6 +341,10 @@ public class PaymentIntentService {
                 List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
                 PaymentIntentResponse response = PaymentIntentResponse.from(intent, attempts, objectMapper, null);
                 writeOutboxEvent(intent.getMerchantId(), eventType, intent.getId(), response);
+                metrics.recordCaptureAttempted(
+                        setup.intent().getResolvedProvider() != null
+                                ? setup.intent().getResolvedProvider().name() : null,
+                        captured);
                 return response;
             }
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());

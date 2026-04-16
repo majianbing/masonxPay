@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
@@ -21,17 +22,20 @@ public class RefundService {
     private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
     private final TransactionTemplate txTemplate;
+    private final PaymentMetrics metrics;
 
     public RefundService(PaymentIntentRepository paymentIntentRepository,
                          RefundRepository refundRepository,
                          PaymentProviderDispatcher dispatcher,
                          ProviderAccountService providerAccountService,
-                         PlatformTransactionManager txManager) {
+                         PlatformTransactionManager txManager,
+                         PaymentMetrics metrics) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
         this.txTemplate = new TransactionTemplate(txManager);
+        this.metrics = metrics;
     }
 
     /**
@@ -85,6 +89,10 @@ public class RefundService {
 
             return new RefundSetup(refund, intent, creds);
         });
+
+        // Record metric before the remote call (intent is already validated at this point)
+        metrics.recordRefundInitiated(setup.intent().getResolvedProvider() != null
+                ? setup.intent().getResolvedProvider().name() : null);
 
         // Remote call — intentionally outside any transaction
         RefundResult result = dispatcher.refund(

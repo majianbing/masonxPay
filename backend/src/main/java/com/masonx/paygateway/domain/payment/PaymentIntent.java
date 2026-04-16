@@ -80,6 +80,9 @@ public class PaymentIntent {
     @Column(name = "shipping_details", columnDefinition = "TEXT")
     private ShippingDetails shippingDetails;
 
+    @Column(name = "trace_id", length = 36)
+    private String traceId;    // X-Request-Id that triggered creation/confirm (Phase 2.2)
+
     @Column(name = "expires_at")
     private Instant expiresAt;
 
@@ -153,6 +156,9 @@ public class PaymentIntent {
 
     public ShippingDetails getShippingDetails() { return shippingDetails; }
     public void setShippingDetails(ShippingDetails shippingDetails) { this.shippingDetails = shippingDetails; }
+
+    public String getTraceId() { return traceId; }
+    public void setTraceId(String traceId) { this.traceId = traceId; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

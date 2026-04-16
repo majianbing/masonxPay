@@ -2,18 +2,19 @@ package com.masonx.paygateway.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentRequest;
 import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
-import com.masonx.paygateway.event.PaymentGatewayEvent;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -54,24 +55,27 @@ public class StalePendingIntentJob {
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService   providerAccountService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final OutboxEventRepository    outboxEventRepository;
     private final ObjectMapper             objectMapper;
     private final TransactionTemplate      txTemplate;
+    private final PaymentMetrics           metrics;
 
     public StalePendingIntentJob(PaymentIntentRepository paymentIntentRepository,
                                  PaymentRequestRepository paymentRequestRepository,
                                  PaymentProviderDispatcher dispatcher,
                                  ProviderAccountService providerAccountService,
-                                 ApplicationEventPublisher eventPublisher,
+                                 OutboxEventRepository outboxEventRepository,
                                  ObjectMapper objectMapper,
-                                 PlatformTransactionManager txManager) {
+                                 PlatformTransactionManager txManager,
+                                 PaymentMetrics metrics) {
         this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.dispatcher               = dispatcher;
         this.providerAccountService   = providerAccountService;
-        this.eventPublisher           = eventPublisher;
+        this.outboxEventRepository    = outboxEventRepository;
         this.objectMapper             = objectMapper;
         this.txTemplate               = new TransactionTemplate(txManager);
+        this.metrics                  = metrics;
     }
 
     @Scheduled(fixedDelay = 300_000) // every 5 minutes
@@ -147,30 +151,28 @@ public class StalePendingIntentJob {
             PaymentIntent fresh = paymentIntentRepository.findById(intent.getId()).orElse(null);
             if (fresh == null || fresh.getStatus() != PaymentIntentStatus.PROCESSING) return null;
             fresh.setStatus(newStatus);
-            return paymentIntentRepository.save(fresh);
-        });
+            PaymentIntent saved = paymentIntentRepository.save(fresh);
 
-        if (updated == null) return; // raced — already resolved by webhook or another thread
-
-        publishEvent(updated);
-    }
-
-    private void publishEvent(PaymentIntent intent) {
-        try {
-            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
-            PaymentIntentResponse response = PaymentIntentResponse.from(intent, attempts, objectMapper, null);
-            String json = objectMapper.writeValueAsString(response);
-
-            String eventType = switch (intent.getStatus()) {
+            // Write outbox event in the same TX so the webhook is guaranteed to be delivered
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
+            PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+            String eventType = switch (newStatus) {
                 case SUCCEEDED -> "payment_intent.succeeded";
                 case FAILED    -> "payment_intent.failed";
                 default        -> "payment_intent.canceled";
             };
+            try {
+                String json = objectMapper.writeValueAsString(response);
+                outboxEventRepository.save(new OutboxEvent(saved.getMerchantId(), eventType, saved.getId(), json));
+            } catch (JsonProcessingException e) {
+                // non-critical — status is already persisted; worst case the merchant webhook is not delivered
+            }
 
-            eventPublisher.publishEvent(
-                    new PaymentGatewayEvent(this, intent.getMerchantId(), eventType, intent.getId(), json));
-        } catch (JsonProcessingException e) {
-            // non-critical — status is already persisted, event is best-effort
-        }
+            return saved;
+        });
+
+        if (updated == null) return; // raced — already resolved by webhook or another thread
+
+        metrics.recordStaleResolved(newStatus.name());
     }
 }

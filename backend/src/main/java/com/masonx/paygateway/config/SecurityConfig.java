@@ -63,7 +63,8 @@ public class SecurityConfig {
                                 "/api/v1/invites/**",
                                 "/api/v1/providers/*/webhook",
                                 "/pub/**",
-                                "/actuator/health"
+                                "/actuator/health",
+                                "/actuator/prometheus"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

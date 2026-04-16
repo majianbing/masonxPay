@@ -111,6 +111,12 @@
             <version>1.8.9</version>
         </dependency>
 
+        <!-- Micrometer Prometheus registry (Phase 2.1 — /actuator/prometheus) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Structured JSON logging (prod) -->
         <dependency>
             <groupId>net.logstash.logback</groupId>

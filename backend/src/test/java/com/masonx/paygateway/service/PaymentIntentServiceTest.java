@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
@@ -42,6 +43,7 @@ class PaymentIntentServiceTest {
     @Mock FailoverPolicy failoverPolicy;
     @Mock OutboxEventRepository outboxEventRepository;
     @Mock PlatformTransactionManager txManager;
+    @Mock PaymentMetrics metrics;
 
     private PaymentIntentService service;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -57,7 +59,7 @@ class PaymentIntentServiceTest {
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentTokenService, failoverPolicy,
-                objectMapper, outboxEventRepository, txManager);
+                objectMapper, outboxEventRepository, txManager, metrics);
     }
 
     private ApiKeyAuthentication auth(ApiKeyType type) {

@@ -14,6 +14,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
+import org.slf4j.MDC;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
@@ -114,7 +116,10 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         log.setMerchantId(merchantId);
         log.setApiKeyId(apiKeyId);
         log.setMode(mode);
+        // TraceIdFilter has already run; read the canonical trace ID from MDC
+        String traceId = MDC.get(TraceIdFilter.MDC_KEY);
         log.setRequestId(req.getHeader("X-Request-Id"));
+        log.setTraceId(traceId);
         log.setType(GatewayLogType.API_REQUEST);
         log.setMethod(req.getMethod());
         log.setPath(req.getRequestURI());

@@ -2,6 +2,7 @@ package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.domain.webhook.*;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
 import org.slf4j.Logger;
@@ -34,6 +35,7 @@ public class WebhookDeliveryService {
     private final OutboxEventRepository outboxEventRepository;
     private final RestTemplate webhookRestTemplate;
     private final TransactionTemplate txTemplate;
+    private final PaymentMetrics metrics;
 
     public WebhookDeliveryService(GatewayEventRepository gatewayEventRepository,
                                    WebhookEndpointRepository webhookEndpointRepository,
@@ -41,7 +43,8 @@ public class WebhookDeliveryService {
                                    WebhookSigningService signingService,
                                    OutboxEventRepository outboxEventRepository,
                                    RestTemplate webhookRestTemplate,
-                                   PlatformTransactionManager txManager) {
+                                   PlatformTransactionManager txManager,
+                                   PaymentMetrics metrics) {
         this.gatewayEventRepository = gatewayEventRepository;
         this.webhookEndpointRepository = webhookEndpointRepository;
         this.webhookDeliveryRepository = webhookDeliveryRepository;
@@ -49,6 +52,7 @@ public class WebhookDeliveryService {
         this.outboxEventRepository = outboxEventRepository;
         this.webhookRestTemplate = webhookRestTemplate;
         this.txTemplate = new TransactionTemplate(txManager);
+        this.metrics = metrics;
     }
 
     /**
@@ -97,6 +101,10 @@ public class WebhookDeliveryService {
                     outboxEventRepository.save(fresh);
                     return created;
                 });
+
+                if (deliveries != null && !deliveries.isEmpty()) {
+                    metrics.recordOutboxProcessed();
+                }
 
                 // Deliver outside the TX — failures are retried by retryPending()
                 if (deliveries != null) {

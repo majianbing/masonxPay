@@ -47,6 +47,9 @@ public class GatewayLog {
     @Column(length = 10)
     private ApiKeyMode mode;   // TEST | LIVE — null for JWT/dashboard requests
 
+    @Column(name = "trace_id", length = 36)
+    private String traceId;    // X-Request-Id (Phase 2.2) — enables single-grep request trace
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -76,5 +79,7 @@ public class GatewayLog {
     public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
     public ApiKeyMode getMode() { return mode; }
     public void setMode(ApiKeyMode mode) { this.mode = mode; }
+    public String getTraceId() { return traceId; }
+    public void setTraceId(String traceId) { this.traceId = traceId; }
     public Instant getCreatedAt() { return createdAt; }
 }

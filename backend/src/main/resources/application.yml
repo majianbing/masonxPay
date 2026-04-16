@@ -46,13 +46,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
+    prometheus:
+      enabled: true
   health:
     mail:
       enabled: false
+  metrics:
+    tags:
+      application: masonxpay
 
 app:
   cors:
