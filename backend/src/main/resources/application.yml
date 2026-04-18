@@ -92,7 +92,7 @@ app:
       # 60 req/min per merchant = 1/s; requests wait up to 5s before rejection
       - resource: "POST:/api/v1/payment-intents"
         grade: QPS
-        count: 60
+        count: 200
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 5000
         limit-app: default
@@ -100,7 +100,7 @@ app:
       # Confirm (actual charge) — tighter limit, longer queue tolerance
       - resource: "POST:/api/v1/payment-intents/{id}/confirm"
         grade: QPS
-        count: 30
+        count: 200
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 8000
         limit-app: default
