@@ -7,6 +7,7 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.metrics.PaymentMetrics;
+import com.masonx.paygateway.service.ConnectorCircuitBreaker;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
@@ -41,6 +42,7 @@ class PaymentIntentServiceTest {
     @Mock ProviderAccountRepository providerAccountRepository;
     @Mock PaymentTokenService paymentTokenService;
     @Mock FailoverPolicy failoverPolicy;
+    @Mock ConnectorCircuitBreaker circuitBreaker;
     @Mock OutboxEventRepository outboxEventRepository;
     @Mock PlatformTransactionManager txManager;
     @Mock PaymentMetrics metrics;
@@ -59,7 +61,7 @@ class PaymentIntentServiceTest {
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentTokenService, failoverPolicy,
-                objectMapper, outboxEventRepository, txManager, metrics);
+                circuitBreaker, objectMapper, outboxEventRepository, txManager, metrics);
     }
 
     private ApiKeyAuthentication auth(ApiKeyType type) {

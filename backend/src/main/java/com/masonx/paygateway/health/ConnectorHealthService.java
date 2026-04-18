@@ -99,6 +99,15 @@ public class ConnectorHealthService {
         }
     }
 
+    /**
+     * Returns the last-computed rolling 30-min success rate for a connector account.
+     * Defaults to 1.0 (fully healthy) when no data exists yet — new connectors are
+     * treated as healthy until proven otherwise.
+     */
+    public double getSuccessRate(UUID accountId) {
+        return successRates.getOrDefault(accountId.toString(), 1.0);
+    }
+
     private void refreshSuccessRates() {
         Instant since = Instant.now().minus(ROLLING_WINDOW);
         List<Object[]> rows = paymentRequestRepository.computeConnectorSuccessRates(since);

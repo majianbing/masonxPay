@@ -51,8 +51,8 @@ The core value-add of an orchestration layer over direct provider integration.
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| 3.1 | **Dynamic routing by success rate** | [ ] | Use Phase 2 connector health gauge to influence routing decisions. If connector X drops below N% success rate in last 30 min, demote or exclude it from routing. |
-| 3.2 | **Circuit breaker per connector** | [ ] | If a connector returns consecutive retryable errors, open circuit for a cooldown window. Prevents the retry loop hammering a degraded provider. |
+| 3.1 | **Dynamic routing by success rate** | ✅ | `RoutingEngine` partitions matching rules into healthy (≥80% rolling success rate) and degraded pools — picks from healthy first. Falls back to degraded pool only if no healthy rules exist. `ConnectorHealthService.getSuccessRate(accountId)` exposes Phase 2 metric data to routing. In `weightedSelect`, degraded accounts have their weight halved so traffic naturally shifts away. |
+| 3.2 | **Circuit breaker per connector** | ✅ | `ConnectorCircuitBreaker` — in-memory per-account state machine. Opens after 3 consecutive retryable failures (hard declines don't count — the card is the problem). Stays open 30s, auto-closes after cooldown. `RoutingEngine` filters open circuits from candidates; `resolveAnyAccount` + `resolveAccountForProvider` skip open accounts when alternatives exist. `PaymentIntentService.confirm()` records success/failure after each charge attempt. |
 | 3.3 | **3DS2 / SCA handling** | [ ] | `requires_action` from Stripe is returned today but the SDK doesn't handle the challenge flow. Add redirect + return URL handling for cards that require strong authentication. |
 | 3.4 | **More connectors** | [ ] | Mollie (EU), Razorpay (India) — listed in CLAUDE.md. ACH (via Stripe or Plaid) and PayPal are high-demand additions. Each follows the established connector pattern. |
 | 3.5 | **Cost-aware routing** | [ ] | Route by interchange fee / provider rate in addition to success rate. Requires fee schedule config per connector. |

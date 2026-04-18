@@ -39,18 +39,19 @@ public class PaymentIntentService {
     private static final Logger log = LoggerFactory.getLogger(PaymentIntentService.class);
     private static final int MAX_FAILOVER_ATTEMPTS = 3;
 
-    private final PaymentIntentRepository paymentIntentRepository;
-    private final PaymentRequestRepository paymentRequestRepository;
-    private final RoutingEngine routingEngine;
-    private final PaymentProviderDispatcher dispatcher;
-    private final ProviderAccountService providerAccountService;
-    private final ProviderAccountRepository providerAccountRepository;
-    private final PaymentTokenService paymentTokenService;
-    private final FailoverPolicy failoverPolicy;
-    private final ObjectMapper objectMapper;
-    private final OutboxEventRepository outboxEventRepository;
-    private final TransactionTemplate txTemplate;
-    private final PaymentMetrics metrics;
+    private final PaymentIntentRepository    paymentIntentRepository;
+    private final PaymentRequestRepository   paymentRequestRepository;
+    private final RoutingEngine              routingEngine;
+    private final PaymentProviderDispatcher  dispatcher;
+    private final ProviderAccountService     providerAccountService;
+    private final ProviderAccountRepository  providerAccountRepository;
+    private final PaymentTokenService        paymentTokenService;
+    private final FailoverPolicy             failoverPolicy;
+    private final ConnectorCircuitBreaker    circuitBreaker;
+    private final ObjectMapper               objectMapper;
+    private final OutboxEventRepository      outboxEventRepository;
+    private final TransactionTemplate        txTemplate;
+    private final PaymentMetrics             metrics;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
@@ -60,22 +61,24 @@ public class PaymentIntentService {
                                 ProviderAccountRepository providerAccountRepository,
                                 PaymentTokenService paymentTokenService,
                                 FailoverPolicy failoverPolicy,
+                                ConnectorCircuitBreaker circuitBreaker,
                                 ObjectMapper objectMapper,
                                 OutboxEventRepository outboxEventRepository,
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics) {
-        this.paymentIntentRepository = paymentIntentRepository;
+        this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
-        this.routingEngine = routingEngine;
-        this.dispatcher = dispatcher;
-        this.providerAccountService = providerAccountService;
+        this.routingEngine            = routingEngine;
+        this.dispatcher               = dispatcher;
+        this.providerAccountService   = providerAccountService;
         this.providerAccountRepository = providerAccountRepository;
-        this.paymentTokenService = paymentTokenService;
-        this.failoverPolicy = failoverPolicy;
-        this.objectMapper = objectMapper;
-        this.outboxEventRepository = outboxEventRepository;
-        this.txTemplate = new TransactionTemplate(txManager);
-        this.metrics = metrics;
+        this.paymentTokenService      = paymentTokenService;
+        this.failoverPolicy           = failoverPolicy;
+        this.circuitBreaker           = circuitBreaker;
+        this.objectMapper             = objectMapper;
+        this.outboxEventRepository    = outboxEventRepository;
+        this.txTemplate               = new TransactionTemplate(txManager);
+        this.metrics                  = metrics;
     }
 
     @Transactional
@@ -250,8 +253,13 @@ public class PaymentIntentService {
                 paymentRequestRepository.save(attempt);
             });
 
-            if (result.success()) break;
-            if (!failoverPolicy.isRetryable(result.failureCode())) break;
+            if (result.success()) {
+                circuitBreaker.recordSuccess(candidate.getId());
+                break;
+            }
+            boolean retryable = failoverPolicy.isRetryable(result.failureCode());
+            circuitBreaker.recordFailure(candidate.getId(), retryable);
+            if (!retryable) break;
         }
 
         // --- TX 3: finalize intent status + write outbox event atomically ---
