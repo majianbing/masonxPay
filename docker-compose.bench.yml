@@ -83,14 +83,14 @@ services:
           cpus: '0.5'
           memory: 512m
 
-  # ── Grafana — small cap; dashboards are read-only during bench ───────────────
+  # ── Grafana — bumped to 512m; 256m is tight with live dashboard auto-refresh ──
 
   grafana:
     deploy:
       resources:
         limits:
           cpus: '0.25'
-          memory: 256m
+          memory: 512m
 
   # ── k6 load runner ──────────────────────────────────────────────────────────
   # Profile: bench — only starts when --profile bench is supplied.
@@ -114,9 +114,9 @@ services:
       - ./bench/results:/results
     environment:
       BASE_URL: ${BASE_URL:-http://backend:8080}
-      # Push k6 metrics into Prometheus so the Grafana bench dashboard has live data
+      # Push k6 metrics into Prometheus so the Grafana bench dashboard has live data.
+      # Classic histograms (default) — no --enable-feature=native-histograms needed.
       K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
-      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: "true"
       # HTML report saved locally — open bench/results/report.html after the run
       K6_WEB_DASHBOARD: "true"
       K6_WEB_DASHBOARD_EXPORT: /results/report.html
