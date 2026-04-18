@@ -7,6 +7,7 @@ import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.event.PaymentGatewayEvent;
+import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
@@ -48,6 +49,7 @@ public class PublicPaymentController {
     private final PaymentTokenService          paymentTokenService;
     private final ApplicationEventPublisher    eventPublisher;
     private final ObjectMapper                 objectMapper;
+    private final PaymentMetrics               metrics;
 
     @Value("${app.pay-base-url:http://localhost:3000}")
     private String payBaseUrl;
@@ -60,7 +62,8 @@ public class PublicPaymentController {
                                    PaymentRequestRepository paymentRequestRepository,
                                    PaymentTokenService paymentTokenService,
                                    ApplicationEventPublisher eventPublisher,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   PaymentMetrics metrics) {
         this.paymentLinkRepository     = paymentLinkRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec          = credentialsCodec;
@@ -70,6 +73,7 @@ public class PublicPaymentController {
         this.paymentTokenService       = paymentTokenService;
         this.eventPublisher            = eventPublisher;
         this.objectMapper              = objectMapper;
+        this.metrics                   = metrics;
     }
 
     // ── Card / synchronous checkout (Square, Braintree, Stripe card) ──────────
@@ -120,11 +124,13 @@ public class PublicPaymentController {
         // Stripe appends payment_intent_client_secret and redirect_status automatically.
         String returnUrl = payBaseUrl + "/pay/3ds-return?linkToken=" + token;
 
+        long chargeStart = System.currentTimeMillis();
         ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 savedIntent.getId(), link.getAmount(), link.getCurrency(),
                 "card", paymentToken.getProviderPmId(),
                 idempotencyKey, null, null, null, returnUrl
         ), creds);
+        metrics.recordChargeLatency(provider.name(), System.currentTimeMillis() - chargeStart);
 
         // 3DS / SCA required — park the intent and let the SDK handle the challenge
         if (result.requiresAction()) {
@@ -149,6 +155,11 @@ public class PublicPaymentController {
         if (!result.success()) {
             paymentLinkRepository.releaseLink(token);
         }
+
+        metrics.recordIntentConfirmed(
+                provider.name(),
+                savedIntent.getStatus().name(),
+                result.failureCode());
 
         PaymentRequest attempt = new PaymentRequest();
         attempt.setPaymentIntentId(savedIntent.getId());
@@ -206,6 +217,10 @@ public class PublicPaymentController {
             attempt.setProviderRequestId(intent.getProviderPaymentId());
             paymentRequestRepository.save(attempt);
             publishEvent(intent, attempt, "payment_intent.succeeded");
+            metrics.recordIntentConfirmed(
+                    intent.getResolvedProvider() != null ? intent.getResolvedProvider().name() : "unknown",
+                    PaymentIntentStatus.SUCCEEDED.name(),
+                    null);
         }
 
         return ResponseEntity.ok(new PublicCheckoutResponse(
@@ -380,6 +395,11 @@ public class PublicPaymentController {
             attempt.setFailureCode(failureCode);
             attempt.setFailureMessage(failureMessage);
             paymentRequestRepository.save(attempt);
+
+            metrics.recordIntentConfirmed(
+                    PaymentProvider.STRIPE.name(),
+                    savedIntent.getStatus().name(),
+                    failureCode);
 
             publishEvent(savedIntent, attempt, succeeded ? "payment_intent.succeeded" : "payment_intent.failed");
 
