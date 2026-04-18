@@ -67,9 +67,39 @@ services:
           cpus: '${BENCH_DASH_CPU:-0.25}'
           memory: ${BENCH_DASH_MEM:-256m}
 
+  # ── Prometheus — enable remote-write receiver so k6 can push metrics in ─────
+  # Override just the command; everything else (image, volumes, ports) comes from
+  # docker-compose.yml.
+
+  prometheus:
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver   # accepts k6 push during bench run
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512m
+
+  # ── Grafana — small cap; dashboards are read-only during bench ───────────────
+
+  grafana:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256m
+
   # ── k6 load runner ──────────────────────────────────────────────────────────
   # Profile: bench — only starts when --profile bench is supplied.
   # Depends on the backend health check so k6 never fires before Spring Boot is ready.
+  #
+  # Metrics flow:
+  #   k6 → Prometheus remote-write (port 9090) → Grafana bench dashboard (port 3001)
+  #
+  # Open http://localhost:3001 during the run to watch live panels.
 
   k6:
     image: grafana/k6:latest
@@ -77,12 +107,21 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      prometheus:
+        condition: service_started
     volumes:
       - ./bench/k6:/scripts:ro
       - ./bench/results:/results
     environment:
       BASE_URL: ${BASE_URL:-http://backend:8080}
-      # HTML report with charts — open bench/results/report.html after the run
+      # Push k6 metrics into Prometheus so the Grafana bench dashboard has live data
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM: "true"
+      # HTML report saved locally — open bench/results/report.html after the run
       K6_WEB_DASHBOARD: "true"
       K6_WEB_DASHBOARD_EXPORT: /results/report.html
-    command: run --out json=/results/results.json /scripts/script.js
+    command: >
+      run
+      --out json=/results/results.json
+      --out experimental-prometheus-rw
+      /scripts/script.js

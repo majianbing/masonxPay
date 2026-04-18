@@ -1,0 +1,469 @@
+{
+  "uid": "masonxpay-bench",
+  "title": "MasonXPay — Benchmark",
+  "description": "Live view during k6 load test. k6 pushes metrics via Prometheus remote-write; backend metrics are scraped every 15 s.",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": [
+    {
+      "title": "Payments dashboard",
+      "url": "/d/masonxpay-payments",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Load Shape (k6)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Virtual Users",
+      "description": "Active VUs over time. Shows ramp-up, sustained load, and ramp-down phases.",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "purple" },
+          "custom": { "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "k6_vus",
+          "legendFormat": "VUs"
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Request Rate (req/s)",
+      "description": "HTTP requests per second issued by k6.",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": { "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(k6_http_reqs_total[30s])",
+          "legendFormat": "req/s"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "HTTP Latency — p50 / p95 (k6)",
+      "description": "End-to-end latency as measured by k6. Includes network + backend processing.",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(k6_http_req_duration_seconds_bucket[30s]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(k6_http_req_duration_seconds_bucket[30s]))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Error Rate (k6)",
+      "description": "Fraction of requests that k6 considered failed (non-2xx or check failure).",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red",    "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(k6_http_req_failed_total[30s]) / rate(k6_http_reqs_total[30s])",
+          "legendFormat": "Error rate"
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Backend Under Load",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Payment Volume (confirmations/s)",
+      "description": "Rate of payment intents reaching a terminal state. Compare shape against k6 request rate above.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_intent_confirmed_total{status='SUCCEEDED'}[30s]))",
+          "legendFormat": "Succeeded"
+        },
+        {
+          "expr": "sum(rate(payment_intent_confirmed_total{status='FAILED'}[30s]))",
+          "legendFormat": "Failed"
+        }
+      ]
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Charge Latency p50 / p95 (backend)",
+      "description": "Time spent inside the provider charge call. Excludes k6 network overhead.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(payment_charge_latency_seconds_bucket[30s])) by (le, provider))",
+          "legendFormat": "p50 {{provider}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(payment_charge_latency_seconds_bucket[30s])) by (le, provider))",
+          "legendFormat": "p95 {{provider}}"
+        }
+      ]
+    },
+
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Success Rate",
+      "description": "Fraction of confirmed intents that succeeded during the bench window.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 0.80 },
+              { "color": "green",  "value": 0.95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_intent_confirmed_total{status='SUCCEEDED'}[5m])) / sum(rate(payment_intent_confirmed_total[5m]))",
+          "legendFormat": "Success rate"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Failovers",
+      "description": "Times the retry loop moved to a secondary connector during this bench run.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red",    "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "increase(payment_intent_failover_total[30m])",
+          "legendFormat": "Failovers"
+        }
+      ]
+    },
+
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Webhook Queue Depth",
+      "description": "Unprocessed outbox events. Should not grow unboundedly under load.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red",    "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "payment_outbox_queue_depth",
+          "legendFormat": "Queue depth"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Connector Success Rate",
+      "description": "Rolling 30-min success rate per connector (updated every 5 min by ConnectorHealthService).",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 0.80 },
+              { "color": "green",  "value": 0.95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "connector_success_rate",
+          "legendFormat": "{{label}}"
+        }
+      ]
+    },
+
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Bench Summary",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Total Requests (k6)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "increase(k6_http_reqs_total[1h])",
+          "legendFormat": "Requests"
+        }
+      ]
+    },
+
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Total Payments Confirmed",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "increase(payment_intent_confirmed_total[1h])",
+          "legendFormat": "Payments"
+        }
+      ]
+    },
+
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Peak VUs",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["max"] },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "k6_vus",
+          "legendFormat": "Peak VUs"
+        }
+      ]
+    },
+
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Overall p95 Latency (k6)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(k6_http_req_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        }
+      ]
+    }
+
+  ]
+}
