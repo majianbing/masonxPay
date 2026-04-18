@@ -7,13 +7,14 @@ import com.masonx.paygateway.domain.payment.ShippingDetails;
 import java.util.UUID;
 
 public record ChargeRequest(
-        UUID paymentIntentId,
-        long amount,
-        String currency,
-        String paymentMethodType,
-        String paymentMethodId,   // provider-specific PM token (Stripe pm_xxx, Square sourceId, …)
-        String idempotencyKey,
+        UUID           paymentIntentId,
+        long           amount,
+        String         currency,
+        String         paymentMethodType,
+        String         paymentMethodId,   // provider-specific PM token (Stripe pm_xxx, Square sourceId, …)
+        String         idempotencyKey,
         BillingDetails billingDetails,
         ShippingDetails shippingDetails,
-        CaptureMethod captureMethod   // null treated as AUTOMATIC
+        CaptureMethod  captureMethod,     // null treated as AUTOMATIC
+        String         returnUrl          // 3DS return URL (e.g. /pay/3ds-return?linkToken=xxx); null for non-hosted flows
 ) {}

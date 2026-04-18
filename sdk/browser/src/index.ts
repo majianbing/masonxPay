@@ -22,6 +22,12 @@ export interface TokenEvent {
   provider: string;
 }
 
+export interface ProviderAction {
+  type: string;          // "stripe_sdk" | "redirect_url"
+  actionUrl?: string;   // redirect URL for "redirect_url" type
+  clientSecret?: string; // Stripe clientSecret for "stripe_sdk" type
+}
+
 export interface CheckoutResult {
   success: boolean;
   status: string;
@@ -29,6 +35,7 @@ export interface CheckoutResult {
   redirectUrl?: string;
   failureCode?: string;
   failureMessage?: string;
+  providerAction?: ProviderAction;
 }
 
 type EventMap = {
@@ -115,6 +122,9 @@ export class GatewayEmbedded {
   private selectedProvider: string | null = null;
   private skeletonEl: HTMLElement | null = null;
   private stripeClientSecret: string | null = null;  // cached per instance; cleared only on destroy()
+  private challengeOverlayEl: HTMLElement | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private challengeMessageListener: ((e: any) => void) | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private stripe: any = null;
@@ -240,6 +250,14 @@ export class GatewayEmbedded {
 
   destroy(): void {
     this.destroyProviderForms().catch(() => {});
+    if (this.challengeOverlayEl) {
+      this.challengeOverlayEl.remove();
+      this.challengeOverlayEl = null;
+    }
+    if (this.challengeMessageListener) {
+      window.removeEventListener('message', this.challengeMessageListener);
+      this.challengeMessageListener = null;
+    }
     if (this.container) this.container.innerHTML = '';
     this.container = null;
     this.area = null;
@@ -568,7 +586,10 @@ export class GatewayEmbedded {
     if (this.isHostedMode && this.checkoutLinkToken) {
       const gwToken = await this.tokenizeHosted(provider, providerPmId);
       const result = await this.submitCheckout(gwToken);
-      if (result.success && result.redirectUrl) {
+      if (result.status === 'REQUIRES_ACTION' && result.providerAction) {
+        // 3DS / SCA challenge — present inline overlay; resolves after auth completes
+        await this.handleProviderAction(result.providerAction);
+      } else if (result.success && result.redirectUrl) {
         window.location.href = result.redirectUrl;
       } else {
         this.checkoutOnSuccess?.(result);
@@ -600,6 +621,194 @@ export class GatewayEmbedded {
     const data = await res.json();
     if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Payment failed');
     return data as CheckoutResult;
+  }
+
+  // ── 3DS / SCA ──────────────────────────────────────────────────────────────
+
+  /**
+   * Dispatches the correct 3DS/SCA handler based on the action type returned by the backend.
+   *
+   * "stripe_sdk"   → delegate to Stripe.js handleNextAction() (inline challenge, no page leave)
+   * "redirect_url" → open a centered iframe overlay; poll for final status after auth
+   */
+  private async handleProviderAction(action: ProviderAction): Promise<void> {
+    if (action.type === 'stripe_sdk' && action.clientSecret) {
+      await this.handle3dsStripeSdk(action.clientSecret);
+    } else if (action.actionUrl) {
+      await this.openChallengeOverlay(action.actionUrl);
+    } else {
+      throw new Error('Unsupported provider action — cannot complete authentication');
+    }
+  }
+
+  /** Stripe 3DS2 — Stripe.js manages the challenge in-page; no iframe overlay needed */
+  private async handle3dsStripeSdk(clientSecret: string): Promise<void> {
+    if (!this.stripe) throw new Error('Stripe not initialized for 3DS handling');
+    const { error } = await this.stripe.handleNextAction({ clientSecret });
+    if (error) throw new Error(error.message ?? '3DS authentication failed');
+    // Challenge complete — poll our backend for the final settled status
+    await this.poll3dsStatus();
+  }
+
+  /**
+   * Universal iframe overlay for redirect-based 3DS (3DS1 Stripe, and future providers).
+   *
+   * Layout:
+   *   ┌──────────────────────────────┐
+   *   │  Complete Authentication [X] │  ← header with cancel button
+   *   │                              │
+   *   │   <iframe src={actionUrl}>   │  ← bank / issuer 3DS page
+   *   │                              │
+   *   └──────────────────────────────┘
+   *
+   * The iframe navigates to the 3DS provider page. After the challenge the provider
+   * redirects to our /pay/3ds-return page (set as returnUrl by the backend). That page
+   * sends window.parent.postMessage({ type: 'gw:3ds_complete' }) — we tear down the
+   * overlay and poll for the final settled status.
+   *
+   * Cancel button: calls POST /cancel-3ds (best-effort) then rejects the promise.
+   * Page-close abandonment: handled server-side by StalePendingIntentJob (30-min threshold).
+   */
+  private openChallengeOverlay(actionUrl: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // ── Backdrop ────────────────────────────────────────────────────────────
+      const backdrop = document.createElement('div');
+      backdrop.style.cssText = [
+        'position:fixed;inset:0;z-index:9999;',
+        'background:rgba(0,0,0,0.6);',
+        'display:flex;align-items:center;justify-content:center;',
+      ].join('');
+
+      // ── Modal shell ─────────────────────────────────────────────────────────
+      const modal = document.createElement('div');
+      modal.style.cssText = [
+        'background:#ffffff;border-radius:12px;overflow:hidden;',
+        'width:min(500px,95vw);height:min(700px,90vh);',
+        'display:flex;flex-direction:column;',
+        'box-shadow:0 25px 50px -5px rgba(0,0,0,0.5);',
+      ].join('');
+
+      // ── Header ──────────────────────────────────────────────────────────────
+      const header = document.createElement('div');
+      header.style.cssText = [
+        'padding:12px 16px;background:#f8fafc;',
+        'border-bottom:1px solid #e2e8f0;',
+        'display:flex;align-items:center;justify-content:space-between;',
+        'flex-shrink:0;',
+      ].join('');
+
+      const title = document.createElement('span');
+      title.textContent = 'Complete Authentication';
+      title.style.cssText = 'font-size:14px;font-weight:600;color:#374151;font-family:system-ui,sans-serif;';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.style.cssText = [
+        'font-size:13px;color:#6b7280;background:none;border:1px solid #d1d5db;',
+        'cursor:pointer;padding:4px 12px;border-radius:6px;font-family:inherit;',
+        'transition:background 0.15s;',
+      ].join('');
+      cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = '#f3f4f6'; });
+      cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = 'none'; });
+      cancelBtn.addEventListener('click', async () => {
+        cleanup();
+        await this.cancel3ds();
+        reject(new Error('3DS authentication was canceled'));
+      });
+
+      header.appendChild(title);
+      header.appendChild(cancelBtn);
+
+      // ── iframe ──────────────────────────────────────────────────────────────
+      const iframe = document.createElement('iframe');
+      iframe.src = actionUrl;
+      iframe.allow = 'payment';
+      iframe.style.cssText = 'flex:1;border:none;width:100%;';
+
+      modal.appendChild(header);
+      modal.appendChild(iframe);
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+      this.challengeOverlayEl = backdrop;
+
+      // ── Cleanup helper ──────────────────────────────────────────────────────
+      const cleanup = () => {
+        backdrop.remove();
+        this.challengeOverlayEl = null;
+        window.removeEventListener('message', listener);
+        this.challengeMessageListener = null;
+      };
+
+      // ── postMessage listener — fired by /pay/3ds-return after redirect ───────
+      const listener = async (event: MessageEvent) => {
+        if (!event.data || event.data.type !== 'gw:3ds_complete') return;
+        cleanup();
+        try {
+          await this.poll3dsStatus();
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      };
+
+      window.addEventListener('message', listener);
+      this.challengeMessageListener = listener;
+    });
+  }
+
+  /**
+   * Polls GET /pub/pay/{token}/payment-status until the intent reaches a terminal state.
+   * Handles success (fires onSuccess), redirect (navigates), and failure (throws).
+   * Polls up to 30 times at 2-second intervals (60 seconds total).
+   */
+  private async poll3dsStatus(): Promise<void> {
+    const MAX_POLLS = 30;
+    const INTERVAL_MS = 2000;
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise<void>(r => setTimeout(r, INTERVAL_MS));
+
+      let data: CheckoutResult;
+      try {
+        const res = await fetch(
+          `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken!)}/payment-status`
+        );
+        if (!res.ok) continue; // transient error — keep polling
+        data = await res.json() as CheckoutResult;
+      } catch {
+        continue; // network hiccup — keep polling
+      }
+
+      // Still authenticating or settling — keep polling
+      if (data.status === 'REQUIRES_ACTION' || data.status === 'PROCESSING') continue;
+
+      // Terminal state reached
+      if (data.success && data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
+      if (data.success) {
+        this.checkoutOnSuccess?.(data);
+        return;
+      }
+      throw new Error(data.failureMessage ?? '3DS authentication or payment failed');
+    }
+
+    throw new Error('3DS authentication timed out — please try again');
+  }
+
+  /** Signals the backend to cancel the parked REQUIRES_ACTION intent (best-effort). */
+  private async cancel3ds(): Promise<void> {
+    if (!this.checkoutLinkToken) return;
+    try {
+      await fetch(
+        `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken)}/cancel-3ds`,
+        { method: 'POST' }
+      );
+    } catch {
+      // best-effort — stale job will eventually clean up if this fails
+    }
   }
 
   private async tokenizeGateway(provider: string, providerPmId: string): Promise<void> {

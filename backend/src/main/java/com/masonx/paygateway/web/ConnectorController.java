@@ -141,7 +141,8 @@ public class ConnectorController {
                 idempotencyKey,
                 null,
                 null,
-                null  // always AUTOMATIC for connector preview
+                null,  // always AUTOMATIC for connector preview
+                null   // no 3DS return URL for connector preview
         ), creds);
 
         // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest

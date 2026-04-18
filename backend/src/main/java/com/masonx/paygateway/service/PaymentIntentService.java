@@ -21,6 +21,7 @@ import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,6 +39,9 @@ public class PaymentIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentIntentService.class);
     private static final int MAX_FAILOVER_ATTEMPTS = 3;
+
+    @Value("${app.pay-base-url:http://localhost:3000}")
+    private String payBaseUrl;
 
     private final PaymentIntentRepository    paymentIntentRepository;
     private final PaymentRequestRepository   paymentRequestRepository;
@@ -236,7 +240,8 @@ public class PaymentIntentService {
                     "pi-" + setup.intent().getId() + "-" + attemptId,
                     setup.intent().getBillingDetails(),
                     setup.intent().getShippingDetails(),
-                    setup.intent().getCaptureMethod()
+                    setup.intent().getCaptureMethod(),
+                    null   // no 3DS return URL for server-side confirm (not a hosted payment link)
             ), creds);
             metrics.recordChargeLatency(setup.provider().name(), System.currentTimeMillis() - chargeStart);
             lastResult = result;
@@ -373,7 +378,8 @@ public class PaymentIntentService {
             PaymentIntent intent = loadOwned(auth, intentId);
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
-                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_ACTION) {
                 throw new IllegalStateException(
                         "PaymentIntent cannot be canceled in status: " + intent.getStatus());
             }
@@ -402,7 +408,8 @@ public class PaymentIntentService {
             // Race guard: re-validate status
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
-                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE
+                    && intent.getStatus() != PaymentIntentStatus.REQUIRES_ACTION) {
                 throw new IllegalStateException(
                         "PaymentIntent cannot be canceled in status: " + intent.getStatus());
             }

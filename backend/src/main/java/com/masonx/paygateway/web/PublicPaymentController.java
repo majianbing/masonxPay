@@ -22,6 +22,9 @@ import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.PaymentIntentRetrieveParams;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -34,15 +37,20 @@ import java.util.UUID;
 @RequestMapping("/pub/pay")
 public class PublicPaymentController {
 
-    private final PaymentLinkRepository paymentLinkRepository;
-    private final ProviderAccountRepository providerAccountRepository;
-    private final CredentialsCodec credentialsCodec;
-    private final PaymentProviderDispatcher dispatcher;
-    private final PaymentIntentRepository paymentIntentRepository;
-    private final PaymentRequestRepository paymentRequestRepository;
-    private final PaymentTokenService paymentTokenService;
-    private final ApplicationEventPublisher eventPublisher;
-    private final ObjectMapper objectMapper;
+    private static final Logger log = LoggerFactory.getLogger(PublicPaymentController.class);
+
+    private final PaymentLinkRepository        paymentLinkRepository;
+    private final ProviderAccountRepository    providerAccountRepository;
+    private final CredentialsCodec             credentialsCodec;
+    private final PaymentProviderDispatcher    dispatcher;
+    private final PaymentIntentRepository      paymentIntentRepository;
+    private final PaymentRequestRepository     paymentRequestRepository;
+    private final PaymentTokenService          paymentTokenService;
+    private final ApplicationEventPublisher    eventPublisher;
+    private final ObjectMapper                 objectMapper;
+
+    @Value("${app.pay-base-url:http://localhost:3000}")
+    private String payBaseUrl;
 
     public PublicPaymentController(PaymentLinkRepository paymentLinkRepository,
                                    ProviderAccountRepository providerAccountRepository,
@@ -53,19 +61,29 @@ public class PublicPaymentController {
                                    PaymentTokenService paymentTokenService,
                                    ApplicationEventPublisher eventPublisher,
                                    ObjectMapper objectMapper) {
-        this.paymentLinkRepository = paymentLinkRepository;
+        this.paymentLinkRepository     = paymentLinkRepository;
         this.providerAccountRepository = providerAccountRepository;
-        this.credentialsCodec = credentialsCodec;
-        this.dispatcher = dispatcher;
-        this.paymentIntentRepository = paymentIntentRepository;
-        this.paymentRequestRepository = paymentRequestRepository;
-        this.paymentTokenService = paymentTokenService;
-        this.eventPublisher = eventPublisher;
-        this.objectMapper = objectMapper;
+        this.credentialsCodec          = credentialsCodec;
+        this.dispatcher                = dispatcher;
+        this.paymentIntentRepository   = paymentIntentRepository;
+        this.paymentRequestRepository  = paymentRequestRepository;
+        this.paymentTokenService       = paymentTokenService;
+        this.eventPublisher            = eventPublisher;
+        this.objectMapper              = objectMapper;
     }
 
     // ── Card / synchronous checkout (Square, Braintree, Stripe card) ──────────
 
+    /**
+     * Submits a gateway token (from /pub/tokenize) to charge the customer.
+     *
+     * If the provider requires 3DS/SCA authentication, returns status REQUIRES_ACTION
+     * with a providerAction descriptor. The SDK opens an iframe overlay (redirect_url)
+     * or calls stripe.handleNextAction() (stripe_sdk) and polls /payment-status when done.
+     *
+     * The payment link is claimed atomically before the remote charge to prevent
+     * double-payment. Released back to ACTIVE on failure or cancellation.
+     */
     @PostMapping("/{token}/checkout")
     public ResponseEntity<PublicCheckoutResponse> checkout(
             @PathVariable String token,
@@ -73,8 +91,7 @@ public class PublicPaymentController {
 
         PaymentLink link = findActiveLink(token);
 
-        // Atomically claim the link before the remote charge — prevents double-payment
-        // without holding a DB connection across the network call.
+        // Atomically claim the link before the remote charge — prevents double-payment.
         if (paymentLinkRepository.claimLink(token) == 0) {
             throw new IllegalStateException("This payment link has already been paid");
         }
@@ -99,23 +116,36 @@ public class PublicPaymentController {
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
+        // 3DS return URL: /pay/3ds-return?linkToken={token}
+        // Stripe appends payment_intent_client_secret and redirect_status automatically.
+        String returnUrl = payBaseUrl + "/pay/3ds-return?linkToken=" + token;
+
         ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
-                savedIntent.getId(),
-                link.getAmount(),
-                link.getCurrency(),
-                "card",
-                paymentToken.getProviderPmId(),
-                idempotencyKey,
-                null,
-                null,
-                null  // always AUTOMATIC for payment links
+                savedIntent.getId(), link.getAmount(), link.getCurrency(),
+                "card", paymentToken.getProviderPmId(),
+                idempotencyKey, null, null, null, returnUrl
         ), creds);
+
+        // 3DS / SCA required — park the intent and let the SDK handle the challenge
+        if (result.requiresAction()) {
+            savedIntent.setStatus(PaymentIntentStatus.REQUIRES_ACTION);
+            savedIntent.setProviderPaymentId(result.providerPaymentId());
+            savedIntent.setActionType(result.actionType());
+            savedIntent.setActionUrl(result.actionUrl());
+            paymentIntentRepository.save(savedIntent);
+            // Link stays claimed during 3DS to prevent a parallel checkout attempt.
+            // It will be released on cancel (/cancel-3ds) or stay paid on success.
+            return ResponseEntity.ok(new PublicCheckoutResponse(
+                    false, "REQUIRES_ACTION", savedIntent.getId(),
+                    null, null, null,
+                    new PublicCheckoutResponse.ProviderAction(
+                            result.actionType(), result.actionUrl(), result.clientSecret())));
+        }
 
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
         savedIntent.setProviderPaymentId(result.providerPaymentId());
         paymentIntentRepository.save(savedIntent);
 
-        // Release the link back to ACTIVE on failure so the customer can retry with a different card.
         if (!result.success()) {
             paymentLinkRepository.releaseLink(token);
         }
@@ -131,7 +161,6 @@ public class PublicPaymentController {
         attempt.setFailureMessage(result.failureMessage());
         paymentRequestRepository.save(attempt);
 
-        // Publish event so webhook endpoints receive delivery
         String eventType = result.success() ? "payment_intent.succeeded" : "payment_intent.failed";
         publishEvent(savedIntent, attempt, eventType);
 
@@ -139,22 +168,90 @@ public class PublicPaymentController {
                 result.success(),
                 result.success() ? "SUCCEEDED" : "FAILED",
                 savedIntent.getId(),
-                result.failureCode(),
-                result.failureMessage(),
-                result.success() ? link.getRedirectUrl() : null
-        ));
+                result.failureCode(), result.failureMessage(),
+                result.success() ? link.getRedirectUrl() : null,
+                null));
+    }
+
+    // ── 3DS / SCA challenge support ───────────────────────────────────────────
+
+    /**
+     * Polls the current status of a payment intent after 3DS completes.
+     * Called by the SDK after receiving the gw:3ds_complete postMessage from the return page,
+     * or after stripe.handleNextAction() resolves.
+     *
+     * Returns a CheckoutResult shape the SDK can act on directly.
+     */
+    @GetMapping("/{token}/payment-status")
+    public ResponseEntity<PublicCheckoutResponse> paymentStatus(
+            @PathVariable String token,
+            @RequestParam UUID piId) {
+
+        PaymentLink link = findActiveLink(token);
+        PaymentIntent intent = paymentIntentRepository.findById(piId)
+                .filter(pi -> pi.getMerchantId().equals(link.getMerchantId()))
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        boolean success = intent.getStatus() == PaymentIntentStatus.SUCCEEDED;
+
+        // If 3DS completed successfully, finalize the link and write event/attempt records
+        // only if we haven't already (idempotent — check for existing attempt records).
+        if (success && paymentRequestRepository.findByPaymentIntentId(piId).isEmpty()) {
+            PaymentRequest attempt = new PaymentRequest();
+            attempt.setPaymentIntentId(piId);
+            attempt.setAmount(intent.getAmount());
+            attempt.setCurrency(intent.getCurrency());
+            attempt.setPaymentMethodType("card");
+            attempt.setStatus(PaymentRequestStatus.SUCCEEDED);
+            attempt.setProviderRequestId(intent.getProviderPaymentId());
+            paymentRequestRepository.save(attempt);
+            publishEvent(intent, attempt, "payment_intent.succeeded");
+        }
+
+        return ResponseEntity.ok(new PublicCheckoutResponse(
+                success, intent.getStatus().name(), intent.getId(),
+                null, null,
+                success ? link.getRedirectUrl() : null,
+                null));
+    }
+
+    /**
+     * Cancels a REQUIRES_ACTION payment intent when the customer clicks "Cancel" in the
+     * 3DS overlay. Releases the payment link back to ACTIVE so the customer can retry.
+     */
+    @PostMapping("/{token}/cancel-3ds")
+    public ResponseEntity<Void> cancel3ds(
+            @PathVariable String token,
+            @RequestParam UUID piId) {
+
+        PaymentLink link = findActiveLink(token);
+        PaymentIntent intent = paymentIntentRepository.findById(piId)
+                .filter(pi -> pi.getMerchantId().equals(link.getMerchantId()))
+                .filter(pi -> pi.getStatus() == PaymentIntentStatus.REQUIRES_ACTION)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Payment not found or not awaiting authentication"));
+
+        // Cancel at provider (best-effort — the PI may already be expired at Stripe's side)
+        if (intent.getProviderPaymentId() != null && intent.getConnectorAccountId() != null) {
+            try {
+                ProviderCredentials creds = credentialsCodec.decode(
+                        providerAccountRepository.findById(intent.getConnectorAccountId()).orElseThrow());
+                dispatcher.cancelAtProvider(intent.getResolvedProvider(),
+                        intent.getProviderPaymentId(), creds);
+            } catch (Exception e) {
+                log.warn("3DS cancel: could not cancel at provider for intent {}: {}", piId, e.getMessage());
+            }
+        }
+
+        intent.setStatus(PaymentIntentStatus.CANCELED);
+        paymentIntentRepository.save(intent);
+        paymentLinkRepository.releaseLink(token);
+
+        return ResponseEntity.ok().build();
     }
 
     // ── Stripe redirect-based methods (Amazon Pay, iDEAL, Sofort, etc.) ───────
 
-    /**
-     * Creates a Stripe PaymentIntent with automatic_payment_methods enabled and returns its
-     * client_secret to the SDK. The SDK uses this to initialize the Stripe Payment Element,
-     * which shows all methods the merchant has enabled (card, wallets, local methods, etc.).
-     *
-     * Called once per checkout session when the customer selects Stripe. Cached by the SDK
-     * so switching providers back-and-forth does not create multiple PIs.
-     */
     @PostMapping("/{token}/prepare-stripe")
     public ResponseEntity<Map<String, String>> prepareStripe(@PathVariable String token) {
         PaymentLink link = findActiveLink(token);
@@ -195,12 +292,8 @@ public class PublicPaymentController {
 
     /**
      * Called by the SDK when the customer returns from a redirect-based payment (Amazon Pay,
-     * iDEAL, Sofort, etc.). Stripe appends payment_intent_client_secret to the return URL;
-     * the SDK passes it here so we can retrieve the final status from Stripe server-side,
-     * create our DB record, and return a CheckoutResult.
-     *
-     * Idempotent: if a record already exists for this Stripe PI (e.g. page refresh), returns
-     * the existing result without creating a duplicate.
+     * iDEAL, Sofort, etc.) OR from the 3DS return page after 3DS1 redirect completes.
+     * Idempotent: if a record already exists for this Stripe PI, returns the existing result.
      */
     @GetMapping("/{token}/stripe-result")
     public ResponseEntity<PublicCheckoutResponse> stripeResult(
@@ -208,11 +301,9 @@ public class PublicPaymentController {
             @RequestParam String piClientSecret) {
 
         PaymentLink link = findActiveLink(token);
-
-        // Stripe client secret format: "pi_xxx_secret_yyy" — extract the PI ID
         String piId = piClientSecret.split("_secret_")[0];
 
-        // Idempotency: return existing record if we've already processed this PI
+        // Idempotency: return existing record if already processed
         var existing = paymentIntentRepository.findByProviderPaymentId(piId);
         if (existing.isPresent()) {
             PaymentIntent intent = existing.get();
@@ -220,10 +311,9 @@ public class PublicPaymentController {
             return ResponseEntity.ok(new PublicCheckoutResponse(
                     ok, intent.getStatus().name(), intent.getId(),
                     ok ? null : "payment_failed", ok ? null : "Payment did not succeed",
-                    ok ? link.getRedirectUrl() : null));
+                    ok ? link.getRedirectUrl() : null, null));
         }
 
-        // Retrieve the PI from Stripe to get authoritative status
         ProviderAccount account = (link.getPinnedConnectorId() != null)
                 ? providerAccountRepository.findById(link.getPinnedConnectorId())
                         .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
@@ -242,24 +332,21 @@ public class PublicPaymentController {
             PaymentIntentRetrieveParams retrieveParams = PaymentIntentRetrieveParams.builder()
                     .addExpand("payment_method")
                     .build();
-            com.stripe.model.PaymentIntent pi = com.stripe.model.PaymentIntent.retrieve(piId, retrieveParams, opts);
+            com.stripe.model.PaymentIntent pi =
+                    com.stripe.model.PaymentIntent.retrieve(piId, retrieveParams, opts);
             boolean succeeded = "succeeded".equals(pi.getStatus());
 
-            // Claim the link atomically — if someone else already claimed it (e.g. webhook),
-            // skip record creation and return success.
             if (succeeded && paymentLinkRepository.claimLink(token) == 0) {
                 return ResponseEntity.ok(new PublicCheckoutResponse(
-                        true, "SUCCEEDED", null, null, null, link.getRedirectUrl()));
+                        true, "SUCCEEDED", null, null, null, link.getRedirectUrl(), null));
             }
 
-            // Determine payment method type from the actual payment method used (not allowed types list)
             com.stripe.model.PaymentMethod pm = pi.getPaymentMethodObject();
             String pmType = (pm != null && pm.getType() != null)
                     ? pm.getType()
                     : (pi.getPaymentMethodTypes() != null && !pi.getPaymentMethodTypes().isEmpty()
                             ? pi.getPaymentMethodTypes().get(0) : "unknown");
 
-            // Failure details
             String failureCode = null;
             String failureMessage = null;
             if (!succeeded && pi.getLastPaymentError() != null) {
@@ -267,7 +354,6 @@ public class PublicPaymentController {
                 failureMessage = pi.getLastPaymentError().getMessage();
             }
 
-            // Create our payment intent record
             PaymentIntent intent = new PaymentIntent();
             intent.setMerchantId(link.getMerchantId());
             intent.setMode(link.getMode());
@@ -280,7 +366,6 @@ public class PublicPaymentController {
             intent.setProviderPaymentId(piId);
             PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
-            // Release the link for retry on failure
             if (!succeeded) {
                 paymentLinkRepository.releaseLink(token);
             }
@@ -301,7 +386,7 @@ public class PublicPaymentController {
             return ResponseEntity.ok(new PublicCheckoutResponse(
                     succeeded, succeeded ? "SUCCEEDED" : "FAILED", savedIntent.getId(),
                     failureCode, failureMessage,
-                    succeeded ? link.getRedirectUrl() : null));
+                    succeeded ? link.getRedirectUrl() : null, null));
 
         } catch (StripeException e) {
             throw new IllegalStateException("Failed to retrieve Stripe payment status: " + e.getMessage(), e);

@@ -83,6 +83,13 @@ public class PaymentIntent {
     @Column(name = "trace_id", length = 36)
     private String traceId;    // X-Request-Id that triggered creation/confirm (Phase 2.2)
 
+    // Phase 3.3: 3DS / SCA action fields — populated when status = REQUIRES_ACTION
+    @Column(name = "action_type", length = 30)
+    private String actionType;  // "stripe_sdk" | "redirect_url"
+
+    @Column(name = "action_url", length = 2000)
+    private String actionUrl;   // redirect URL for redirect_url type; null for stripe_sdk
+
     @Column(name = "expires_at")
     private Instant expiresAt;
 
@@ -159,6 +166,12 @@ public class PaymentIntent {
 
     public String getTraceId() { return traceId; }
     public void setTraceId(String traceId) { this.traceId = traceId; }
+
+    public String getActionType() { return actionType; }
+    public void setActionType(String actionType) { this.actionType = actionType; }
+
+    public String getActionUrl() { return actionUrl; }
+    public void setActionUrl(String actionUrl) { this.actionUrl = actionUrl; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

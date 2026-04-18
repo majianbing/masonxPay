@@ -35,7 +35,7 @@ public class StripePaymentProviderService implements PaymentProviderService {
             return new ChargeResult(false, null, null,
                     "connector_not_configured",
                     "No active Stripe connector found. Add one under Settings → Connectors.",
-                    false);
+                    false, false, null, null, null);
         }
 
         try {
@@ -45,6 +45,11 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .setConfirm(true)
                     .setPaymentMethod(req.paymentMethodId())
                     .addPaymentMethodType("card");
+
+            // return_url is required by Stripe when confirm=true and the card might need 3DS redirect
+            if (req.returnUrl() != null) {
+                paramsBuilder.setReturnUrl(req.returnUrl());
+            }
 
             // Manual capture: authorize now, settle later via captureAtProvider()
             if (req.captureMethod() == CaptureMethod.MANUAL) {
@@ -68,6 +73,23 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .build();
 
             PaymentIntent pi = PaymentIntent.create(params, options);
+
+            // 3DS / SCA: provider needs the customer to authenticate before the charge settles
+            if ("requires_action".equals(pi.getStatus()) && pi.getNextAction() != null) {
+                String nextActionType = pi.getNextAction().getType();
+                if ("use_stripe_sdk".equals(nextActionType)) {
+                    // 3DS2 — Stripe.js handles the challenge in-page via stripe.handleNextAction()
+                    return ChargeResult.actionRequired(pi.getId(), pi.toJson(),
+                            "stripe_sdk", null, pi.getClientSecret());
+                } else {
+                    // 3DS1 fallback — open the redirect URL in our iframe overlay
+                    String redirectUrl = pi.getNextAction().getRedirectToUrl() != null
+                            ? pi.getNextAction().getRedirectToUrl().getUrl() : null;
+                    return ChargeResult.actionRequired(pi.getId(), pi.toJson(),
+                            "redirect_url", redirectUrl, null);
+                }
+            }
+
             // For MANUAL capture, Stripe transitions to "requires_capture" on success
             boolean succeeded = "succeeded".equals(pi.getStatus())
                     || "requires_capture".equals(pi.getStatus());
@@ -77,13 +99,13 @@ public class StripePaymentProviderService implements PaymentProviderService {
             return new ChargeResult(
                     succeeded, pi.getId(), pi.toJson(),
                     failureCode,
-                    succeeded ? null : pi.getLastPaymentError() != null ? pi.getLastPaymentError().getMessage() : "Payment did not succeed",
-                    false   // card-level failures are never retryable with the same card
+                    succeeded ? null : pi.getLastPaymentError() != null
+                            ? pi.getLastPaymentError().getMessage() : "Payment did not succeed",
+                    false, false, null, null, null
             );
         } catch (StripeException e) {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
-            // StripeException from the API call itself is a technical/transient failure → retryable
-            return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true);
+            return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true, false, null, null, null);
         }
     }
 

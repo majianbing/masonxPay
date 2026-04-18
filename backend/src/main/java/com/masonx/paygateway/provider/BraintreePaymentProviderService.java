@@ -61,7 +61,7 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
             return new ChargeResult(false, null, null,
                     "connector_not_configured",
                     "No active Braintree connector found. Add one under Settings → Connectors.",
-                    false);
+                    false, false, null, null, null);
         }
 
         BraintreeGateway gateway = buildGateway(bt);
@@ -126,7 +126,7 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
 
             if (result.isSuccess()) {
                 Transaction tx = result.getTarget();
-                return new ChargeResult(true, tx.getId(), null, null, null, false);
+                return new ChargeResult(true, tx.getId(), null, null, null, false, false, null, null, null);
             }
 
             // Processor declined or gateway rejection
@@ -140,18 +140,17 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
                 String message = tx.getProcessorResponseText() != null
                         ? tx.getProcessorResponseText()
                         : result.getMessage();
-                // Hard card declines are non-retryable
                 boolean retryable = tx.getStatus() == Transaction.Status.GATEWAY_REJECTED;
-                return new ChargeResult(false, tx.getId(), null, failureCode, message, retryable);
+                return new ChargeResult(false, tx.getId(), null, failureCode, message, retryable, false, null, null, null);
             }
 
             // Validation error (bad nonce, missing fields, etc.)
             String validationMessage = result.getMessage();
-            return new ChargeResult(false, null, null, "validation_error", validationMessage, false);
+            return new ChargeResult(false, null, null, "validation_error", validationMessage, false, false, null, null, null);
 
         } catch (Exception e) {
             log.error("Braintree charge error", e);
-            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true);
+            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
         }
     }
 

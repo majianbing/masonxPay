@@ -39,6 +39,32 @@ const TEST_CARDS: Record<string, { label: string; value: string }[]> = {
   ],
 };
 
+// 3DS / SCA test cards — only Stripe supports server-side 3DS challenge in our current integration
+const TEST_3DS_CARDS: Record<string, { label: string; value: string; note: string }[]> = {
+  STRIPE: [
+    {
+      label: '3DS2 — inline challenge',
+      value: '4000 0025 0000 3155',
+      note: 'Stripe.js handles the challenge in-page (no iframe overlay)',
+    },
+    {
+      label: '3DS1 — iframe overlay',
+      value: '4000 0000 0000 3220',
+      note: 'Opens the issuer page inside the overlay; approve to complete',
+    },
+    {
+      label: '3DS required — then succeeds',
+      value: '4000 0000 0000 3063',
+      note: 'Auth required; approve the challenge and payment succeeds',
+    },
+    {
+      label: '3DS required — then declines',
+      value: '4000 0082 6000 3178',
+      note: 'Auth required; even after approval the charge is declined',
+    },
+  ],
+};
+
 // ─── Result overlay ───────────────────────────────────────────────────────────
 
 function ResultOverlay({
@@ -127,6 +153,7 @@ export default function PreviewPage() {
   });
   const connector = connectors.find((c) => c.id === params.accountId);
   const testCards = connector ? (TEST_CARDS[connector.provider] ?? []) : [];
+  const test3dsCards = connector ? (TEST_3DS_CARDS[connector.provider] ?? []) : [];
 
   // Create a preview link then mount the SDK into the form panel
   async function startPreview() {
@@ -254,6 +281,37 @@ export default function PreviewPage() {
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">Use any future expiry · any 3-digit CVC</p>
+            </div>
+          )}
+
+          {test3dsCards.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                3D Secure (SCA) testing
+              </h2>
+              <div className="bg-white border rounded-lg divide-y text-sm">
+                {test3dsCards.map((card) => (
+                  <div key={card.value} className="px-3 py-2.5 space-y-0.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">{card.label}</span>
+                      <span className="font-mono text-xs">{card.value}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground/70">{card.note}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 space-y-1.5 text-xs text-violet-800">
+                <p className="font-semibold">What to expect during a 3DS test</p>
+                <ol className="list-decimal list-inside space-y-1 text-violet-700">
+                  <li>Click <strong>Pay</strong> — the gateway submits the card to the provider.</li>
+                  <li>An authentication overlay appears over the checkout form.</li>
+                  <li>Inside the overlay, click <strong>&ldquo;Complete authentication&rdquo;</strong> to approve, or <strong>&ldquo;Fail authentication&rdquo;</strong> to test a decline.</li>
+                  <li>The overlay closes automatically and the result appears.</li>
+                </ol>
+                <p className="text-violet-600 pt-0.5">
+                  Clicking <strong>Cancel</strong> in the overlay header will abort the payment.
+                </p>
+              </div>
             </div>
           )}
 

@@ -24,14 +24,18 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     Optional<PaymentIntent> findByProviderPaymentId(String providerPaymentId);
 
     /**
-     * Finds PROCESSING intents that have been stale long enough to warrant a sync/cancel:
+     * Finds PROCESSING or REQUIRES_ACTION intents that have been stale long enough to warrant a sync/cancel:
      *  - card payments pending longer than {@code cardThreshold}  (e.g. 30 minutes)
      *  - all other / unknown payment methods pending longer than {@code otherThreshold} (e.g. 7 days)
      * NULL paymentMethodType is treated conservatively as non-card (longer threshold).
+     * REQUIRES_ACTION intents are 3DS challenges abandoned without the customer completing auth.
      */
     @Query("""
         SELECT p FROM PaymentIntent p
-        WHERE p.status = com.masonx.paygateway.domain.payment.PaymentIntentStatus.PROCESSING
+        WHERE p.status IN (
+                com.masonx.paygateway.domain.payment.PaymentIntentStatus.PROCESSING,
+                com.masonx.paygateway.domain.payment.PaymentIntentStatus.REQUIRES_ACTION
+              )
           AND (
             (p.paymentMethodType = 'card'                                         AND p.updatedAt < :cardThreshold)
             OR
@@ -55,16 +59,16 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     long countStaleProcessing(@Param("threshold") Instant threshold);
 
     /**
-     * Re-reads a single PROCESSING intent with a row-level lock.
+     * Re-reads a single PROCESSING or REQUIRES_ACTION intent with a row-level lock.
      * FOR UPDATE SKIP LOCKED: if another node already holds the lock, returns empty
      * immediately — preventing two nodes from both canceling the same intent at the provider.
      *
-     * The status = 'PROCESSING' filter means returning empty also covers the case where
-     * a concurrent node or webhook already moved the intent out of PROCESSING.
+     * The status filter means returning empty also covers the case where
+     * a concurrent node or webhook already moved the intent out of these statuses.
      *
      * Must be called from within an active transaction (txTemplate.execute).
      */
-    @Query(value = "SELECT * FROM payment_intents WHERE id = :id AND status = 'PROCESSING' FOR UPDATE SKIP LOCKED",
+    @Query(value = "SELECT * FROM payment_intents WHERE id = :id AND status IN ('PROCESSING', 'REQUIRES_ACTION') FOR UPDATE SKIP LOCKED",
            nativeQuery = true)
     Optional<PaymentIntent> findByIdProcessingForUpdate(@Param("id") UUID id);
 }
