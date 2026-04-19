@@ -42,4 +42,17 @@ export const PROVIDER_BRAND: Record<string, { name: string; icon: React.ReactNod
     ),
     color: 'border-[#009CDE] bg-[#009CDE]/5 text-[#009CDE]',
   },
+  MOLLIE: {
+    name: 'Mollie',
+    icon: (
+      <svg viewBox="0 0 28 28" className="size-5" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#000" />
+        {/* Mollie wordmark-style M */}
+        <path d="M5 20V10h3l3 6 3-6h3v10h-2.5v-6l-2.5 5h-1l-2.5-5v6H5Z" fill="#fff" />
+        {/* Mollie signature orange dot */}
+        <circle cx="23" cy="10" r="2" fill="#FF6640" />
+      </svg>
+    ),
+    color: 'border-gray-900 bg-gray-900/5 text-gray-900',
+  },
 };

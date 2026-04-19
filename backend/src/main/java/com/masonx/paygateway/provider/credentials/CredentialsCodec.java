@@ -61,6 +61,13 @@ public class CredentialsCodec {
                 account.setProviderConfig(toJson(Map.of("merchantId", bt.merchantId())));
                 account.setSecretKeyHint(hint(bt.privateKey()));
             }
+            case MollieCredentials m -> {
+                account.setEncryptedCredentials(
+                        encryption.encrypt(toJson(Map.of("apiKey", m.apiKey()))));
+                // clientKey sentinel stored in providerConfig so checkout-session includes Mollie
+                account.setProviderConfig(toJson(Map.of("clientKey", "mollie")));
+                account.setSecretKeyHint(hint(m.apiKey()));
+            }
         }
     }
 
@@ -75,6 +82,7 @@ public class CredentialsCodec {
             case BRAINTREE -> new BraintreeCredentials(
                     req.btMerchantId(), req.btPublicKey(), req.btPrivateKey(),
                     mode == ApiKeyMode.TEST);
+            case MOLLIE -> new MollieCredentials(req.mollieApiKey(), mode == ApiKeyMode.TEST);
             default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
         };
     }
@@ -104,6 +112,7 @@ public class CredentialsCodec {
                         secrets.get("publicKey"),
                         secrets.get("privateKey"),
                         sandbox);
+                case MOLLIE -> new MollieCredentials(secrets.get("apiKey"), sandbox);
                 default -> throw new IllegalStateException(
                         "No credential decoder for provider: " + account.getProvider());
             };
@@ -128,6 +137,7 @@ public class CredentialsCodec {
                 case STRIPE    -> config.get("publishableKey");
                 case SQUARE    -> config.get("applicationId");
                 case BRAINTREE -> config.get("merchantId");
+                case MOLLIE    -> config.get("clientKey"); // "mollie" sentinel
                 default        -> null;
             };
         }

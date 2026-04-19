@@ -49,7 +49,7 @@ interface ProviderAccount {
   createdAt: string;
 }
 
-const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE'] as const;
+const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE'] as const;
 type Provider = typeof PROVIDERS[number];
 
 const PROVIDER_META: Record<Provider, {
@@ -82,12 +82,19 @@ const PROVIDER_META: Record<Provider, {
     methods: ['Cards', 'PayPal', 'Venmo', 'Local'],
     docsUrl: 'https://developer.paypal.com/braintree/docs',
   },
+  MOLLIE: {
+    label: 'Mollie',
+    tagline: 'The payments platform for Europe',
+    description: 'EU-focused gateway. iDEAL, Klarna, Bancontact, credit cards, and 30+ payment methods via hosted checkout.',
+    methods: ['iDEAL', 'Cards', 'Klarna', 'Bancontact', 'PayPal'],
+    docsUrl: 'https://docs.mollie.com',
+  },
 };
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  provider: z.enum(PROVIDERS),
+  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE'] as const),
   mode: z.enum(['TEST', 'LIVE']),
   label: z.string().min(1, 'Label required'),
   primary: z.boolean(),
@@ -100,6 +107,8 @@ const createSchema = z.object({
   btMerchantId: z.string().optional(),
   btPublicKey: z.string().optional(),
   btPrivateKey: z.string().optional(),
+  // Mollie
+  mollieApiKey: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.provider === 'STRIPE' && !data.secretKey) {
     ctx.addIssue({ code: 'custom', path: ['secretKey'], message: 'Secret key required' });
@@ -113,6 +122,9 @@ const createSchema = z.object({
     if (!data.btMerchantId) ctx.addIssue({ code: 'custom', path: ['btMerchantId'], message: 'Merchant ID required' });
     if (!data.btPublicKey) ctx.addIssue({ code: 'custom', path: ['btPublicKey'], message: 'Public key required' });
     if (!data.btPrivateKey) ctx.addIssue({ code: 'custom', path: ['btPrivateKey'], message: 'Private key required' });
+  }
+  if (data.provider === 'MOLLIE') {
+    if (!data.mollieApiKey) ctx.addIssue({ code: 'custom', path: ['mollieApiKey'], message: 'API key required' });
   }
 });
 type CreateForm = z.infer<typeof createSchema>;
@@ -467,7 +479,7 @@ export default function ConnectorsPage() {
 
         {/* ── Step 1: Provider picker ── */}
         {dialogStep === 'select' && (
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-4xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-lg">
                 Choose a payment provider
@@ -605,6 +617,22 @@ export default function ConnectorsPage() {
                     <p className="text-xs text-muted-foreground">AES-256 encrypted at rest. Never returned via API.</p>
                   </div>
                 </>
+              )}
+
+              {/* ── Mollie fields ── */}
+              {selectedProvider === 'MOLLIE' && (
+                <div className="space-y-1">
+                  <Label>API Key</Label>
+                  <Input
+                    type="password"
+                    placeholder={currentMode === 'TEST' ? 'test_…' : 'live_…'}
+                    {...register('mollieApiKey')}
+                  />
+                  {errors.mollieApiKey && <p className="text-xs text-red-500">{errors.mollieApiKey.message}</p>}
+                  <p className="text-xs text-muted-foreground">
+                    Found in Mollie Dashboard → Developers → API keys. AES-256 encrypted at rest.
+                  </p>
+                </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">

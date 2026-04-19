@@ -341,6 +341,7 @@ export class GatewayEmbedded {
       if (provider === 'STRIPE') await this.buildStripeForm(opt, slot);
       else if (provider === 'SQUARE') await this.buildSquareForm(opt, slot);
       else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot);
+      else if (provider === 'MOLLIE') this.buildMollieForm(slot);
     } catch (e) {
       slot.remove();
       this.clearSkeleton();
@@ -518,6 +519,7 @@ export class GatewayEmbedded {
       if (this.selectedProvider === 'STRIPE') await this.submitStripe();
       else if (this.selectedProvider === 'SQUARE') await this.submitSquare();
       else if (this.selectedProvider === 'BRAINTREE') await this.submitBraintree();
+      else if (this.selectedProvider === 'MOLLIE') await this.submitMollie();
     } catch (e) {
       const msg = (e as Error).message ?? 'Payment error';
       this.showError(msg);
@@ -580,6 +582,33 @@ export class GatewayEmbedded {
     if (!this.braintreeDropin) throw new Error('Braintree not ready');
     const { nonce } = await this.braintreeDropin.requestPaymentMethod();
     await this.tokenizeAndSubmit('BRAINTREE', nonce);
+  }
+
+  // ── Mollie ─────────────────────────────────────────────────────────────────
+  // Mollie is a pure redirect flow — no client-side SDK.
+  // The backend creates a Mollie payment and returns a checkout URL.
+  // The browser SDK opens that URL in the existing iframe overlay (same as 3DS redirect_url).
+
+  private buildMollieForm(container: HTMLElement): void {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 0;text-align:center;">
+        <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="6" fill="#000"/>
+          <path d="M5 20V10h3l3 6 3-6h3v10h-2.5v-6l-2.5 5h-1l-2.5-5v6H5Z" fill="#fff"/>
+          <circle cx="23" cy="10" r="2" fill="#FF6640"/>
+        </svg>
+        <p style="font-size:14px;color:#374151;font-weight:500;margin:0;">Pay with Mollie</p>
+        <p style="font-size:12px;color:#6b7280;margin:0;max-width:260px;line-height:1.5;">
+          You'll be redirected to Mollie's secure checkout to complete your payment.
+          Choose from iDEAL, credit card, Klarna, and more.
+        </p>
+      </div>`;
+    if (this.submitBtn) this.submitBtn.disabled = false;
+  }
+
+  private async submitMollie(): Promise<void> {
+    // Tokenize with empty providerPmId — Mollie doesn't use a client-side token
+    await this.tokenizeAndSubmit('MOLLIE', '');
   }
 
   private async tokenizeAndSubmit(provider: string, providerPmId: string): Promise<void> {
@@ -877,7 +906,7 @@ export class GatewayEmbedded {
   }
 
   private brandName(provider: string): string {
-    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree' } as Record<string, string>)[provider] ?? provider;
+    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree', MOLLIE: 'Mollie' } as Record<string, string>)[provider] ?? provider;
   }
 
   private loadScript(src: string): Promise<void> {

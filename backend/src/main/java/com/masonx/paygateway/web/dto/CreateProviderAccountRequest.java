@@ -22,5 +22,8 @@ public record CreateProviderAccountRequest(
         // ── Braintree ─────────────────────────────────────────────────────────
         String btMerchantId,             // Braintree merchant ID (used client-side for client token requests)
         String btPublicKey,              // Braintree public key (server-side API auth)
-        String btPrivateKey              // Braintree private key (server-side API auth, encrypted at rest)
+        String btPrivateKey,             // Braintree private key (server-side API auth, encrypted at rest)
+
+        // ── Mollie ────────────────────────────────────────────────────────────
+        String mollieApiKey              // test_xxx or live_xxx — server-side only, encrypted at rest
 ) {}
