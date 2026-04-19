@@ -165,8 +165,8 @@ The preview feature (`/connectors/[accountId]/preview`) works automatically for 
 - [x] Stripe
 - [x] Square
 - [x] Braintree
-- [ ] Mollie
-- [ ] Razorpay
+- [x] Mollie
+- [ ] Razorpay (skipped — sandbox requires full KYC onboarding with no bypass)
 
 ## New Features with New Tables
 
