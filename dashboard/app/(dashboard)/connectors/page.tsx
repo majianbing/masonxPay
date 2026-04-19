@@ -136,43 +136,42 @@ function ProviderPickerCard({
       type="button"
       onClick={onClick}
       className={[
-        'relative w-full text-left rounded-xl border-2 p-4 transition-all duration-150',
-        'hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500',
+        'relative w-full text-left rounded-xl border-2 px-5 py-4 transition-all duration-150',
+        'hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500',
+        'flex items-center gap-5',
         selected
           ? 'border-indigo-500 bg-indigo-50/60 shadow-sm'
           : 'border-gray-200 bg-white hover:border-gray-300',
       ].join(' ')}
     >
-      {/* Popular badge */}
-      {meta.popular && (
-        <span className="absolute top-3 right-3 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 uppercase tracking-wide">
-          Popular
-        </span>
-      )}
-
-      {/* Selected checkmark */}
-      {selected && (
-        <span className="absolute top-3 right-3">
-          <CheckCircle2 className="size-4 text-indigo-600" />
-        </span>
-      )}
-
       {/* Logo */}
-      <div className="mb-3 size-10 flex items-center justify-center rounded-lg bg-white shadow-sm border border-gray-100">
-        <div className="size-6 [&>svg]:!size-6">{brand?.icon}</div>
+      <div className="size-12 flex-shrink-0 flex items-center justify-center rounded-xl bg-white shadow-sm border border-gray-100">
+        <div className="size-7 [&>svg]:!size-7">{brand?.icon}</div>
       </div>
 
-      {/* Name + tagline */}
-      <p className="font-semibold text-sm text-gray-900 leading-tight">{meta.label}</p>
-      <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{meta.tagline}</p>
+      {/* Name + tagline + method tags */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="font-semibold text-sm text-gray-900">{meta.label}</p>
+          {meta.popular && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 uppercase tracking-wide">
+              Popular
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{meta.tagline}</p>
+        <div className="flex flex-wrap gap-1 mt-2">
+          {meta.methods.map((m) => (
+            <span key={m} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+              {m}
+            </span>
+          ))}
+        </div>
+      </div>
 
-      {/* Payment method tags */}
-      <div className="flex flex-wrap gap-1 mt-3">
-        {meta.methods.map((m) => (
-          <span key={m} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
-            {m}
-          </span>
-        ))}
+      {/* Selected indicator */}
+      <div className="flex-shrink-0 size-5">
+        {selected && <CheckCircle2 className="size-5 text-indigo-600" />}
       </div>
     </button>
   );
@@ -468,7 +467,7 @@ export default function ConnectorsPage() {
 
         {/* ── Step 1: Provider picker ── */}
         {dialogStep === 'select' && (
-          <DialogContent className="max-w-xl">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-lg">
                 Choose a payment provider
@@ -481,7 +480,7 @@ export default function ConnectorsPage() {
               </p>
             </DialogHeader>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 py-2">
+            <div className="flex flex-col gap-3 py-2">
               {PROVIDERS.map((p) => (
                 <ProviderPickerCard
                   key={p}
