@@ -36,3 +36,4 @@ target/
 ./src/
 /src/
 /bench/results/
+.DS_Store
