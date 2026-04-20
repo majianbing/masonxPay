@@ -48,6 +48,18 @@ public class ProviderAccount {
     @Column(name = "is_primary", nullable = false)
     private boolean primary = false;
 
+    /**
+     * Phase 3.5: fee configuration for cost-aware routing.
+     * fixedFeeCents — flat per-transaction fee in smallest currency unit (e.g. 30 = $0.30)
+     * rateBps       — percentage rate in basis points (e.g. 290 = 2.90%)
+     * Both default to 0 → no cost filter applied.
+     */
+    @Column(name = "fixed_fee_cents", nullable = false)
+    private int fixedFeeCents = 0;
+
+    @Column(name = "rate_bps", nullable = false)
+    private int rateBps = 0;
+
     /** Weight for weighted-random account selection (1–100). Higher = more traffic. */
     @Column(nullable = false)
     private int weight = 1;
@@ -88,6 +100,10 @@ public class ProviderAccount {
     public void setPrimary(boolean primary) { this.primary = primary; }
     public int getWeight() { return weight; }
     public void setWeight(int weight) { this.weight = weight; }
+    public int getFixedFeeCents() { return fixedFeeCents; }
+    public void setFixedFeeCents(int fixedFeeCents) { this.fixedFeeCents = fixedFeeCents; }
+    public int getRateBps() { return rateBps; }
+    public void setRateBps(int rateBps) { this.rateBps = rateBps; }
     public ApiKeyMode getMode() { return mode; }
     public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public ProviderAccountStatus getStatus() { return status; }

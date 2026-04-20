@@ -15,5 +15,6 @@ public record CreateRoutingRuleRequest(
         List<String> countryCodes,
         List<String> paymentMethodTypes,
         @NotNull UUID targetAccountId,
-        UUID fallbackAccountId
+        UUID fallbackAccountId,
+        Integer maxCostBps          // Phase 3.5: optional cost ceiling in bps of tx amount; null = no limit
 ) {}

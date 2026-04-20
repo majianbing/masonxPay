@@ -16,6 +16,8 @@ public record ProviderAccountResponse(
         boolean primary,
         int weight,
         String status,
+        int fixedFeeCents,        // Phase 3.5: flat per-transaction fee in smallest currency unit
+        int rateBps,              // Phase 3.5: percentage rate in basis points
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -32,6 +34,8 @@ public record ProviderAccountResponse(
                 a.isPrimary(),
                 a.getWeight(),
                 a.getStatus().name(),
+                a.getFixedFeeCents(),
+                a.getRateBps(),
                 a.getCreatedAt(),
                 a.getUpdatedAt()
         );

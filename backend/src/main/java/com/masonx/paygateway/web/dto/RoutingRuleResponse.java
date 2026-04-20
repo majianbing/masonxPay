@@ -24,6 +24,7 @@ public record RoutingRuleResponse(
         UUID fallbackAccountId,
         String fallbackProvider,
         String fallbackAccountLabel,
+        Integer maxCostBps,           // Phase 3.5: cost ceiling in bps; null = no limit
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -45,6 +46,7 @@ public record RoutingRuleResponse(
                 fallback != null ? fallback.getId() : rule.getFallbackAccountId(),
                 fallback != null ? fallback.getProvider().name() : null,
                 fallback != null ? fallback.getLabel() : null,
+                rule.getMaxCostBps(),
                 rule.getCreatedAt(),
                 rule.getUpdatedAt()
         );

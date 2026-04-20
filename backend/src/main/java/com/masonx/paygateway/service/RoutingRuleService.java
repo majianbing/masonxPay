@@ -42,7 +42,7 @@ public class RoutingRuleService {
         rule.setMerchantId(merchantId);
         applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(),
                 req.amountMin(), req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
-                req.targetAccountId(), req.fallbackAccountId());
+                req.targetAccountId(), req.fallbackAccountId(), req.maxCostBps());
         return RoutingRuleResponse.from(routingRuleRepository.save(rule), target, fallback);
     }
 
@@ -60,7 +60,7 @@ public class RoutingRuleService {
 
         applyRequest(rule, req.priority(), req.enabled(), req.weight(), req.currencies(),
                 req.amountMin(), req.amountMax(), req.countryCodes(), req.paymentMethodTypes(),
-                req.targetAccountId(), req.fallbackAccountId());
+                req.targetAccountId(), req.fallbackAccountId(), req.maxCostBps());
         return RoutingRuleResponse.from(routingRuleRepository.save(rule), target, fallback);
     }
 
@@ -93,7 +93,7 @@ public class RoutingRuleService {
     private void applyRequest(RoutingRule rule, int priority, boolean enabled, int weight,
                                List<String> currencies, Long amountMin, Long amountMax,
                                List<String> countryCodes, List<String> paymentMethodTypes,
-                               UUID targetAccountId, UUID fallbackAccountId) {
+                               UUID targetAccountId, UUID fallbackAccountId, Integer maxCostBps) {
         rule.setPriority(priority);
         rule.setEnabled(enabled);
         rule.setWeight(weight > 0 ? weight : 1);
@@ -104,5 +104,6 @@ public class RoutingRuleService {
         rule.setPaymentMethodTypeList(paymentMethodTypes);
         rule.setTargetAccountId(targetAccountId);
         rule.setFallbackAccountId(fallbackAccountId);
+        rule.setMaxCostBps(maxCostBps); // null = no ceiling (Phase 3.5)
     }
 }

@@ -47,6 +47,14 @@ public class RoutingRule {
     @Column(name = "fallback_account_id")
     private UUID fallbackAccountId;
 
+    /**
+     * Phase 3.5: optional cost ceiling in basis points of transaction amount.
+     * Any connector whose effectiveCost > (amount * maxCostBps / 10000) is excluded.
+     * NULL = no ceiling (default, preserves existing routing behaviour).
+     */
+    @Column(name = "max_cost_bps")
+    private Integer maxCostBps;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -128,6 +136,8 @@ public class RoutingRule {
 
     public int getWeight() { return weight; }
     public void setWeight(int weight) { this.weight = weight; }
+    public Integer getMaxCostBps() { return maxCostBps; }
+    public void setMaxCostBps(Integer maxCostBps) { this.maxCostBps = maxCostBps; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -48,6 +48,7 @@ interface RoutingRule {
   paymentMethodTypes: string[];
   amountMin: number | null;
   amountMax: number | null;
+  maxCostBps: number | null;
 }
 
 const schema = z.object({
@@ -59,6 +60,7 @@ const schema = z.object({
   amountMin: z.string().optional(),
   amountMax: z.string().optional(),
   weight: z.string().optional(),
+  maxCostBps: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -124,12 +126,13 @@ export default function RoutingRulesPage() {
           paymentMethodTypes: data.paymentMethodTypes ? data.paymentMethodTypes.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : [],
           amountMin: data.amountMin ? parseInt(data.amountMin) : undefined,
           amountMax: data.amountMax ? parseInt(data.amountMax) : undefined,
+          maxCostBps: data.maxCostBps ? parseInt(data.maxCostBps) : undefined,
         }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['routing-rules', activeMerchantId] });
       setCreateOpen(false);
-      reset({ weight: '1' });
+      reset({ weight: '1', maxCostBps: '' });
       toast.success('Rule created');
     },
     onError: (err: unknown) => {
@@ -323,6 +326,14 @@ export default function RoutingRulesPage() {
                 <Input type="number" placeholder="999999" {...register('amountMax')} />
               </div>
             </div>
+            <div className="space-y-1">
+              <Label>Max Cost Ceiling <span className="text-muted-foreground">(basis points, optional)</span></Label>
+              <Input type="number" min="0" placeholder="e.g. 300 = 3.00%" {...register('maxCostBps')} />
+              <p className="text-xs text-muted-foreground">
+                Connectors whose fee exceeds this % of the transaction are excluded. Leave blank for no limit.
+                Requires fee rates configured on each connector.
+              </p>
+            </div>
             <DialogFooter>
               <Button variant="ghost" type="button" onClick={() => { setCreateOpen(false); reset({ weight: '1' }); }}>Cancel</Button>
               <Button type="submit" disabled={createMutation.isPending}>Create</Button>
@@ -392,6 +403,11 @@ function SortableRuleCard({
               )}
               {rule.amountMax != null && (
                 <span className="text-xs text-muted-foreground">≤ {rule.amountMax / 100}</span>
+              )}
+              {rule.maxCostBps != null && (
+                <span className="text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                  ≤{(rule.maxCostBps / 100).toFixed(2)}% cost
+                </span>
               )}
             </div>
           </div>

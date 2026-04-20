@@ -9,6 +9,8 @@ public record CreateProviderAccountRequest(
         @NotBlank String label,
         boolean primary,
         int weight,                      // 1–100, default 1
+        int fixedFeeCents,               // flat per-transaction fee in smallest currency unit (e.g. 30 = $0.30); default 0
+        int rateBps,                     // percentage rate in basis points (e.g. 290 = 2.90%); default 0
 
         // ── Stripe ────────────────────────────────────────────────────────────
         String secretKey,                // sk_test_xxx / sk_live_xxx

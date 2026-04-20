@@ -34,16 +34,19 @@ public class RoutingEngine {
     private final ProviderAccountRepository providerAccountRepository;
     private final ConnectorCircuitBreaker   circuitBreaker;
     private final ConnectorHealthService    healthService;
+    private final ConnectorFeeService       feeService;
     private final Random                    random = new Random();
 
     public RoutingEngine(RoutingRuleRepository routingRuleRepository,
                          ProviderAccountRepository providerAccountRepository,
                          ConnectorCircuitBreaker circuitBreaker,
-                         ConnectorHealthService healthService) {
+                         ConnectorHealthService healthService,
+                         ConnectorFeeService feeService) {
         this.routingRuleRepository     = routingRuleRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.circuitBreaker            = circuitBreaker;
         this.healthService             = healthService;
+        this.feeService                = feeService;
     }
 
     /**
@@ -87,7 +90,30 @@ public class RoutingEngine {
             log.warn("All matching routing rules have degraded primary connectors — using best available");
         }
 
-        RoutingRule winner = pool.size() == 1 ? pool.get(0) : pickByWeight(pool);
+        // Phase 3.5: apply cost ceiling filter — exclude rules whose target connector
+        // exceeds the rule's max_cost_bps threshold for this transaction amount.
+        // Only applied when (a) the rule has a ceiling set AND (b) the account has fee config.
+        // Falls back to unconstrained pool if every rule is over-budget.
+        List<RoutingRule> withinBudget = pool.stream()
+                .filter(r -> {
+                    if (r.getMaxCostBps() == null) return true; // no ceiling configured
+                    ProviderAccount acct = providerAccountRepository.findById(r.getTargetAccountId()).orElse(null);
+                    if (acct == null) return true;
+                    boolean within = !feeService.exceedsCeiling(acct, amount, r.getMaxCostBps());
+                    if (!within) {
+                        log.debug("Rule {} excluded: cost {} exceeds ceiling {}bps on amount {}",
+                                r.getId(), ConnectorFeeService.describe(acct), r.getMaxCostBps(), amount);
+                    }
+                    return within;
+                })
+                .toList();
+
+        if (withinBudget.isEmpty()) {
+            log.warn("All matching rules exceed cost ceiling for amount={} — routing without cost constraint", amount);
+            withinBudget = pool;
+        }
+
+        RoutingRule winner = withinBudget.size() == 1 ? withinBudget.get(0) : pickByWeight(withinBudget);
 
         ProviderAccount primary = providerAccountRepository.findById(winner.getTargetAccountId())
                 .orElse(null);

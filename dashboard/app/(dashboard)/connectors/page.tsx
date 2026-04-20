@@ -109,6 +109,9 @@ const createSchema = z.object({
   btPrivateKey: z.string().optional(),
   // Mollie
   mollieApiKey: z.string().optional(),
+  // Phase 3.5: fee configuration
+  fixedFeeCents: z.coerce.number().int().min(0).default(0),
+  rateBps: z.coerce.number().int().min(0).default(0),
 }).superRefine((data, ctx) => {
   if (data.provider === 'STRIPE' && !data.secretKey) {
     ctx.addIssue({ code: 'custom', path: ['secretKey'], message: 'Secret key required' });
@@ -634,6 +637,23 @@ export default function ConnectorsPage() {
                   </p>
                 </div>
               )}
+
+              {/* ── Fee configuration (Phase 3.5) ── */}
+              <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-3 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Fee Configuration <span className="normal-case font-normal">(optional — used for cost-aware routing)</span></p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Fixed Fee <span className="text-muted-foreground">(cents)</span></Label>
+                    <Input type="number" min={0} placeholder="30" {...register('fixedFeeCents')} />
+                    <p className="text-xs text-muted-foreground">e.g. 30 = $0.30 per transaction</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Rate <span className="text-muted-foreground">(basis points)</span></Label>
+                    <Input type="number" min={0} placeholder="290" {...register('rateBps')} />
+                    <p className="text-xs text-muted-foreground">e.g. 290 = 2.90%</p>
+                  </div>
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

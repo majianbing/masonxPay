@@ -52,6 +52,8 @@ public class ProviderAccountService {
         account.setLabel(req.label());
         account.setPrimary(req.primary());
         account.setWeight(req.weight() > 0 ? req.weight() : 1);
+        account.setFixedFeeCents(Math.max(0, req.fixedFeeCents()));
+        account.setRateBps(Math.max(0, req.rateBps()));
 
         ProviderCredentials creds = codec.fromRequest(provider, req, mode);
         codec.encode(creds, account);
@@ -70,6 +72,12 @@ public class ProviderAccountService {
         }
         if (req.weight() != null && req.weight() > 0) {
             account.setWeight(req.weight());
+        }
+        if (req.fixedFeeCents() != null && req.fixedFeeCents() >= 0) {
+            account.setFixedFeeCents(req.fixedFeeCents());
+        }
+        if (req.rateBps() != null && req.rateBps() >= 0) {
+            account.setRateBps(req.rateBps());
         }
 
         return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
