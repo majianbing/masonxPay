@@ -35,8 +35,9 @@ class RoutingEngineTest {
 
     @BeforeEach
     void setUp() {
+        ConnectorFeeService feeService = new ConnectorFeeService();
         engine = new RoutingEngine(routingRuleRepository, providerAccountRepository,
-                circuitBreaker, healthService);
+                circuitBreaker, healthService, feeService);
         // Default: all circuits closed, all connectors healthy — safe baseline for existing tests
         lenient().when(circuitBreaker.isOpen(any())).thenReturn(false);
         lenient().when(healthService.getSuccessRate(any())).thenReturn(1.0);
