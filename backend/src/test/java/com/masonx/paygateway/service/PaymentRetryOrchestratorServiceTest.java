@@ -65,7 +65,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_retryableFailure_retriesSameAccountBeforeFallbackAndReusesProviderIdempotencyKey() {
+    void execute_allowFallback_retryableFailure_retriesSameAccountBeforeFallbackAndReusesProviderIdempotencyKey() {
         ProviderAccount stripe = account(PaymentProvider.STRIPE);
         ProviderAccount square = account(PaymentProvider.SQUARE);
         PaymentIntent intent = intent();
@@ -135,7 +135,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_nonRetryableFailure_stopsAfterFirstAttempt() {
+    void execute_allowFallback_nonRetryableFailure_stopsAfterFirstAttempt() {
         ProviderAccount stripe = account(PaymentProvider.STRIPE);
         ProviderAccount square = account(PaymentProvider.SQUARE);
 
@@ -157,7 +157,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_retryableFailures_respectsConfiguredAttemptLimit() {
+    void execute_allowFallback_retryableFailures_respectsConfiguredAttemptLimit() {
         ProviderAccount a = account(PaymentProvider.STRIPE);
         ProviderAccount b = account(PaymentProvider.SQUARE);
         ProviderAccount c = account(PaymentProvider.BRAINTREE);
@@ -180,7 +180,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_configuredLimitAboveHardCap_neverExceedsFiveAttempts() {
+    void execute_allowFallback_configuredLimitAboveHardCap_neverExceedsFiveAttempts() {
         orchestrator = new PaymentRetryOrchestratorService(
                 paymentRequestRepository, dispatcher, providerAccountService,
                 failoverPolicy, circuitBreaker, metrics, new NoopTransactionManager(), 10, 2);
@@ -207,7 +207,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_credentialFailure_recordsFailedAttemptAndStopsAsNonRetryable() {
+    void execute_allowFallback_credentialFailure_recordsFailedAttemptAndStopsAsNonRetryable() {
         ProviderAccount stripe = account(PaymentProvider.STRIPE);
 
         when(providerAccountService.loadCredentials(stripe.getId()))
@@ -226,7 +226,7 @@ class PaymentRetryOrchestratorServiceTest {
     }
 
     @Test
-    void execute_providerException_canRetryFallback() {
+    void execute_allowFallback_providerException_canUseFallback() {
         orchestrator = new PaymentRetryOrchestratorService(
                 paymentRequestRepository, dispatcher, providerAccountService,
                 failoverPolicy, circuitBreaker, metrics, new NoopTransactionManager(), 3, 1);

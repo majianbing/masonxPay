@@ -5,12 +5,15 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
-import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
-import com.masonx.paygateway.metrics.PaymentMetrics;
-import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
+import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.metrics.PaymentMetrics;
+import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +80,14 @@ class PaymentIntentServiceTest {
         pi.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
         pi.setCaptureMethod(CaptureMethod.AUTOMATIC);
         return pi;
+    }
+
+    private ProviderAccount account(PaymentProvider provider) {
+        ProviderAccount account = new ProviderAccount();
+        ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+        account.setMerchantId(merchantId);
+        account.setProvider(provider);
+        return account;
     }
 
     // ── create ────────────────────────────────────────────────────────────────
@@ -158,6 +169,42 @@ class PaymentIntentServiceTest {
         assertThatThrownBy(() -> service.get(auth(ApiKeyType.SECRET), intentId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not found");
+    }
+
+    // ── confirm ───────────────────────────────────────────────────────────────
+
+    @Test
+    void confirm_routedFallbackCandidate_usesSameAccountOnlyRetryContext() {
+        UUID intentId = UUID.randomUUID();
+        PaymentIntent pi = savedIntent(intentId);
+        ProviderAccount primary = account(PaymentProvider.STRIPE);
+        ProviderAccount fallback = account(PaymentProvider.SQUARE);
+
+        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+                .thenReturn(Optional.of(pi));
+        when(routingEngine.resolve(merchantId, pi.getAmount(), pi.getCurrency(), null, "card"))
+                .thenReturn(Optional.of(new RoutingEngine.RoutingResult(primary, fallback)));
+        when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(retryOrchestrator.execute(eq(pi), eq("pm_123"), eq("card"), any(RoutePlan.class),
+                eq(PaymentRetryContext.sameAccountOnly())))
+                .thenReturn(new PaymentRetryOrchestratorService.Result(
+                        new ChargeResult(true, "pi_provider_123", "{}", null, null,
+                                false, false, null, null, null),
+                        new RouteCandidate(primary), 1));
+        when(paymentIntentRepository.findById(intentId)).thenReturn(Optional.of(pi));
+        when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
+
+        service.confirm(auth(ApiKeyType.SECRET), intentId,
+                new ConfirmPaymentIntentRequest("pm_123", "card", null, null));
+
+        org.mockito.ArgumentCaptor<RoutePlan> routePlanCaptor =
+                org.mockito.ArgumentCaptor.forClass(RoutePlan.class);
+        verify(retryOrchestrator).execute(eq(pi), eq("pm_123"), eq("card"), routePlanCaptor.capture(),
+                eq(PaymentRetryContext.sameAccountOnly()));
+        assertThat(routePlanCaptor.getValue().candidates())
+                .extracting(RouteCandidate::accountId)
+                .containsExactly(primary.getId(), fallback.getId());
     }
 
     // ── cancel ────────────────────────────────────────────────────────────────
