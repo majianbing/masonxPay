@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CornerDownRight, RotateCcw } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/button';
@@ -32,13 +32,30 @@ const METHOD_LABELS: Record<string, string> = {
 
 interface PaymentAttempt {
   id: string;
+  attemptNumber: number;
+  attemptType: string | null;
+  connectorAccountId: string | null;
   status: string;
   paymentMethodType: string;
-  providerRequestId: string;
-  failureCode: string;
-  failureMessage: string;
+  providerRequestId: string | null;
+  failureCode: string | null;
+  failureMessage: string | null;
   createdAt: string;
 }
+
+const ATTEMPT_LABELS: Record<string, string> = {
+  PRIMARY: 'Primary',
+  SAME_ACCOUNT_RETRY: 'Same account retry',
+  FALLBACK: 'Fallback',
+  FALLBACK_RETRY: 'Fallback retry',
+};
+
+const ATTEMPT_STYLES: Record<string, string> = {
+  PRIMARY: 'bg-slate-100 text-slate-700',
+  SAME_ACCOUNT_RETRY: 'bg-amber-50 text-amber-700',
+  FALLBACK: 'bg-blue-50 text-blue-700',
+  FALLBACK_RETRY: 'bg-violet-50 text-violet-700',
+};
 
 interface Address {
   line1: string | null;
@@ -207,24 +224,58 @@ export default function PaymentDetailPage() {
 
       {payment.attempts?.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="text-sm font-medium">Charge Attempts</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Charge Attempts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
             {payment.attempts.map((a, i) => (
-              <div key={a.id} className="border rounded-md p-3 text-sm space-y-1">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">Attempt #{i + 1}</span>
-                  <div className="flex items-center gap-2">
-                    {a.paymentMethodType && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
-                        {METHOD_LABELS[a.paymentMethodType.toLowerCase()] ?? a.paymentMethodType}
-                      </span>
-                    )}
+              <div key={a.id} className="relative pl-7">
+                {i < payment.attempts.length - 1 && (
+                  <div className="absolute left-3 top-7 bottom-0 w-px bg-border" />
+                )}
+                <AttemptIcon attemptType={a.attemptType} />
+                <div className="border rounded-md p-3 text-sm space-y-2">
+                  <div className="flex justify-between gap-3 items-start">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">Attempt #{a.attemptNumber ?? i + 1}</span>
+                        {a.attemptType && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ATTEMPT_STYLES[a.attemptType] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {ATTEMPT_LABELS[a.attemptType] ?? a.attemptType.replace(/_/g, ' ')}
+                          </span>
+                        )}
+                        {a.paymentMethodType && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                            {METHOD_LABELS[a.paymentMethodType.toLowerCase()] ?? a.paymentMethodType}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-muted-foreground text-xs mt-1">
+                        {format(new Date(a.createdAt), 'MMM d, yyyy HH:mm:ss')}
+                      </div>
+                    </div>
                     <StatusBadge status={a.status} />
                   </div>
+                  <div className="grid gap-1 text-xs">
+                    {a.connectorAccountId && (
+                      <div>
+                        <span className="text-muted-foreground">Connector Account </span>
+                        <span className="font-mono">{a.connectorAccountId}</span>
+                      </div>
+                    )}
+                    {a.providerRequestId && (
+                      <div>
+                        <span className="text-muted-foreground">Provider Request </span>
+                        <span className="font-mono">{a.providerRequestId}</span>
+                      </div>
+                    )}
+                    {a.failureCode && (
+                      <div className="text-red-600">
+                        {a.failureCode}{a.failureMessage ? `: ${a.failureMessage}` : ''}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-muted-foreground text-xs">{format(new Date(a.createdAt), 'MMM d, yyyy HH:mm:ss')}</div>
-                {a.providerRequestId && <div className="font-mono text-xs">{a.providerRequestId}</div>}
-                {a.failureCode && <div className="text-red-600 text-xs">{a.failureCode}: {a.failureMessage}</div>}
               </div>
             ))}
           </CardContent>
@@ -284,6 +335,18 @@ export default function PaymentDetailPage() {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+function AttemptIcon({ attemptType }: { attemptType: string | null }) {
+  const isRetry = attemptType === 'SAME_ACCOUNT_RETRY' || attemptType === 'FALLBACK_RETRY';
+  const isFallback = attemptType === 'FALLBACK' || attemptType === 'FALLBACK_RETRY';
+  const Icon = isRetry ? RotateCcw : isFallback ? CornerDownRight : null;
+
+  return (
+    <div className="absolute left-0 top-3 flex size-6 items-center justify-center rounded-full border bg-background">
+      {Icon ? <Icon className="size-3.5 text-muted-foreground" /> : <span className="size-2 rounded-full bg-muted-foreground" />}
     </div>
   );
 }

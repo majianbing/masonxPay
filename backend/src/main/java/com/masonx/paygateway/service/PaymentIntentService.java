@@ -10,10 +10,9 @@ import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.web.TraceIdFilter;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
-import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
-import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
+import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
@@ -29,16 +28,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 @Service
 public class PaymentIntentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentIntentService.class);
-    private static final int MAX_FAILOVER_ATTEMPTS = 3;
 
     @Value("${app.pay-base-url:http://localhost:3000}")
     private String payBaseUrl;
@@ -50,8 +48,7 @@ public class PaymentIntentService {
     private final ProviderAccountService     providerAccountService;
     private final ProviderAccountRepository  providerAccountRepository;
     private final PaymentTokenService        paymentTokenService;
-    private final FailoverPolicy             failoverPolicy;
-    private final ConnectorCircuitBreaker    circuitBreaker;
+    private final PaymentRetryOrchestratorService retryOrchestrator;
     private final ObjectMapper               objectMapper;
     private final OutboxEventRepository      outboxEventRepository;
     private final TransactionTemplate        txTemplate;
@@ -64,8 +61,7 @@ public class PaymentIntentService {
                                 ProviderAccountService providerAccountService,
                                 ProviderAccountRepository providerAccountRepository,
                                 PaymentTokenService paymentTokenService,
-                                FailoverPolicy failoverPolicy,
-                                ConnectorCircuitBreaker circuitBreaker,
+                                PaymentRetryOrchestratorService retryOrchestrator,
                                 ObjectMapper objectMapper,
                                 OutboxEventRepository outboxEventRepository,
                                 PlatformTransactionManager txManager,
@@ -77,8 +73,7 @@ public class PaymentIntentService {
         this.providerAccountService   = providerAccountService;
         this.providerAccountRepository = providerAccountRepository;
         this.paymentTokenService      = paymentTokenService;
-        this.failoverPolicy           = failoverPolicy;
-        this.circuitBreaker           = circuitBreaker;
+        this.retryOrchestrator        = retryOrchestrator;
         this.objectMapper             = objectMapper;
         this.outboxEventRepository    = outboxEventRepository;
         this.txTemplate               = new TransactionTemplate(txManager);
@@ -132,8 +127,8 @@ public class PaymentIntentService {
      * Instead, each DB write phase is wrapped in its own short TransactionTemplate block.
      *
      * TX flow:
-     *   1. TX-setup   — validate intent, resolve routing, set PROCESSING, save intent
-     *   2. per attempt — TX-create-attempt → remote call → TX-update-attempt (repeated up to MAX_FAILOVER_ATTEMPTS)
+     *   1. TX-setup   — validate intent, build RoutePlan, set PROCESSING, save intent
+     *   2. orchestrator — bounded retry execution, with each attempt recorded in short TX blocks
      *   3. TX-finalize — re-read intent, set final status, write OutboxEvent, save
      */
     public PaymentIntentResponse confirm(ApiKeyAuthentication auth, UUID intentId,
@@ -141,8 +136,7 @@ public class PaymentIntentService {
         requireSecretKey(auth);
 
         // --- TX 1: validate, resolve routing, mark PROCESSING ---
-        record Setup(PaymentIntent intent, PaymentProvider provider,
-                     List<ProviderAccount> accountQueue, String rawPmId, String pmType) {}
+        record Setup(PaymentIntent intent, RoutePlan routePlan, String rawPmId, String pmType) {}
 
         Setup setup = txTemplate.execute(ts -> {
             PaymentIntent intent = loadOwned(auth, intentId);
@@ -153,19 +147,23 @@ public class PaymentIntentService {
                         "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
             }
 
-            final PaymentProvider provider;
             final ProviderAccount firstAccount;
             final String rawPmId;
+            final RoutePlan routePlan;
 
             if (req.paymentMethodId().startsWith("gw_tok_")) {
                 PaymentToken token = paymentTokenService.consume(req.paymentMethodId());
                 if (!token.getMerchantId().equals(auth.getMerchantId())) {
                     throw new AccessDeniedException("Payment token does not belong to this merchant");
                 }
-                provider = PaymentProvider.valueOf(token.getProvider());
                 firstAccount = providerAccountRepository.findById(token.getAccountId())
                         .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+                PaymentProvider tokenProvider = PaymentProvider.valueOf(token.getProvider());
+                if (firstAccount.getProvider() != tokenProvider) {
+                    throw new IllegalStateException("Payment token provider does not match connector account");
+                }
                 rawPmId = token.getProviderPmId();
+                routePlan = RoutePlan.single(firstAccount);
             } else {
                 String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
                 RoutingEngine.RoutingResult routing = routingEngine
@@ -174,102 +172,28 @@ public class PaymentIntentService {
                                 .map(a -> new RoutingEngine.RoutingResult(a, null)))
                         .orElseThrow(() -> new IllegalStateException("No active payment connector configured"));
                 firstAccount = routing.primary();
-                provider = firstAccount.getProvider();
                 rawPmId = req.paymentMethodId();
-            }
-
-            // Build ordered candidate queue for the retry loop
-            final List<ProviderAccount> accountQueue;
-            if (req.paymentMethodId().startsWith("gw_tok_")) {
-                accountQueue = List.of(firstAccount);
-            } else {
-                RoutingEngine.RoutingResult routing = routingEngine
-                        .resolve(auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null,
-                                req.paymentMethodType() != null ? req.paymentMethodType() : "card")
-                        .or(() -> routingEngine.resolveAnyAccount(auth.getMerchantId(), auth.getMode())
-                                .map(a -> new RoutingEngine.RoutingResult(a, null)))
-                        .orElse(new RoutingEngine.RoutingResult(firstAccount, null));
-                accountQueue = routing.hasFallback()
-                        ? List.of(routing.primary(), routing.fallback())
-                        : List.of(routing.primary());
+                routePlan = RoutePlan.from(routing);
             }
 
             intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
             if (req.billingDetails() != null) intent.setBillingDetails(req.billingDetails());
             if (req.shippingDetails() != null) intent.setShippingDetails(req.shippingDetails());
             intent.setStatus(PaymentIntentStatus.PROCESSING);
-            intent.setResolvedProvider(provider);
+            intent.setResolvedProvider(firstAccount.getProvider());
             intent.setConnectorAccountId(firstAccount.getId());
             paymentIntentRepository.save(intent);
 
             String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
-            return new Setup(intent, provider, accountQueue, rawPmId, pmType);
+            return new Setup(intent, routePlan, rawPmId, pmType);
         });
 
-        // --- Retry loop: each iteration is remote call + two short transactions ---
-        ChargeResult lastResult = null;
-        ProviderAccount usedAccount = null;
-        int attemptCount = 0;
-
-        for (ProviderAccount candidate : setup.accountQueue()) {
-            if (attemptCount >= MAX_FAILOVER_ATTEMPTS) break;
-            attemptCount++;
-            usedAccount = candidate;
-
-            // TX 2a: persist the attempt record before the remote call
-            final ProviderAccount finalCandidate = candidate;
-            UUID attemptId = txTemplate.execute(ts -> {
-                PaymentRequest attempt = new PaymentRequest();
-                attempt.setPaymentIntentId(setup.intent().getId());
-                attempt.setAmount(setup.intent().getAmount());
-                attempt.setCurrency(setup.intent().getCurrency());
-                attempt.setPaymentMethodType(setup.pmType());
-                attempt.setConnectorAccountId(finalCandidate.getId());
-                return paymentRequestRepository.save(attempt).getId();
-            });
-
-            // Remote call — intentionally outside any transaction
-            if (attemptCount > 1) {
-                metrics.recordFailover(setup.provider().name());
-            }
-            ProviderCredentials creds = providerAccountService.loadCredentials(candidate.getId());
-            long chargeStart = System.currentTimeMillis();
-            ChargeResult result = dispatcher.charge(setup.provider(), new ChargeRequest(
-                    setup.intent().getId(), setup.intent().getAmount(), setup.intent().getCurrency(),
-                    setup.pmType(), setup.rawPmId(),
-                    "pi-" + setup.intent().getId() + "-" + attemptId,
-                    setup.intent().getBillingDetails(),
-                    setup.intent().getShippingDetails(),
-                    setup.intent().getCaptureMethod(),
-                    null   // no 3DS return URL for server-side confirm (not a hosted payment link)
-            ), creds);
-            metrics.recordChargeLatency(setup.provider().name(), System.currentTimeMillis() - chargeStart);
-            lastResult = result;
-
-            // TX 2b: record outcome of this attempt
-            final ChargeResult r = result;
-            txTemplate.executeWithoutResult(ts -> {
-                PaymentRequest attempt = paymentRequestRepository.findById(attemptId).orElseThrow();
-                attempt.setStatus(r.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
-                attempt.setProviderRequestId(r.providerPaymentId());
-                attempt.setProviderResponse(r.providerResponseJson());
-                attempt.setFailureCode(r.failureCode());
-                attempt.setFailureMessage(r.failureMessage());
-                paymentRequestRepository.save(attempt);
-            });
-
-            if (result.success()) {
-                circuitBreaker.recordSuccess(candidate.getId());
-                break;
-            }
-            boolean retryable = failoverPolicy.isRetryable(result.failureCode());
-            circuitBreaker.recordFailure(candidate.getId(), retryable);
-            if (!retryable) break;
-        }
+        PaymentRetryOrchestratorService.Result retryResult = retryOrchestrator.execute(
+                setup.intent(), setup.rawPmId(), setup.pmType(), setup.routePlan(),
+                PaymentRetryContext.sameAccountOnly());
 
         // --- TX 3: finalize intent status + write outbox event atomically ---
-        final ChargeResult finalResult = lastResult;
-        final UUID usedAccountId = usedAccount != null ? usedAccount.getId() : null;
+        final ChargeResult finalResult = retryResult.lastResult();
 
         // Capture trace ID from MDC before entering the TX (MDC is thread-local)
         final String traceId = MDC.get(TraceIdFilter.MDC_KEY);
@@ -284,12 +208,17 @@ public class PaymentIntentService {
                 intent.setStatus(manualCapture
                         ? PaymentIntentStatus.REQUIRES_CAPTURE
                         : PaymentIntentStatus.SUCCEEDED);
-                intent.setConnectorAccountId(usedAccountId);
+                intent.setResolvedProvider(retryResult.usedCandidate().provider());
+                intent.setConnectorAccountId(retryResult.accountId());
                 intent.setProviderPaymentId(finalResult.providerPaymentId());
                 intent.setProviderResponse(finalResult.providerResponseJson());
                 eventType = manualCapture ? "payment_intent.requires_capture" : "payment_intent.succeeded";
             } else {
                 intent.setStatus(PaymentIntentStatus.FAILED);
+                if (retryResult.usedCandidate() != null) {
+                    intent.setResolvedProvider(retryResult.usedCandidate().provider());
+                    intent.setConnectorAccountId(retryResult.accountId());
+                }
                 eventType = "payment_intent.failed";
             }
 
@@ -307,7 +236,7 @@ public class PaymentIntentService {
             // Record metric outside the critical path (cheap — just increment a counter)
             String failureCode = (finalResult != null) ? finalResult.failureCode() : null;
             metrics.recordIntentConfirmed(
-                    setup.provider().name(),
+                    retryResult.providerName(),
                     saved.getStatus().name(),
                     failureCode);
 

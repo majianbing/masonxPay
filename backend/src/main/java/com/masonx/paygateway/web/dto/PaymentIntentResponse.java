@@ -37,8 +37,12 @@ public record PaymentIntentResponse(
 ) {
     public record PaymentAttemptSummary(
             UUID id,
+            int attemptNumber,
+            String attemptType,
+            UUID connectorAccountId,
             String paymentMethodType,
             String status,
+            String providerRequestId,
             String failureCode,
             String failureMessage,
             Instant createdAt
@@ -73,7 +77,10 @@ public record PaymentIntentResponse(
                 intent.getCreatedAt(),
                 intent.getUpdatedAt(),
                 attempts.stream().map(a -> new PaymentAttemptSummary(
-                        a.getId(), a.getPaymentMethodType(), a.getStatus().name(),
+                        a.getId(), a.getAttemptNumber(),
+                        a.getAttemptType() != null ? a.getAttemptType().name() : null,
+                        a.getConnectorAccountId(), a.getPaymentMethodType(), a.getStatus().name(),
+                        a.getProviderRequestId(),
                         a.getFailureCode(), a.getFailureMessage(), a.getCreatedAt()
                 )).toList()
         );

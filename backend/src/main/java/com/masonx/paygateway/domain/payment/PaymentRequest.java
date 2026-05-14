@@ -43,6 +43,16 @@ public class PaymentRequest {
     @Column(name = "connector_account_id")
     private UUID connectorAccountId;
 
+    @Column(name = "attempt_number", nullable = false)
+    private int attemptNumber = 1;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "attempt_type", nullable = false, length = 30)
+    private PaymentAttemptType attemptType = PaymentAttemptType.PRIMARY;
+
+    @Column(name = "provider_idempotency_key", length = 255)
+    private String providerIdempotencyKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -83,6 +93,15 @@ public class PaymentRequest {
 
     public UUID getConnectorAccountId() { return connectorAccountId; }
     public void setConnectorAccountId(UUID connectorAccountId) { this.connectorAccountId = connectorAccountId; }
+
+    public int getAttemptNumber() { return attemptNumber; }
+    public void setAttemptNumber(int attemptNumber) { this.attemptNumber = attemptNumber; }
+
+    public PaymentAttemptType getAttemptType() { return attemptType; }
+    public void setAttemptType(PaymentAttemptType attemptType) { this.attemptType = attemptType; }
+
+    public String getProviderIdempotencyKey() { return providerIdempotencyKey; }
+    public void setProviderIdempotencyKey(String providerIdempotencyKey) { this.providerIdempotencyKey = providerIdempotencyKey; }
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

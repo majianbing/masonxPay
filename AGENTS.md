@@ -44,3 +44,60 @@ Provider webhooks are unauthenticated, so signature verification is mandatory. R
 Webhook delivery uses Postgres plus transactional outbox; keep event writes atomic with payment state. Preserve `X-Request-Id` tracing and `/actuator/prometheus` metrics.
 
 Do not add `@Transactional` to methods with remote provider calls. Use short DB transactions around state changes.
+
+## Code Quality Policy
+
+### General
+- Prefer small, focused changes over large rewrites.
+- Keep existing architecture unless there is a clear reason to change it.
+- Do not introduce new dependencies without explaining why.
+- Avoid clever code; prefer readable, maintainable code.
+- Preserve backward compatibility unless explicitly requested.
+
+### Security
+- Never log secrets, tokens, PAN/card data, CVV, private keys, or payment payloads.
+- Validate all external input.
+- For iframe/postMessage code, always verify `origin`.
+- Do not weaken CSP, CORS, authentication, MFA, or payment security rules.
+- For payment SDK changes, explain PCI/security impact before editing.
+
+### Backend Java / Spring Boot
+- Use clear service boundaries: controller → service → repository/client.
+- Keep business logic out of controllers.
+- Prefer constructor injection.
+- Use DTOs for external API boundaries.
+- Add meaningful exception handling, not broad `catch (Exception)`.
+- Avoid hidden side effects in utility methods.
+- Add or update unit tests for business logic changes.
+
+### Frontend
+- Keep components small and reusable.
+- Avoid duplicating state between parent and child components.
+- Validate user input before submit.
+- For payment buttons, avoid async delay between user click and browser/payment popup.
+- For iframes, avoid exposing sensitive data to parent windows.
+
+### Database
+- Avoid destructive schema changes without explicit confirmation.
+- For migrations, provide rollback considerations.
+- Index new query patterns when needed.
+- Avoid N+1 queries.
+
+### Testing
+- Run the narrowest relevant test first.
+- If tests cannot run, explain why.
+- For bug fixes, add a regression test when practical.
+- Do not claim tests passed unless they actually ran.
+
+### Review Checklist
+Before final response, Codex must summarize:
+- Files changed
+- Why each change was made
+- Tests run and results
+- Remaining risks or follow-up work
+
+## Codex Behavior
+- Before changing code, inspect the relevant files and summarize the intended plan.
+- Ask before large refactors, dependency changes, database migrations, or security-sensitive changes.
+- After editing, show the diff summary and verify with tests or build commands.
+- If unsure about business behavior, preserve existing behavior and make the smallest safe change.

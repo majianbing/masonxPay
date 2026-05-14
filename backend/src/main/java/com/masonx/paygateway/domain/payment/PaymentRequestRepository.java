@@ -9,7 +9,13 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PaymentRequestRepository extends JpaRepository<PaymentRequest, UUID> {
-    List<PaymentRequest> findByPaymentIntentId(UUID paymentIntentId);
+    @Query("""
+            select pr
+            from PaymentRequest pr
+            where pr.paymentIntentId = :paymentIntentId
+            order by pr.attemptNumber asc, pr.createdAt asc
+            """)
+    List<PaymentRequest> findByPaymentIntentId(@Param("paymentIntentId") UUID paymentIntentId);
 
     /**
      * Computes per-connector-account success rates over a rolling window.
