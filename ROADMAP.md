@@ -96,8 +96,8 @@ See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
 | # | Item | Status | Detail |
 |---|---|---|---|
 | H0 | **Architecture baseline** | ✅ | Record the new scale profile, consistency boundaries, sharding strategy, and staged implementation plan. |
-| H1 | **Logical payment sharding** | [ ] | Add ShardingSphere-JDBC, route by `payment_id` / `order_id`, and keep payment detail/status reads authoritative. |
-| H2 | **State machine and idempotency hardening** | [ ] | Keep money-state correctness in the owning Postgres shard with constraints, short transactions, and race-condition tests. |
+| H1 | **Logical payment sharding** | ✅ | Added ShardingSphere-JDBC, 64 logical shards for `payment_intents` and `payment_requests`, shard registry tables, local/demo backfill, Docker shard config, and shard routing tests. |
+| H2 | **State machine and idempotency hardening** | Next | Keep money-state correctness in the owning Postgres shard with idempotency reservation, short transactions, locking/versioning, and race-condition tests. |
 | H3 | **Kafka outbox publisher** | [ ] | Publish committed outbox events to Kafka while preserving the DB outbox as the recovery source. |
 | H4 | **Async workers** | [ ] | Move webhook delivery, projection indexing, reconciliation, and notifications onto idempotent consumers. |
 | H5 | **Redis hot path** | [ ] | Add Redis-backed rate limiting, idempotency cache, provider health cache, and explicit outage fallback behavior. |
