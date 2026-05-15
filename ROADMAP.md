@@ -87,6 +87,25 @@ What merchants need to run their business, not just process payments.
 
 ---
 
+## Phase H — High-throughput payment core
+
+This is a new scale profile that intentionally evolves beyond the MVP constraints of a single Postgres-backed gateway. The design keeps Postgres shards as the financial source of truth, uses `payment_id` / `order_id` sharding to avoid hot merchants, adds Redis only for hot-path optimization, adds Kafka for async event fan-out, and reserves OpenSearch/Elasticsearch for dashboard/search projections rather than authoritative state checks.
+
+See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| H0 | **Architecture baseline** | ✅ | Record the new scale profile, consistency boundaries, sharding strategy, and staged implementation plan. |
+| H1 | **Logical payment sharding** | [ ] | Add ShardingSphere-JDBC, route by `payment_id` / `order_id`, and keep payment detail/status reads authoritative. |
+| H2 | **State machine and idempotency hardening** | [ ] | Keep money-state correctness in the owning Postgres shard with constraints, short transactions, and race-condition tests. |
+| H3 | **Kafka outbox publisher** | [ ] | Publish committed outbox events to Kafka while preserving the DB outbox as the recovery source. |
+| H4 | **Async workers** | [ ] | Move webhook delivery, projection indexing, reconciliation, and notifications onto idempotent consumers. |
+| H5 | **Redis hot path** | [ ] | Add Redis-backed rate limiting, idempotency cache, provider health cache, and explicit outage fallback behavior. |
+| H6 | **Dashboard search/read projections** | [ ] | Use OpenSearch/Elasticsearch for merchant dashboard search and views, not payment state authority. |
+| H7 | **Benchmarks and failure-mode docs** | [ ] | Add k6 scenarios and dashboards for latency, shard distribution, Kafka lag, Redis hit rate, and async backlog. |
+
+---
+
 ## Dependency graph
 
 ```
@@ -96,5 +115,6 @@ Phase 0 (done)
             │       ├── Phase 3.1/3.2 (smart routing needs success-rate data)
             │       └── Phase 4.1 (analytics needs metrics)
             ├── Phase 3 (orchestration — connector breadth + intelligence)
-            └── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
+            ├── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
+            └── Phase H (high-throughput core — sharding, Redis, Kafka, read projections)
 ```

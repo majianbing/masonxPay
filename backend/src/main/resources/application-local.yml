@@ -81,6 +81,10 @@ app:
     retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)
   pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs
 
+  sharding:
+    payment:
+      shard-count: ${PAYMENT_SHARD_COUNT:64}
+
   # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
   # Rules are loaded at startup from these properties.
   # To migrate to Nacos: add sentinel-datasource-nacos, push these values as

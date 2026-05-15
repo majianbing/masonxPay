@@ -1,0 +1,43 @@
+# Reference config for the Phase H1 ShardingSphere datasource.
+#
+# Runtime wiring is programmatic in DataSourceConfig so Spring can:
+# - run Flyway against the physical Postgres datasource first
+# - expose ShardingSphere as the primary application/JPA datasource afterward
+
+databaseName: masonxpay_payment_core
+
+dataSources:
+  ds_0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: org.postgresql.Driver
+    jdbcUrl: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:paygateway}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+rules:
+  - !SHARDING
+    tables:
+      payment_intents:
+        actualDataNodes: ds_0.payment_intents_00,ds_0.payment_intents_01,ds_0.payment_intents_02,ds_0.payment_intents_03,ds_0.payment_intents_04,ds_0.payment_intents_05,ds_0.payment_intents_06,ds_0.payment_intents_07,ds_0.payment_intents_08,ds_0.payment_intents_09,ds_0.payment_intents_10,ds_0.payment_intents_11,ds_0.payment_intents_12,ds_0.payment_intents_13,ds_0.payment_intents_14,ds_0.payment_intents_15,ds_0.payment_intents_16,ds_0.payment_intents_17,ds_0.payment_intents_18,ds_0.payment_intents_19,ds_0.payment_intents_20,ds_0.payment_intents_21,ds_0.payment_intents_22,ds_0.payment_intents_23,ds_0.payment_intents_24,ds_0.payment_intents_25,ds_0.payment_intents_26,ds_0.payment_intents_27,ds_0.payment_intents_28,ds_0.payment_intents_29,ds_0.payment_intents_30,ds_0.payment_intents_31,ds_0.payment_intents_32,ds_0.payment_intents_33,ds_0.payment_intents_34,ds_0.payment_intents_35,ds_0.payment_intents_36,ds_0.payment_intents_37,ds_0.payment_intents_38,ds_0.payment_intents_39,ds_0.payment_intents_40,ds_0.payment_intents_41,ds_0.payment_intents_42,ds_0.payment_intents_43,ds_0.payment_intents_44,ds_0.payment_intents_45,ds_0.payment_intents_46,ds_0.payment_intents_47,ds_0.payment_intents_48,ds_0.payment_intents_49,ds_0.payment_intents_50,ds_0.payment_intents_51,ds_0.payment_intents_52,ds_0.payment_intents_53,ds_0.payment_intents_54,ds_0.payment_intents_55,ds_0.payment_intents_56,ds_0.payment_intents_57,ds_0.payment_intents_58,ds_0.payment_intents_59,ds_0.payment_intents_60,ds_0.payment_intents_61,ds_0.payment_intents_62,ds_0.payment_intents_63
+        tableStrategy:
+          standard:
+            shardingColumn: id
+            shardingAlgorithmName: payment_intent_inline
+      payment_requests:
+        actualDataNodes: ds_0.payment_requests_00,ds_0.payment_requests_01,ds_0.payment_requests_02,ds_0.payment_requests_03,ds_0.payment_requests_04,ds_0.payment_requests_05,ds_0.payment_requests_06,ds_0.payment_requests_07,ds_0.payment_requests_08,ds_0.payment_requests_09,ds_0.payment_requests_10,ds_0.payment_requests_11,ds_0.payment_requests_12,ds_0.payment_requests_13,ds_0.payment_requests_14,ds_0.payment_requests_15,ds_0.payment_requests_16,ds_0.payment_requests_17,ds_0.payment_requests_18,ds_0.payment_requests_19,ds_0.payment_requests_20,ds_0.payment_requests_21,ds_0.payment_requests_22,ds_0.payment_requests_23,ds_0.payment_requests_24,ds_0.payment_requests_25,ds_0.payment_requests_26,ds_0.payment_requests_27,ds_0.payment_requests_28,ds_0.payment_requests_29,ds_0.payment_requests_30,ds_0.payment_requests_31,ds_0.payment_requests_32,ds_0.payment_requests_33,ds_0.payment_requests_34,ds_0.payment_requests_35,ds_0.payment_requests_36,ds_0.payment_requests_37,ds_0.payment_requests_38,ds_0.payment_requests_39,ds_0.payment_requests_40,ds_0.payment_requests_41,ds_0.payment_requests_42,ds_0.payment_requests_43,ds_0.payment_requests_44,ds_0.payment_requests_45,ds_0.payment_requests_46,ds_0.payment_requests_47,ds_0.payment_requests_48,ds_0.payment_requests_49,ds_0.payment_requests_50,ds_0.payment_requests_51,ds_0.payment_requests_52,ds_0.payment_requests_53,ds_0.payment_requests_54,ds_0.payment_requests_55,ds_0.payment_requests_56,ds_0.payment_requests_57,ds_0.payment_requests_58,ds_0.payment_requests_59,ds_0.payment_requests_60,ds_0.payment_requests_61,ds_0.payment_requests_62,ds_0.payment_requests_63
+        tableStrategy:
+          standard:
+            shardingColumn: payment_intent_id
+            shardingAlgorithmName: payment_request_inline
+    shardingAlgorithms:
+      payment_intent_inline:
+        type: INLINE
+        props:
+          algorithm-expression: payment_intents_${String.format("%02d", Math.floorMod(id.hashCode(), 64))}
+      payment_request_inline:
+        type: INLINE
+        props:
+          algorithm-expression: payment_requests_${String.format("%02d", Math.floorMod(payment_intent_id.hashCode(), 64))}
+
+props:
+  sql-show: false

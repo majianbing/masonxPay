@@ -1,0 +1,427 @@
+# High-Throughput Payment Core Upgrade Plan
+
+This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for interview discussion and staged implementation.
+
+The current system intentionally avoids Redis and Kafka/RabbitMQ for the MVP scale profile. This upgrade intentionally lifts that limitation for a new scale profile where write throughput, async event fan-out, and low-latency coordination justify additional infrastructure.
+
+## Goals
+
+- Keep the synchronous payment path low-latency and predictable.
+- Preserve strong consistency for money-moving state transitions.
+- Scale payment writes without concentrating load on hot merchants.
+- Move dashboard search, analytics, webhook delivery, and operational views off the transactional payment path.
+- Keep Postgres as the financial source of truth.
+- Use Redis, Kafka, and OpenSearch/Elasticsearch only where they have clear ownership.
+- Implement the upgrade in small, reviewable phases.
+
+## Non-Goals
+
+- Do not make Redis authoritative for payment state.
+- Do not use OpenSearch/Elasticsearch for payment state checks.
+- Do not introduce distributed transactions across Postgres, Kafka, Redis, and providers.
+- Do not split into many microservices before the boundaries are proven.
+- Do not weaken tenant isolation, webhook verification, request tracing, or log redaction.
+
+## Target Architecture
+
+```text
+Client / merchant API
+        |
+        v
+Spring Boot payment core
+        |
+        +--> Redis
+        |    - idempotency hot cache
+        |    - merchant/API rate limits
+        |    - provider health/routing cache
+        |    - short-lived checkout/session state
+        |
+        +--> Postgres payment shards
+        |    - authoritative payment state
+        |    - idempotency records
+        |    - ledger entries
+        |    - provider references
+        |    - transactional outbox
+        |
+        +--> Outbox publisher
+             |
+             v
+           Kafka
+             |
+             +--> webhook delivery workers
+             +--> OpenSearch projection workers
+             +--> reconciliation workers
+             +--> dashboard/read model workers
+```
+
+## Data Ownership
+
+| Data | Owner | Consistency |
+|---|---|---|
+| Payment state | Postgres payment shard | Strong |
+| Idempotency decision | Postgres payment shard | Strong |
+| Ledger entries | Postgres payment shard | Strong |
+| Outbox events | Postgres payment shard | Strong with payment state |
+| Provider reference mapping | Postgres payment shard | Strong |
+| Redis idempotency cache | Redis | Best-effort optimization |
+| Rate limit counters | Redis | Eventually consistent enough for throttling |
+| Provider health/routing hints | Redis | Eventually consistent |
+| Merchant dashboard search | OpenSearch/Elasticsearch | Eventually consistent |
+| Merchant analytics/read views | Kafka-fed projection tables/indexes | Eventually consistent |
+
+## Sharding Strategy
+
+The current `payment_intents` and `payment_requests` table family will become a logical shard set. Both grow with payment traffic and both are on the high-volume payment path, so sharding only one would leave the other as a future bottleneck.
+
+Use `payment_id` or merchant-provided `order_id` as the shard key, not `merchant_id`.
+
+Reasoning:
+
+- `merchant_id` sharding is convenient for dashboard queries but creates hot shards for large merchants, flash sales, and retry storms.
+- `payment_id` or `order_id` distributes writes more evenly.
+- Most correctness-critical operations naturally target one payment and can route directly to one shard.
+- Merchant dashboard queries should use async read projections rather than cross-shard fan-out.
+
+Initial implementation target:
+
+```text
+payment_intents_00
+payment_intents_01
+...
+payment_intents_63
+
+payment_requests_00
+payment_requests_01
+...
+payment_requests_63
+```
+
+Phase H1 creates these physical tables with numeric suffixes. The app still writes to the original logical tables until the ShardingSphere datasource switch and repository routing are completed.
+
+Routing rule:
+
+```text
+shard = hash(payment_id) % shard_count
+```
+
+Prefer logical table sharding in one Postgres instance first. This keeps local development manageable and creates a migration path to physical database shards later.
+
+Initial shard count: 64 logical shards.
+
+Rationale:
+
+- Large enough to flatten write distribution for benchmark and interview-scale demos.
+- Small enough to keep local Flyway migrations, schema inspection, and operational overhead manageable.
+- Can map multiple logical shards to one physical database today and redistribute them across physical databases later.
+- Avoids premature complexity from hundreds or thousands of tables before the workload proves it.
+
+Changing shard count later is possible but requires a resharding plan, so use 64 as the stable initial target.
+
+Lookup registries must be sharded too. They should not become central bottleneck tables after the payment tables are sharded:
+
+```text
+payment_idempotency_keys_00 ... _63
+shard key = hash(merchant_id + idempotency_key)
+
+provider_payment_refs_00 ... _63
+shard key = hash(provider + connector_account_id + provider_payment_id)
+```
+
+Registry rows are compact routing pointers. They should store the owning `payment_intent_id` and `payment_shard_id`, then the caller routes to the authoritative payment shard.
+
+Recommended Spring component:
+
+- Apache ShardingSphere-JDBC at the `DataSource` layer.
+- Keep the application model pointed at logical table names where practical.
+- Use explicit shard routing helpers for operations that must resolve by `payment_id`.
+
+## ID Strategy
+
+The shard key should be `payment_id` for MasonXPay-owned flows and merchant `order_id` only when it is guaranteed unique and stable for the merchant flow.
+
+Recommended initial choice: keep the existing payment ID shape if it is already externally visible, and route with:
+
+```text
+shard = hash(payment_id) % 64
+```
+
+If new IDs are introduced, prefer UUIDv7 plus hash routing.
+
+| Option | Pros | Cons |
+|---|---|---|
+| Existing ID + hash routing | Lowest migration risk; preserves API compatibility; works with current records; hides shard topology | Distribution depends on existing ID entropy; may need validation tests; not naturally time-sortable if current ID is random |
+| UUIDv7 + hash routing | Time-sortable for logs/debugging; standardizing quickly across systems; good DB locality when used as raw ID; still distributes well after hashing | Newer than UUIDv4; Java/library support must be verified; timestamp component should not be used directly for sharding |
+| ULID + hash routing | Human-friendly; lexicographically sortable; broadly understood in app code | Monotonic/time prefix can create hot ranges if used directly; must hash before routing; more custom handling than UUID |
+| Snowflake-style ID | Compact; can encode time and topology; strong ordering story | Leaks topology if shard bits are embedded; adds ID generator availability concerns; more moving parts for little initial benefit |
+
+Do not route by raw timestamp prefixes. Always hash the final stable payment identifier before modulo routing.
+
+## Query Model
+
+Authoritative payment reads:
+
+- `GET /payments/{paymentId}` routes directly to the owning shard.
+- Confirm, capture, void, refund, webhook reconcile, and payment status checks route by `payment_id`.
+- Webhooks that arrive with provider references must resolve provider reference to `payment_id`, then route to the owning shard.
+
+Dashboard/search reads:
+
+- Do not fan out to all payment shards for normal dashboard screens.
+- Publish payment lifecycle events through the outbox and Kafka.
+- Build OpenSearch/Elasticsearch documents for merchant search, filters, support views, and payment timelines.
+- Keep OpenSearch/Elasticsearch out of the correctness path.
+
+## Consistency Rules
+
+Strong consistency is required for:
+
+- payment creation
+- confirm/capture/void/refund transitions
+- idempotency records
+- ledger entries
+- outbox event creation
+- webhook deduplication
+- provider reference mapping
+
+Use the owning Postgres shard for these guarantees:
+
+- short database transactions
+- unique constraints
+- state transition validation
+- row-level locking where needed
+- optimistic version columns where useful
+- append-only ledger records
+
+Provider calls must stay outside database transactions.
+
+Kafka provides durable async propagation, not correctness. Redis provides latency and coordination help, not correctness. OpenSearch/Elasticsearch provides dashboard and support views, not authority.
+
+## Distributed Locks
+
+Avoid Redis distributed locks for financial correctness.
+
+Allowed Redis lock use cases:
+
+- suppress duplicate non-critical background work
+- coordinate provider health refreshes
+- throttle expensive reconciliation scans
+- guard scheduled jobs where duplicate execution is tolerable
+
+Forbidden Redis lock use cases:
+
+- preventing double capture
+- preventing double refund
+- enforcing payment state transitions
+- making ledger writes safe
+- replacing idempotency table constraints
+
+The database must remain the final gate for money-state correctness.
+
+## Kafka Event Backbone
+
+Use Spring for Apache Kafka rather than hiding the payment event model behind broad abstractions.
+
+Kafka responsibilities:
+
+- payment lifecycle event fan-out
+- webhook delivery work queue
+- OpenSearch/Elasticsearch projection updates
+- reconciliation events
+- merchant notification events
+- dead-letter topics for failed async processing
+
+Partitioning:
+
+- Key payment lifecycle events by `payment_id` to preserve per-payment ordering.
+- Key merchant aggregate events by `merchant_id` only for aggregate consumers that need merchant locality.
+
+Decision: use Kafka, not RabbitMQ, for the high-throughput profile.
+
+Rationale:
+
+- Payment lifecycle events benefit from an append-only replayable log.
+- Consumer groups fit webhook delivery, projections, reconciliation, and analytics fan-out.
+- Per-payment ordering can be preserved by keying events with `payment_id`.
+- Backpressure and lag are visible operational signals.
+- Replay is valuable for rebuilding OpenSearch projections and aggregate read models.
+
+The transactional outbox remains mandatory:
+
+```text
+DB transaction:
+  update payment state
+  insert ledger entry if applicable
+  insert outbox event
+
+After commit:
+  outbox publisher publishes to Kafka
+  mark outbox event published
+```
+
+## Redis Usage
+
+Use Spring Data Redis for explicit, bounded use cases:
+
+- idempotency hot cache backed by Postgres uniqueness
+- per-merchant/API key/IP rate limiting
+- provider health and circuit breaker hint cache
+- short-lived checkout/session data
+- duplicate suppression for async workers where DB verification still exists
+
+Every Redis-backed path must define:
+
+- authoritative fallback
+- TTL
+- failure behavior when Redis is unavailable
+- whether stale data is acceptable
+
+## Search and Read Projections
+
+Decision: use OpenSearch for dashboard/search projections.
+
+OpenSearch responsibilities:
+
+- merchant payment search
+- payment list views
+- support filters
+- payment event timelines
+- dashboard-facing denormalized documents
+
+OpenSearch must not be used for:
+
+- payment status authority
+- confirm/capture/refund decisions
+- idempotency decisions
+- ledger correctness
+
+Reasoning:
+
+- OpenSearch is practical for local/self-hosted demos and avoids depending on Elastic's licensing and managed-service assumptions.
+- The projection can lag; UI should tolerate eventual consistency.
+- Direct payment status checks still route to the owning Postgres shard.
+
+Merchant aggregate limits are eventually consistent by default. If a future product requirement needs hard real-time merchant limits, design a separate authoritative aggregate path keyed by merchant and time bucket rather than overloading the payment shard model.
+
+## Observability Requirements
+
+Add metrics before claiming throughput improvements:
+
+- payment create latency
+- payment confirm latency
+- provider latency by provider/account
+- shard distribution by payment count and write rate
+- shard routing failures
+- Redis hit/miss rates
+- Redis unavailable fallback count
+- Kafka publish latency
+- Kafka consumer lag
+- outbox backlog and oldest unpublished event age
+- OpenSearch indexing lag
+- webhook retry and dead-letter counts
+
+Keep `X-Request-Id` propagation across API, outbox, Kafka, workers, and provider calls.
+
+## Implementation Phases
+
+### Phase H0: Architecture Baseline
+
+- Record this plan.
+- Update roadmap to identify the high-throughput track.
+- Document that Redis/Kafka restrictions are intentionally lifted only for this scale profile.
+- Define benchmark targets before implementation.
+
+### Phase H1: Sharding Foundation
+
+- Introduce shard-count configuration.
+- Add payment shard routing utility and tests.
+- Add logical table shard migrations for the core payment request/state tables.
+- Backfill existing `payment_intents` and `payment_requests` into the shard tables for local/demo environments.
+- Integrate ShardingSphere-JDBC.
+- Keep existing APIs behavior-compatible.
+- Add tests proving same `payment_id` routes consistently.
+
+### Phase H2: Strong Idempotency and State Machine Hardening
+
+- Ensure idempotency records live on the owning payment shard.
+- Add or verify unique constraints for payment/order idempotency.
+- Add optimistic versioning or row-level locking around payment transitions.
+- Add regression tests for duplicate confirm/capture/refund races.
+
+### Phase H3: Kafka Outbox Publisher
+
+- Add Kafka dependency and local Docker Compose service.
+- Publish existing outbox events to Kafka after commit.
+- Add idempotent Kafka consumers.
+- Add dead-letter topics and retry policy.
+- Preserve database outbox as the recovery mechanism.
+
+### Phase H4: Async Workers
+
+- Move webhook delivery work behind Kafka consumers.
+- Add OpenSearch/Elasticsearch projection worker.
+- Add reconciliation event worker.
+- Keep all workers idempotent.
+
+### Phase H5: Redis Hot Path
+
+- Add Redis dependency and local Docker Compose service.
+- Add Redis-backed rate limiting.
+- Add Redis idempotency fast path with Postgres verification.
+- Add provider health/routing cache.
+- Define fallback behavior for Redis outages.
+
+### Phase H6: Dashboard Read Models
+
+- Add OpenSearch/Elasticsearch index mappings for payment search.
+- Build merchant payment list/search from the projection.
+- Add projection lag indicators where needed.
+- Keep payment detail/status checks routed to authoritative shards.
+
+### Phase H7: Benchmarks and Interview Narrative
+
+- Add k6 scenarios for create/confirm/idempotency/retry flows.
+- Add dashboards for shard distribution, Kafka lag, Redis hit rate, and p95/p99 latency.
+- Document failure modes:
+  - Kafka unavailable
+  - Redis unavailable
+  - one shard degraded
+  - OpenSearch lagging
+  - provider timeout/retry storm
+
+## Open Decisions
+
+Closed decisions:
+
+- Use 64 logical shards initially.
+- Shard both `payment_intents` and `payment_requests`.
+- Route by hashed `payment_id`; use merchant `order_id` only when it is stable and unique for that flow.
+- Preserve existing IDs initially if they are already part of the public API; prefer UUIDv7 plus hash routing for new ID generation.
+- Use Kafka for the high-throughput event backbone.
+- Use OpenSearch for dashboard/search projections.
+- Treat merchant aggregate limits as eventually consistent unless a future hard-limit requirement appears.
+
+Migration decision:
+
+- Local/demo environments use an idempotent Flyway backfill from the original `payment_intents` and `payment_requests` tables into the 64 shard tables.
+- Production should not rely on a single Flyway data-copy step for live traffic. Use dual-write, batched backfill, per-shard validation, read cutover, and a rollback/archive window.
+
+Still open:
+
+- Whether ShardingSphere-JDBC can cover every needed JPA query cleanly or whether some hot-path repositories need explicit routing.
+- Whether provider-reference lookup needs its own sharded mapping table or a compact global lookup table before routing to the payment shard.
+
+## Current Recommendation
+
+Use:
+
+```text
+Spring Boot
++ Apache ShardingSphere-JDBC
++ Spring for Apache Kafka
++ Spring Data Redis
++ Resilience4j
++ Actuator/Micrometer/Prometheus
++ OpenSearch later for dashboard/search projections
+```
+
+Keep the implementation staged. The first code phase should be sharding foundation and tests, not Kafka or Redis.
