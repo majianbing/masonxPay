@@ -99,6 +99,10 @@ public class PaymentIntent {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @PreUpdate
     void onUpdate() { this.updatedAt = Instant.now(); }
 
@@ -178,4 +182,5 @@ public class PaymentIntent {
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public long getVersion() { return version; }
 }

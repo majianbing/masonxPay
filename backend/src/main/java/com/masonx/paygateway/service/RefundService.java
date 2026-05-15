@@ -49,7 +49,7 @@ public class RefundService {
         record RefundSetup(Refund refund, PaymentIntent intent, ProviderCredentials creds) {}
 
         RefundSetup setup = txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findByIdAndMerchantId(paymentIntentId, merchantId)
+            PaymentIntent intent = paymentIntentRepository.findByIdAndMerchantIdForUpdate(paymentIntentId, merchantId)
                     .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
 
             if (intent.getStatus() != PaymentIntentStatus.SUCCEEDED) {

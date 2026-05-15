@@ -152,7 +152,7 @@ class PaymentIntentServiceTest {
         UUID intentId = UUID.randomUUID();
         PaymentIntent pi = savedIntent(intentId);
 
-        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
 
@@ -191,7 +191,7 @@ class PaymentIntentServiceTest {
                         new ChargeResult(true, "pi_provider_123", "{}", null, null,
                                 false, false, null, null, null),
                         new RouteCandidate(primary), 1));
-        when(paymentIntentRepository.findById(intentId)).thenReturn(Optional.of(pi));
+        when(paymentIntentRepository.findByIdForUpdate(intentId)).thenReturn(Optional.of(pi));
         when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
 
@@ -215,9 +215,9 @@ class PaymentIntentServiceTest {
         PaymentIntent pi = savedIntent(intentId);
         pi.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
 
-        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
-        when(paymentIntentRepository.findById(intentId)).thenReturn(Optional.of(pi));
+        when(paymentIntentRepository.findByIdForUpdate(intentId)).thenReturn(Optional.of(pi));
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
         when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -234,7 +234,7 @@ class PaymentIntentServiceTest {
         pi.setStatus(PaymentIntentStatus.PROCESSING);
 
         // TX 1 snapshot read
-        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
 
         assertThatThrownBy(() -> service.cancel(auth(ApiKeyType.SECRET), intentId))
@@ -248,7 +248,7 @@ class PaymentIntentServiceTest {
         PaymentIntent pi = savedIntent(intentId);
         pi.setStatus(PaymentIntentStatus.SUCCEEDED);
 
-        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
 
         assertThatThrownBy(() -> service.cancel(auth(ApiKeyType.SECRET), intentId))

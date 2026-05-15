@@ -139,7 +139,7 @@ public class PaymentIntentService {
         record Setup(PaymentIntent intent, RoutePlan routePlan, String rawPmId, String pmType) {}
 
         Setup setup = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
 
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION) {
@@ -199,7 +199,7 @@ public class PaymentIntentService {
         final String traceId = MDC.get(TraceIdFilter.MDC_KEY);
 
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(setup.intent().getId()).orElseThrow();
 
             final String eventType;
             if (finalResult != null && finalResult.success()) {
@@ -254,7 +254,7 @@ public class PaymentIntentService {
         record CaptureSetup(PaymentIntent intent, ProviderCredentials creds) {}
 
         CaptureSetup setup = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
                 throw new IllegalStateException(
                         "PaymentIntent cannot be captured in status: " + intent.getStatus());
@@ -274,7 +274,7 @@ public class PaymentIntentService {
 
         // TX: update status + write outbox event
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(setup.intent().getId()).orElseThrow();
             // Race guard: only update if still waiting for capture
             if (intent.getStatus() == PaymentIntentStatus.REQUIRES_CAPTURE) {
                 intent.setStatus(captured ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
@@ -304,7 +304,7 @@ public class PaymentIntentService {
 
         // TX 1: validate and snapshot
         PaymentIntent snapshot = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE
@@ -333,7 +333,7 @@ public class PaymentIntentService {
 
         // TX 2: set CANCELED + write outbox event
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(snapshot.getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(snapshot.getId()).orElseThrow();
             // Race guard: re-validate status
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
@@ -355,6 +355,11 @@ public class PaymentIntentService {
 
     private PaymentIntent loadOwned(ApiKeyAuthentication auth, UUID intentId) {
         return paymentIntentRepository.findByIdAndMerchantId(intentId, auth.getMerchantId())
+                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+    }
+
+    private PaymentIntent loadOwnedForUpdate(ApiKeyAuthentication auth, UUID intentId) {
+        return paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, auth.getMerchantId())
                 .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
     }
 
