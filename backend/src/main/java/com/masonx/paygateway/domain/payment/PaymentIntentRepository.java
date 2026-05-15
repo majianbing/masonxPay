@@ -3,11 +3,13 @@ package com.masonx.paygateway.domain.payment;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -15,6 +17,16 @@ import java.util.UUID;
 
 public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UUID>, JpaSpecificationExecutor<PaymentIntent> {
     Optional<PaymentIntent> findByIdAndMerchantId(UUID id, UUID merchantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PaymentIntent p WHERE p.id = :id AND p.merchantId = :merchantId")
+    Optional<PaymentIntent> findByIdAndMerchantIdForUpdate(@Param("id") UUID id,
+                                                           @Param("merchantId") UUID merchantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM PaymentIntent p WHERE p.id = :id")
+    Optional<PaymentIntent> findByIdForUpdate(@Param("id") UUID id);
+
     Optional<PaymentIntent> findByMerchantIdAndIdempotencyKey(UUID merchantId, String idempotencyKey);
     List<PaymentIntent> findByMerchantId(UUID merchantId);
     Page<PaymentIntent> findByMerchantId(UUID merchantId, Pageable pageable);
@@ -59,16 +71,20 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     long countStaleProcessing(@Param("threshold") Instant threshold);
 
     /**
-     * Re-reads a single PROCESSING or REQUIRES_ACTION intent with a row-level lock.
-     * FOR UPDATE SKIP LOCKED: if another node already holds the lock, returns empty
-     * immediately — preventing two nodes from both canceling the same intent at the provider.
-     *
-     * The status filter means returning empty also covers the case where
-     * a concurrent node or webhook already moved the intent out of these statuses.
+     * Re-reads a single PROCESSING or REQUIRES_ACTION intent with a row-level lock. If another
+     * node already holds the row lock, this waits; after the first transaction commits, the
+     * status predicate is rechecked so two nodes do not both reconcile the same active intent.
      *
      * Must be called from within an active transaction (txTemplate.execute).
      */
-    @Query(value = "SELECT * FROM payment_intents WHERE id = :id AND status IN ('PROCESSING', 'REQUIRES_ACTION') FOR UPDATE SKIP LOCKED",
-           nativeQuery = true)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT p FROM PaymentIntent p
+        WHERE p.id = :id
+          AND p.status IN (
+            com.masonx.paygateway.domain.payment.PaymentIntentStatus.PROCESSING,
+            com.masonx.paygateway.domain.payment.PaymentIntentStatus.REQUIRES_ACTION
+          )
+        """)
     Optional<PaymentIntent> findByIdProcessingForUpdate(@Param("id") UUID id);
 }

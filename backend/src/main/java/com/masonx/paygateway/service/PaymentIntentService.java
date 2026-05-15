@@ -14,6 +14,10 @@ import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.sharding.IdempotencyReservationStatus;
+import com.masonx.paygateway.sharding.PaymentIdempotencyRoute;
+import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
+import com.masonx.paygateway.sharding.PaymentShardRouter;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
@@ -51,6 +55,8 @@ public class PaymentIntentService {
     private final PaymentRetryOrchestratorService retryOrchestrator;
     private final ObjectMapper               objectMapper;
     private final OutboxEventRepository      outboxEventRepository;
+    private final PaymentShardRegistryRepository shardRegistryRepository;
+    private final PaymentShardRouter         shardRouter;
     private final TransactionTemplate        txTemplate;
     private final PaymentMetrics             metrics;
 
@@ -64,6 +70,8 @@ public class PaymentIntentService {
                                 PaymentRetryOrchestratorService retryOrchestrator,
                                 ObjectMapper objectMapper,
                                 OutboxEventRepository outboxEventRepository,
+                                PaymentShardRegistryRepository shardRegistryRepository,
+                                PaymentShardRouter shardRouter,
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics) {
         this.paymentIntentRepository  = paymentIntentRepository;
@@ -76,6 +84,8 @@ public class PaymentIntentService {
         this.retryOrchestrator        = retryOrchestrator;
         this.objectMapper             = objectMapper;
         this.outboxEventRepository    = outboxEventRepository;
+        this.shardRegistryRepository  = shardRegistryRepository;
+        this.shardRouter              = shardRouter;
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
     }
@@ -84,13 +94,31 @@ public class PaymentIntentService {
     public PaymentIntentResponse create(ApiKeyAuthentication auth, CreatePaymentIntentRequest req) {
         requireSecretKey(auth);
 
-        Optional<PaymentIntent> existing = paymentIntentRepository
-                .findByMerchantIdAndIdempotencyKey(auth.getMerchantId(), req.idempotencyKey());
-        if (existing.isPresent()) {
-            return toResponse(existing.get());
+        Optional<PaymentIdempotencyRoute> existingRoute = shardRegistryRepository
+                .findIdempotencyRoute(auth.getMerchantId(), req.idempotencyKey());
+        if (existingRoute.isPresent()) {
+            PaymentIdempotencyRoute route = existingRoute.get();
+            return paymentIntentRepository.findByIdAndMerchantId(route.paymentIntentId(), auth.getMerchantId())
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Payment creation is still in progress for this idempotency key"));
+        }
+
+        UUID paymentIntentId = UUID.randomUUID();
+        int paymentShardId = shardRouter.shardForPaymentId(paymentIntentId);
+        boolean reserved = shardRegistryRepository.reserveIdempotencyKey(
+                auth.getMerchantId(), req.idempotencyKey(), paymentIntentId, paymentShardId);
+        if (!reserved) {
+            return shardRegistryRepository.findIdempotencyRoute(auth.getMerchantId(), req.idempotencyKey())
+                    .flatMap(route -> paymentIntentRepository
+                            .findByIdAndMerchantId(route.paymentIntentId(), auth.getMerchantId()))
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Payment creation is already in progress for this idempotency key"));
         }
 
         PaymentIntent intent = new PaymentIntent();
+        intent.assignId(paymentIntentId);
         intent.setMerchantId(auth.getMerchantId());
         intent.setMode(auth.getMode());
         intent.setAmount(req.amount());
@@ -110,7 +138,10 @@ public class PaymentIntentService {
         intent.setTraceId(MDC.get(TraceIdFilter.MDC_KEY));
         intent.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
 
-        return toResponse(paymentIntentRepository.save(intent));
+        PaymentIntent saved = paymentIntentRepository.save(intent);
+        shardRegistryRepository.updateIdempotencyStatus(
+                auth.getMerchantId(), req.idempotencyKey(), IdempotencyReservationStatus.COMPLETED);
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -139,7 +170,7 @@ public class PaymentIntentService {
         record Setup(PaymentIntent intent, RoutePlan routePlan, String rawPmId, String pmType) {}
 
         Setup setup = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
 
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION) {
@@ -199,7 +230,7 @@ public class PaymentIntentService {
         final String traceId = MDC.get(TraceIdFilter.MDC_KEY);
 
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(setup.intent().getId()).orElseThrow();
 
             final String eventType;
             if (finalResult != null && finalResult.success()) {
@@ -254,7 +285,7 @@ public class PaymentIntentService {
         record CaptureSetup(PaymentIntent intent, ProviderCredentials creds) {}
 
         CaptureSetup setup = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE) {
                 throw new IllegalStateException(
                         "PaymentIntent cannot be captured in status: " + intent.getStatus());
@@ -274,7 +305,7 @@ public class PaymentIntentService {
 
         // TX: update status + write outbox event
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(setup.intent().getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(setup.intent().getId()).orElseThrow();
             // Race guard: only update if still waiting for capture
             if (intent.getStatus() == PaymentIntentStatus.REQUIRES_CAPTURE) {
                 intent.setStatus(captured ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
@@ -304,7 +335,7 @@ public class PaymentIntentService {
 
         // TX 1: validate and snapshot
         PaymentIntent snapshot = txTemplate.execute(ts -> {
-            PaymentIntent intent = loadOwned(auth, intentId);
+            PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CAPTURE
@@ -333,7 +364,7 @@ public class PaymentIntentService {
 
         // TX 2: set CANCELED + write outbox event
         return txTemplate.execute(ts -> {
-            PaymentIntent intent = paymentIntentRepository.findById(snapshot.getId()).orElseThrow();
+            PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(snapshot.getId()).orElseThrow();
             // Race guard: re-validate status
             if (intent.getStatus() != PaymentIntentStatus.REQUIRES_PAYMENT_METHOD
                     && intent.getStatus() != PaymentIntentStatus.REQUIRES_CONFIRMATION
@@ -355,6 +386,11 @@ public class PaymentIntentService {
 
     private PaymentIntent loadOwned(ApiKeyAuthentication auth, UUID intentId) {
         return paymentIntentRepository.findByIdAndMerchantId(intentId, auth.getMerchantId())
+                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+    }
+
+    private PaymentIntent loadOwnedForUpdate(ApiKeyAuthentication auth, UUID intentId) {
+        return paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, auth.getMerchantId())
                 .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
     }
 

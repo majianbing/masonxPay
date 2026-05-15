@@ -45,6 +45,8 @@ services:
       # App URLs
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
       PAY_BASE_URL: ${PAY_BASE_URL:-http://localhost:3000}
+      # High-throughput profile sharding
+      PAYMENT_SHARD_COUNT: ${PAYMENT_SHARD_COUNT:-64}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

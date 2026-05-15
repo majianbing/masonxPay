@@ -20,6 +20,7 @@
     <properties>
         <java.version>21</java.version>
         <jjwt.version>0.12.5</jjwt.version>
+        <shardingsphere.version>5.5.2</shardingsphere.version>
     </properties>
 
     <dependencies>
@@ -61,6 +62,14 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
+
+        <!-- ShardingSphere-JDBC (Phase H1 logical table sharding foundation) -->
+        <dependency>
+            <groupId>org.apache.shardingsphere</groupId>
+            <artifactId>shardingsphere-jdbc</artifactId>
+            <version>${shardingsphere.version}</version>
+        </dependency>
+
         <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

@@ -24,13 +24,19 @@ docker-compose.yml                Local quickstart (all 3 services)
 - Target volume ≤100k tx/day per merchant — Postgres is not the bottleneck
 - Scaling path: read replica → PgBouncer → Redis (in that order, only when measured)
 
-### No Kafka / MQ — deliberate
-- Webhook delivery uses Spring `ApplicationEventPublisher` (in-process)
+### High-throughput profile exception
+- The high-throughput payment core track intentionally lifts the MVP "No Redis" and "No Kafka / MQ" constraints when the scale target requires it.
+- Postgres shards remain the financial source of truth.
+- Redis is limited to hot-path optimization and soft coordination, never authoritative payment state.
+- Kafka is used for async event fan-out from the transactional outbox, not for payment-state correctness.
+- OpenSearch/Elasticsearch is used for dashboard/search projections, not state checks.
+- See `HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md` for the staged implementation plan.
+
+### No external Kafka / MQ — deliberate
+- Transactional outbox rows are written in the same DB transaction as payment state changes
 - `gateway_events` + `webhook_deliveries` tables act as the durable queue
-- `@Scheduled` poller every 60s, exponential backoff: 30s → 5m → 30m → 2h → 8h
-- Known gap: event publish is NOT atomic with the DB write (transactional outbox)
-  → TODO comment in `PaymentIntentService.publishEvent()`
-  → Accepted trade-off at current scale
+- Scheduled pollers process the DB-backed queue with exponential backoff: 30s → 5m → 30m → 2h → 8h
+- At MVP scale, Postgres-backed outbox processing is simpler than operating an external broker
 
 ### No L1 Cache (Caffeine) — deliberate
 - API key lookups, routing rules, connector config are indexed DB reads (<1ms)

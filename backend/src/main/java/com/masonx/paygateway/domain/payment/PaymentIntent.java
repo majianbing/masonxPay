@@ -11,7 +11,6 @@ import java.util.UUID;
 public class PaymentIntent {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "merchant_id", nullable = false)
@@ -99,10 +98,27 @@ public class PaymentIntent {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @PreUpdate
     void onUpdate() { this.updatedAt = Instant.now(); }
 
+    @PrePersist
+    void onCreate() {
+        if (this.id == null) {
+            this.id = UUID.randomUUID();
+        }
+    }
+
     public UUID getId() { return id; }
+    public void assignId(UUID id) {
+        if (this.id != null && !this.id.equals(id)) {
+            throw new IllegalStateException("PaymentIntent id is already assigned");
+        }
+        this.id = id;
+    }
 
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
@@ -178,4 +194,5 @@ public class PaymentIntent {
 
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public long getVersion() { return version; }
 }

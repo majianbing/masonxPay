@@ -59,6 +59,7 @@ pay.masonx/
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
   - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
 - **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
+- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, and row-level locks for financial state transitions
 - **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
 - **Webhook delivery** — transactional outbox pattern, configurable endpoints with HMAC signing, exponential backoff retry
 - **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
@@ -73,7 +74,7 @@ pay.masonx/
 | Layer | Technology |
 |-------|-----------|
 | Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
-| Database | PostgreSQL + Flyway migrations |
+| Database | PostgreSQL + Flyway migrations + ShardingSphere-JDBC logical payment shards |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square, Braintree |
 | Observability | Micrometer + Prometheus + Grafana |
@@ -108,6 +109,8 @@ STRIPE_SECRET_KEY=sk_test_...
 ```
 
 All other values have safe defaults for local development.
+
+The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and backfills the local/demo logical payment shard tables automatically.
 
 **2. Start the stack**
 
