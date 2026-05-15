@@ -344,8 +344,18 @@ Keep `X-Request-Id` propagation across API, outbox, Kafka, workers, and provider
 
 - Ensure idempotency records live on the owning payment shard.
 - Add or verify unique constraints for payment/order idempotency.
-- Add optimistic versioning or row-level locking around payment transitions.
+- Add optimistic versioning and row-level locking around payment transitions.
 - Add regression tests for duplicate confirm/capture/refund races.
+
+Current H2 progress:
+
+- `payment_intents` now has a JPA `@Version` column across the logical table and all 64 shard tables.
+- Create-payment idempotency now reserves `(merchant_id, idempotency_key)` in the sharded idempotency registry before inserting the owning payment intent.
+- Confirm, capture, cancel, and refund setup paths lock the owning payment intent row during short DB decision/update transactions.
+- Refunds validate against available refundable amount: original intent amount minus active `PENDING` and `SUCCEEDED` refunds.
+- Outbox and stale-intent lock queries use JPQL pessimistic locks instead of native `FOR UPDATE SKIP LOCKED`, keeping them compatible with ShardingSphere-JDBC.
+- H2 test coverage includes duplicate-create Docker smoke checks and a formal concurrent refund over-refund regression test.
+- Follow-up hardening: add formal concurrent confirm, capture, and cancel race tests around the provider/orchestrator boundary.
 
 ### Phase H3: Kafka Outbox Publisher
 

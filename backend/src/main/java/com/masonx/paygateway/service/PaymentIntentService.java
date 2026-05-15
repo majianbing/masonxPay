@@ -14,6 +14,10 @@ import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.sharding.IdempotencyReservationStatus;
+import com.masonx.paygateway.sharding.PaymentIdempotencyRoute;
+import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
+import com.masonx.paygateway.sharding.PaymentShardRouter;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
@@ -51,6 +55,8 @@ public class PaymentIntentService {
     private final PaymentRetryOrchestratorService retryOrchestrator;
     private final ObjectMapper               objectMapper;
     private final OutboxEventRepository      outboxEventRepository;
+    private final PaymentShardRegistryRepository shardRegistryRepository;
+    private final PaymentShardRouter         shardRouter;
     private final TransactionTemplate        txTemplate;
     private final PaymentMetrics             metrics;
 
@@ -64,6 +70,8 @@ public class PaymentIntentService {
                                 PaymentRetryOrchestratorService retryOrchestrator,
                                 ObjectMapper objectMapper,
                                 OutboxEventRepository outboxEventRepository,
+                                PaymentShardRegistryRepository shardRegistryRepository,
+                                PaymentShardRouter shardRouter,
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics) {
         this.paymentIntentRepository  = paymentIntentRepository;
@@ -76,6 +84,8 @@ public class PaymentIntentService {
         this.retryOrchestrator        = retryOrchestrator;
         this.objectMapper             = objectMapper;
         this.outboxEventRepository    = outboxEventRepository;
+        this.shardRegistryRepository  = shardRegistryRepository;
+        this.shardRouter              = shardRouter;
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
     }
@@ -84,13 +94,31 @@ public class PaymentIntentService {
     public PaymentIntentResponse create(ApiKeyAuthentication auth, CreatePaymentIntentRequest req) {
         requireSecretKey(auth);
 
-        Optional<PaymentIntent> existing = paymentIntentRepository
-                .findByMerchantIdAndIdempotencyKey(auth.getMerchantId(), req.idempotencyKey());
-        if (existing.isPresent()) {
-            return toResponse(existing.get());
+        Optional<PaymentIdempotencyRoute> existingRoute = shardRegistryRepository
+                .findIdempotencyRoute(auth.getMerchantId(), req.idempotencyKey());
+        if (existingRoute.isPresent()) {
+            PaymentIdempotencyRoute route = existingRoute.get();
+            return paymentIntentRepository.findByIdAndMerchantId(route.paymentIntentId(), auth.getMerchantId())
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Payment creation is still in progress for this idempotency key"));
+        }
+
+        UUID paymentIntentId = UUID.randomUUID();
+        int paymentShardId = shardRouter.shardForPaymentId(paymentIntentId);
+        boolean reserved = shardRegistryRepository.reserveIdempotencyKey(
+                auth.getMerchantId(), req.idempotencyKey(), paymentIntentId, paymentShardId);
+        if (!reserved) {
+            return shardRegistryRepository.findIdempotencyRoute(auth.getMerchantId(), req.idempotencyKey())
+                    .flatMap(route -> paymentIntentRepository
+                            .findByIdAndMerchantId(route.paymentIntentId(), auth.getMerchantId()))
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Payment creation is already in progress for this idempotency key"));
         }
 
         PaymentIntent intent = new PaymentIntent();
+        intent.assignId(paymentIntentId);
         intent.setMerchantId(auth.getMerchantId());
         intent.setMode(auth.getMode());
         intent.setAmount(req.amount());
@@ -110,7 +138,10 @@ public class PaymentIntentService {
         intent.setTraceId(MDC.get(TraceIdFilter.MDC_KEY));
         intent.setStatus(PaymentIntentStatus.REQUIRES_PAYMENT_METHOD);
 
-        return toResponse(paymentIntentRepository.save(intent));
+        PaymentIntent saved = paymentIntentRepository.save(intent);
+        shardRegistryRepository.updateIdempotencyStatus(
+                auth.getMerchantId(), req.idempotencyKey(), IdempotencyReservationStatus.COMPLETED);
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)

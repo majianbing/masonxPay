@@ -13,6 +13,8 @@ import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
+import com.masonx.paygateway.sharding.PaymentShardRouter;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
 import com.masonx.paygateway.web.dto.CreatePaymentIntentRequest;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
@@ -45,6 +47,8 @@ class PaymentIntentServiceTest {
     @Mock PaymentTokenService paymentTokenService;
     @Mock PaymentRetryOrchestratorService retryOrchestrator;
     @Mock OutboxEventRepository outboxEventRepository;
+    @Mock PaymentShardRegistryRepository shardRegistryRepository;
+    @Mock PaymentShardRouter shardRouter;
     @Mock PlatformTransactionManager txManager;
     @Mock PaymentMetrics metrics;
 
@@ -62,7 +66,7 @@ class PaymentIntentServiceTest {
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentTokenService, retryOrchestrator,
-                objectMapper, outboxEventRepository, txManager, metrics);
+                objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter, txManager, metrics);
     }
 
     private ApiKeyAuthentication auth(ApiKeyType type) {
@@ -97,7 +101,11 @@ class PaymentIntentServiceTest {
         UUID existingId = UUID.randomUUID();
         PaymentIntent existing = savedIntent(existingId);
 
-        when(paymentIntentRepository.findByMerchantIdAndIdempotencyKey(merchantId, "idem-key"))
+        when(shardRegistryRepository.findIdempotencyRoute(merchantId, "idem-key"))
+                .thenReturn(Optional.of(new com.masonx.paygateway.sharding.PaymentIdempotencyRoute(
+                        merchantId, "idem-key", existingId, 3,
+                        com.masonx.paygateway.sharding.IdempotencyReservationStatus.COMPLETED)));
+        when(paymentIntentRepository.findByIdAndMerchantId(existingId, merchantId))
                 .thenReturn(Optional.of(existing));
         when(paymentRequestRepository.findByPaymentIntentId(existingId))
                 .thenReturn(List.of());
@@ -125,8 +133,11 @@ class PaymentIntentServiceTest {
     void create_newIntent_setsRequiresPaymentMethodStatus() {
         UUID newId = UUID.randomUUID();
 
-        when(paymentIntentRepository.findByMerchantIdAndIdempotencyKey(merchantId, "new-key"))
+        when(shardRegistryRepository.findIdempotencyRoute(merchantId, "new-key"))
                 .thenReturn(Optional.empty());
+        when(shardRouter.shardForPaymentId(any())).thenReturn(7);
+        when(shardRegistryRepository.reserveIdempotencyKey(eq(merchantId), eq("new-key"), any(), eq(7)))
+                .thenReturn(true);
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> {
             PaymentIntent pi = inv.getArgument(0);
             ReflectionTestUtils.setField(pi, "id", newId);

@@ -57,12 +57,18 @@ public class RefundService {
             }
 
             long refundAmount = req.amount() != null ? req.amount() : intent.getAmount();
+            if (refundAmount <= 0) {
+                throw new IllegalArgumentException("Refund amount must be positive");
+            }
+
             long alreadyRefunded = refundRepository.sumActiveByPaymentIntentId(paymentIntentId);
-            if (alreadyRefunded + refundAmount > intent.getAmount()) {
+            long availableRefundAmount = intent.getAmount() - alreadyRefunded;
+            if (refundAmount > availableRefundAmount) {
                 throw new IllegalArgumentException(
-                        "Refund amount exceeds remaining refundable amount " +
+                        "Refund amount exceeds available refundable amount " +
                         "(original: " + intent.getAmount() +
                         ", already refunded: " + alreadyRefunded +
+                        ", available: " + availableRefundAmount +
                         ", requested: " + refundAmount + ")");
             }
 

@@ -89,7 +89,7 @@ public class DataSourceConfig {
     }
 
     private Collection<String> singleTables() {
-        return List.of(
+        List<String> tables = new ArrayList<>(List.of(
                 "ds_0.admin_audit_logs",
                 "ds_0.admin_users",
                 "ds_0.api_keys",
@@ -115,7 +115,13 @@ public class DataSourceConfig {
                 "ds_0.users",
                 "ds_0.webhook_deliveries",
                 "ds_0.webhook_endpoints"
-        );
+        ));
+        for (int i = 0; i < PAYMENT_SHARD_COUNT; i++) {
+            String suffix = String.format("%02d", i);
+            tables.add("ds_0.payment_idempotency_keys_" + suffix);
+            tables.add("ds_0.provider_payment_refs_" + suffix);
+        }
+        return tables;
     }
 
     private Map<String, AlgorithmConfiguration> shardingAlgorithms() {
