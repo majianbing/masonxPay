@@ -208,6 +208,37 @@ Manual backend runs without the `local` profile keep Kafka consumers and Redis h
 
 ---
 
+### Option A2 — Preview profile
+
+Use preview when you want a production-like local runtime before H6 reliability work. It still runs on your Mac through Docker, but it uses stricter defaults than local development: `SPRING_PROFILES_ACTIVE=preview`, Kafka async workers enabled, Redis hot path enabled through `REDIS_URL`, webhook DB polling disabled, health details hidden, projection backfill disabled by default, shorter observability retention, and named preview consumer groups.
+
+Your 32GB M1 Pro is enough for this single-node preview stack. Kafka is still one broker, so it mimics behavior and operations, not multi-AZ production durability.
+
+```bash
+docker compose -p masonxpay-preview --env-file .env.preview \
+  -f docker-compose.yml \
+  -f docker-compose.preview.yml \
+  up --build
+```
+
+If the normal Docker stack is already running, stop it first because preview uses the same host ports. The `masonxpay-preview` project name keeps preview volumes separate from the default local stack.
+
+Useful preview checks:
+
+```bash
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml ps
+
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml logs -f backend
+
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group masonxpay-payment-projection-preview
+```
+
+Use `.env.preview` for local preview values only. Keep real production secrets in a deployment secret manager, not in this file.
+
+---
+
 ### Option B — Local development (manual)
 
 Use this if you want hot-reload or are working on only one part of the stack.

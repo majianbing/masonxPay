@@ -424,6 +424,14 @@ Current H4 progress:
 - Added Redis hot-path metrics for rate-limit allow/block/fallback, idempotency hit/miss/fallback, and provider-health fallback.
 - Base profile keeps Redis disabled by default; Docker and the `local` profile enable it for the high-throughput profile.
 
+### Phase H5b: Preview Runtime
+
+- Added `application-preview.yml`, `.env.preview`, and `docker-compose.preview.yml` to run a production-like local stack before H6 reliability and operability work.
+- Preview enables Kafka outbox publication, webhook consumers, payment projection consumers, Redis hot path, Prometheus, and Grafana by default.
+- Preview disables the legacy webhook DB poller and keeps projection backfill opt-in so repair/backfill behavior is intentional.
+- Preview uses `REDIS_URL=redis://redis:6379`, matching how managed Redis endpoints are usually provided in production.
+- Preview is still a single-node laptop environment. It validates behavior, observability, and operational workflow, but not multi-node durability or regional failover.
+
 ### Phase H6: Dashboard Read Models
 
 - Add OpenSearch/Elasticsearch index mappings for payment search.

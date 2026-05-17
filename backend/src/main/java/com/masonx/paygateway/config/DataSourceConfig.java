@@ -9,6 +9,7 @@ import org.apache.shardingsphere.sharding.api.config.rule.ShardingTableReference
 import org.apache.shardingsphere.sharding.api.config.rule.ShardingTableRuleConfiguration;
 import org.apache.shardingsphere.sharding.api.config.strategy.sharding.StandardShardingStrategyConfiguration;
 import org.apache.shardingsphere.single.config.SingleRuleConfiguration;
+import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.autoconfigure.flyway.FlywayDataSource;
@@ -51,6 +52,15 @@ public class DataSourceConfig {
     @Primary
     @Lazy
     public DataSource dataSource(@Qualifier("flywayDataSource") DataSource physicalDataSource) throws SQLException {
+        // ShardingSphere snapshots table metadata when this datasource is created.
+        // Running Flyway here is idempotent and protects fresh preview/prod-like databases
+        // where the primary datasource can be initialized before Boot's Flyway runner.
+        Flyway.configure()
+                .dataSource(physicalDataSource)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
         Map<String, DataSource> dataSources = new LinkedHashMap<>();
         dataSources.put("ds_0", physicalDataSource);
 
