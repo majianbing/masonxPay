@@ -35,6 +35,7 @@ export default function TopBar() {
     <header className="h-14 border-b bg-white flex items-center px-6 gap-4 shrink-0">
       <div className="flex-1" />
       <ModeToggle />
+      <span className="text-sm text-muted-foreground"><a target="_blank" href="https://github.com/majianbing/masonxPay">Github</a></span>
       <span className="text-sm text-muted-foreground">{user?.email}</span>
       <Button variant="ghost" size="icon" onClick={handleLogout} title="Sign out">
         <LogOut className="size-4" />
