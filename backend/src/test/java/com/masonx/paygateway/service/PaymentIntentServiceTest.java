@@ -12,6 +12,7 @@ import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.redis.PaymentIdempotencyCache;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
 import com.masonx.paygateway.sharding.PaymentShardRouter;
@@ -49,6 +50,7 @@ class PaymentIntentServiceTest {
     @Mock OutboxEventRepository outboxEventRepository;
     @Mock PaymentShardRegistryRepository shardRegistryRepository;
     @Mock PaymentShardRouter shardRouter;
+    @Mock PaymentIdempotencyCache idempotencyCache;
     @Mock PlatformTransactionManager txManager;
     @Mock PaymentMetrics metrics;
 
@@ -66,7 +68,9 @@ class PaymentIntentServiceTest {
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentTokenService, retryOrchestrator,
-                objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter, txManager, metrics);
+                objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter,
+                idempotencyCache, txManager, metrics);
+        lenient().when(idempotencyCache.find(any(), anyString())).thenReturn(Optional.empty());
     }
 
     private ApiKeyAuthentication auth(ApiKeyType type) {
@@ -163,7 +167,7 @@ class PaymentIntentServiceTest {
         UUID intentId = UUID.randomUUID();
         PaymentIntent pi = savedIntent(intentId);
 
-        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
         when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
 
@@ -191,7 +195,7 @@ class PaymentIntentServiceTest {
         ProviderAccount primary = account(PaymentProvider.STRIPE);
         ProviderAccount fallback = account(PaymentProvider.SQUARE);
 
-        when(paymentIntentRepository.findByIdAndMerchantId(intentId, merchantId))
+        when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
         when(routingEngine.resolve(merchantId, pi.getAmount(), pi.getCurrency(), null, "card"))
                 .thenReturn(Optional.of(new RoutingEngine.RoutingResult(primary, fallback)));

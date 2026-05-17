@@ -40,6 +40,14 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
 
+  data:
+    redis:
+      url: ${REDIS_URL:}
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT_MS:200ms}
+
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -117,6 +125,20 @@ app:
   projection:
     backfill:
       enabled: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:false}
+  redis:
+    enabled: ${REDIS_HOT_PATH_ENABLED:false}
+    fail-open: ${REDIS_HOT_PATH_FAIL_OPEN:true}
+    idempotency:
+      enabled: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:true}
+      ttl-seconds: ${REDIS_IDEMPOTENCY_CACHE_TTL_SECONDS:86400}
+    rate-limit:
+      enabled: ${REDIS_RATE_LIMIT_ENABLED:true}
+      window-seconds: ${REDIS_RATE_LIMIT_WINDOW_SECONDS:60}
+      create-payment-intent-per-window: ${REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW:600}
+      confirm-payment-intent-per-window: ${REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW:300}
+    provider-health:
+      enabled: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:true}
+      ttl-seconds: ${REDIS_PROVIDER_HEALTH_CACHE_TTL_SECONDS:600}
 
   # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
   # Rules are loaded at startup from these properties.

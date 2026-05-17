@@ -13,6 +13,7 @@ import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.redis.PaymentIdempotencyCache;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.sharding.IdempotencyReservationStatus;
 import com.masonx.paygateway.sharding.PaymentIdempotencyRoute;
@@ -29,6 +30,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
@@ -57,6 +60,7 @@ public class PaymentIntentService {
     private final OutboxEventRepository      outboxEventRepository;
     private final PaymentShardRegistryRepository shardRegistryRepository;
     private final PaymentShardRouter         shardRouter;
+    private final PaymentIdempotencyCache    idempotencyCache;
     private final TransactionTemplate        txTemplate;
     private final PaymentMetrics             metrics;
 
@@ -72,6 +76,7 @@ public class PaymentIntentService {
                                 OutboxEventRepository outboxEventRepository,
                                 PaymentShardRegistryRepository shardRegistryRepository,
                                 PaymentShardRouter shardRouter,
+                                PaymentIdempotencyCache idempotencyCache,
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics) {
         this.paymentIntentRepository  = paymentIntentRepository;
@@ -86,6 +91,7 @@ public class PaymentIntentService {
         this.outboxEventRepository    = outboxEventRepository;
         this.shardRegistryRepository  = shardRegistryRepository;
         this.shardRouter              = shardRouter;
+        this.idempotencyCache         = idempotencyCache;
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
     }
@@ -94,10 +100,23 @@ public class PaymentIntentService {
     public PaymentIntentResponse create(ApiKeyAuthentication auth, CreatePaymentIntentRequest req) {
         requireSecretKey(auth);
 
+        Optional<PaymentIdempotencyRoute> cachedRoute = idempotencyCache
+                .find(auth.getMerchantId(), req.idempotencyKey());
+        if (cachedRoute.isPresent()) {
+            Optional<PaymentIntentResponse> cachedResponse = paymentIntentRepository
+                    .findByIdAndMerchantId(cachedRoute.get().paymentIntentId(), auth.getMerchantId())
+                    .map(this::toResponse);
+            if (cachedResponse.isPresent()) {
+                return cachedResponse.get();
+            }
+            log.warn("Redis idempotency cache pointed to missing payment intent {}", cachedRoute.get().paymentIntentId());
+        }
+
         Optional<PaymentIdempotencyRoute> existingRoute = shardRegistryRepository
                 .findIdempotencyRoute(auth.getMerchantId(), req.idempotencyKey());
         if (existingRoute.isPresent()) {
             PaymentIdempotencyRoute route = existingRoute.get();
+            idempotencyCache.put(route);
             return paymentIntentRepository.findByIdAndMerchantId(route.paymentIntentId(), auth.getMerchantId())
                     .map(this::toResponse)
                     .orElseThrow(() -> new IllegalStateException(
@@ -141,7 +160,27 @@ public class PaymentIntentService {
         PaymentIntent saved = paymentIntentRepository.save(intent);
         shardRegistryRepository.updateIdempotencyStatus(
                 auth.getMerchantId(), req.idempotencyKey(), IdempotencyReservationStatus.COMPLETED);
+        PaymentIdempotencyRoute completedRoute = new PaymentIdempotencyRoute(
+                auth.getMerchantId(),
+                req.idempotencyKey(),
+                saved.getId(),
+                paymentShardId,
+                IdempotencyReservationStatus.COMPLETED);
+        cacheIdempotencyRouteAfterCommit(completedRoute);
         return toResponse(saved);
+    }
+
+    private void cacheIdempotencyRouteAfterCommit(PaymentIdempotencyRoute route) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            idempotencyCache.put(route);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                idempotencyCache.put(route);
+            }
+        });
     }
 
     @Transactional(readOnly = true)

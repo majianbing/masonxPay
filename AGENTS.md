@@ -52,6 +52,7 @@ Do not add `@Transactional` to methods with remote provider calls. Use short DB 
 - Keep existing architecture unless there is a clear reason to change it.
 - Keep every submodule as clean and simple as possible; when adding features, preserve clear ownership boundaries instead of turning one module into a catch-all.
 - Do not introduce new dependencies without explaining why.
+- When choosing infrastructure behavior for Redis, Kafka, database access, mapping, retries, rate limiting, or similar cross-cutting concerns, prefer mature industry-standard components over hand-rolled implementations unless there is a measured reason not to.
 - Avoid clever code; prefer readable, maintainable code.
 - Preserve backward compatibility unless explicitly requested.
 

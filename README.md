@@ -62,14 +62,14 @@ pay.masonx/
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
   - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
 - **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
-- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, row-level locks for financial state transitions, Kafka-backed outbox publication, Kafka webhook fan-out, and a Kafka-fed payment read projection
+- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, row-level locks for financial state transitions, Kafka-backed outbox publication, Kafka webhook fan-out, Kafka-fed payment read projection, and Redis hot-path optimization
 - **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
 - **Webhook delivery** — transactional outbox pattern, Kafka consumer fan-out in the Docker high-throughput profile, configurable endpoints with HMAC signing, exponential backoff retry
 - **Async read models** — Kafka projection worker maintains tenant-scoped payment read models with processed-event idempotency tracking
 - **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
 - **Merchant dashboard** — payments, refunds, routing rules, connectors, API keys, logs, members
 - **TypeScript SDKs** — server SDK (`@gateway/server`) and browser SDK (`@gateway/browser`)
-- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health / Kafka health, Prometheus alerting rules
+- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health / Kafka health, Redis fallback/hit counters, Prometheus alerting rules
 
 ---
 
@@ -80,6 +80,7 @@ pay.masonx/
 | Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
 | Database | PostgreSQL + Flyway migrations + ShardingSphere-JDBC logical payment shards |
 | Async events | Spring Kafka + Apache Kafka local broker + transactional outbox |
+| Hot path | Redis + Redisson for distributed rate limiting, idempotency route cache, and provider health hints |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square, Braintree |
 | Observability | Micrometer + Prometheus + Grafana + Kafka JMX exporter |
@@ -193,11 +194,17 @@ KAFKA_WEBHOOK_CONSUMER_GROUP_ID=masonxpay-webhook-worker
 KAFKA_PAYMENT_PROJECTION_ENABLED=true
 KAFKA_PAYMENT_PROJECTION_GROUP_ID=masonxpay-payment-projection
 PAYMENT_PROJECTION_BACKFILL_ENABLED=true
+REDIS_HOT_PATH_ENABLED=true
+REDIS_HOT_PATH_FAIL_OPEN=true
+REDIS_RATE_LIMIT_ENABLED=true
+REDIS_IDEMPOTENCY_CACHE_ENABLED=true
+REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true
 WEBHOOK_OUTBOX_POLLER_ENABLED=false
 ```
 
-The `local` Spring profile uses the same Kafka path with `localhost:9094`, so you can run Postgres and Kafka in Docker while starting the backend from Maven.
-Manual backend runs without the `local` profile keep `KAFKA_WEBHOOK_CONSUMER_ENABLED=false` and `WEBHOOK_OUTBOX_POLLER_ENABLED=true` unless explicitly overridden.
+The `local` Spring profile uses the same Kafka path with `localhost:9094` and Redis at `localhost:6379`, so you can run Postgres, Kafka, and Redis in Docker while starting the backend from Maven.
+Production can provide a managed Redis endpoint with `REDIS_URL`, for example `redis://host:6379` or `rediss://host:6380`; Docker can keep using `REDIS_HOST` and `REDIS_PORT`.
+Manual backend runs without the `local` profile keep Kafka consumers and Redis hot-path behavior disabled unless explicitly overridden.
 
 ---
 
@@ -230,6 +237,7 @@ The local Spring profile connects to Kafka through `localhost:9094`, enables Kaf
 KAFKA_OUTBOX_ENABLED=false KAFKA_WEBHOOK_CONSUMER_ENABLED=false \
 KAFKA_PAYMENT_PROJECTION_ENABLED=false \
 PAYMENT_PROJECTION_BACKFILL_ENABLED=false \
+REDIS_HOT_PATH_ENABLED=false \
 WEBHOOK_OUTBOX_POLLER_ENABLED=true mvn spring-boot:run
 ```
 

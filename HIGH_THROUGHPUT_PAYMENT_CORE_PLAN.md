@@ -273,10 +273,10 @@ Event/log lifecycle:
 
 ## Redis Usage
 
-Use Spring Data Redis for explicit, bounded use cases:
+Use Redisson and Spring Data Redis for explicit, bounded use cases:
 
 - idempotency hot cache backed by Postgres uniqueness
-- per-merchant/API key/IP rate limiting
+- Redisson-backed per-merchant/API key/IP rate limiting
 - provider health and circuit breaker hint cache
 - short-lived checkout/session data
 - duplicate suppression for async workers where DB verification still exists
@@ -417,11 +417,12 @@ Current H4 progress:
 
 ### Phase H5: Redis Hot Path
 
-- Add Redis dependency and local Docker Compose service.
-- Add Redis-backed rate limiting.
-- Add Redis idempotency fast path with Postgres verification.
-- Add provider health/routing cache.
-- Define fallback behavior for Redis outages.
+- Added Spring Data Redis, Redisson, and a local Docker Redis service.
+- Added `RedisRateLimitFilter` for API-key payment create/confirm limits using Redisson `RRateLimiter`. Redis is the enforcement counter, but outage behavior is explicit and fail-open by default.
+- Added `PaymentIdempotencyCache` for completed payment-create idempotency routes. It is a fast path only; misses and Redis failures fall back to the sharded Postgres idempotency registry. New routes are cached only after the Postgres transaction commits.
+- Added `RedisProviderHealthCache` so routing health hints can be shared across app nodes. The existing in-memory health map remains the fallback.
+- Added Redis hot-path metrics for rate-limit allow/block/fallback, idempotency hit/miss/fallback, and provider-health fallback.
+- Base profile keeps Redis disabled by default; Docker and the `local` profile enable it for the high-throughput profile.
 
 ### Phase H6: Dashboard Read Models
 

@@ -103,6 +103,21 @@ groups:
             The oldest failed projection event has been unresolved for
             {{ $value | humanizeDuration }}. Dashboard read models may be stale.
 
+      - alert: RedisHotPathFallback
+        expr: |
+          rate(payment_redis_rate_limit_fallback_total[5m])
+          + rate(payment_redis_idempotency_fallback_total[5m])
+          + rate(payment_redis_provider_health_fallback_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis hot path is falling back"
+          description: >
+            Redis-backed rate limiting, idempotency cache, or provider health cache
+            is using fallback behavior. Payment correctness is still backed by
+            Postgres, but latency and cross-node coordination may be degraded.
+
       - alert: KafkaUnderReplicatedPartitions
         expr: kafka_server_replicamanager_underreplicatedpartitions > 0
         for: 5m

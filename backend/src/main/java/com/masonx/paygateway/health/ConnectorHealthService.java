@@ -9,6 +9,7 @@ import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
 import com.masonx.paygateway.domain.projection.PaymentReadModelRepository;
 import com.masonx.paygateway.domain.projection.ProjectionEventStatus;
 import com.masonx.paygateway.domain.projection.ProjectionProcessedEventRepository;
+import com.masonx.paygateway.redis.RedisProviderHealthCache;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,6 +61,7 @@ public class ConnectorHealthService {
     private final PaymentReadModelRepository paymentReadModelRepository;
     private final ProjectionProcessedEventRepository projectionProcessedEventRepository;
     private final ProviderAccountRepository providerAccountRepository;
+    private final RedisProviderHealthCache   redisProviderHealthCache;
     private final MeterRegistry            meterRegistry;
 
     // In-memory cache: accountId (string) → success rate (0.0–1.0)
@@ -80,6 +83,7 @@ public class ConnectorHealthService {
                                   PaymentReadModelRepository paymentReadModelRepository,
                                   ProjectionProcessedEventRepository projectionProcessedEventRepository,
                                   ProviderAccountRepository providerAccountRepository,
+                                  RedisProviderHealthCache redisProviderHealthCache,
                                   MeterRegistry meterRegistry) {
         this.paymentRequestRepository  = paymentRequestRepository;
         this.paymentIntentRepository   = paymentIntentRepository;
@@ -87,6 +91,7 @@ public class ConnectorHealthService {
         this.paymentReadModelRepository = paymentReadModelRepository;
         this.projectionProcessedEventRepository = projectionProcessedEventRepository;
         this.providerAccountRepository = providerAccountRepository;
+        this.redisProviderHealthCache = redisProviderHealthCache;
         this.meterRegistry             = meterRegistry;
     }
 
@@ -146,6 +151,10 @@ public class ConnectorHealthService {
      * treated as healthy until proven otherwise.
      */
     public double getSuccessRate(UUID accountId) {
+        OptionalDouble cached = redisProviderHealthCache.get(accountId);
+        if (cached.isPresent()) {
+            return cached.getAsDouble();
+        }
         return successRates.getOrDefault(accountId.toString(), 1.0);
     }
 
@@ -166,6 +175,7 @@ public class ConnectorHealthService {
 
             String key = accountId.toString();
             successRates.put(key, rate);
+            redisProviderHealthCache.put(accountId, rate);
 
             ProviderAccount account = accountMap.get(accountId);
             String provider = account != null ? account.getProvider().name() : "unknown";
