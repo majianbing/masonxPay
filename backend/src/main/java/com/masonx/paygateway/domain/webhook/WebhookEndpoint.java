@@ -32,7 +32,7 @@ public class WebhookEndpoint {
     private WebhookEndpointStatus status = WebhookEndpointStatus.ACTIVE;
 
     @Column(nullable = false)
-    private String subscribedEvents = "payment_intent.succeeded,payment_intent.failed,payment_intent.canceled";
+    private String subscribedEvents = "payment_intent.succeeded,payment_intent.failed,payment_intent.canceled,refund.succeeded,refund.failed";
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();

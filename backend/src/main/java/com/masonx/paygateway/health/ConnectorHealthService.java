@@ -6,6 +6,9 @@ import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
+import com.masonx.paygateway.domain.projection.PaymentReadModelRepository;
+import com.masonx.paygateway.domain.projection.ProjectionEventStatus;
+import com.masonx.paygateway.domain.projection.ProjectionProcessedEventRepository;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -29,8 +32,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * Runs every 5 minutes and computes:
  *   1. Per-connector rolling 30-min success rate  → "connector.success.rate" gauge
  *      (tags: provider, account_id, label)
- *   2. Unprocessed outbox event count             → "payment.outbox.queue.depth" gauge
- *   3. PROCESSING intents older than 30 min       → "payment.stale.processing.count" gauge
+ *   2. Unprocessed webhook outbox event count     → "payment.outbox.queue.depth" gauge
+ *   3. Unpublished Kafka outbox event count       → "payment.kafka.outbox.queue.depth" gauge
+ *   4. Oldest unpublished Kafka outbox age        → "payment.kafka.outbox.oldest.age.seconds" gauge
+ *   5. PROCESSING intents older than 30 min       → "payment.stale.processing.count" gauge
  *
  * Results are cached in-memory between runs. Micrometer gauge registration is idempotent —
  * re-registering the same name + tags on subsequent runs is a no-op, so new connector
@@ -51,6 +56,8 @@ public class ConnectorHealthService {
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentIntentRepository  paymentIntentRepository;
     private final OutboxEventRepository    outboxEventRepository;
+    private final PaymentReadModelRepository paymentReadModelRepository;
+    private final ProjectionProcessedEventRepository projectionProcessedEventRepository;
     private final ProviderAccountRepository providerAccountRepository;
     private final MeterRegistry            meterRegistry;
 
@@ -59,17 +66,26 @@ public class ConnectorHealthService {
     private final ConcurrentHashMap<String, Double> successRates = new ConcurrentHashMap<>();
 
     // Scalar gauges updated atomically by the scheduled job
-    private final AtomicLong outboxQueueDepth    = new AtomicLong(0);
+    private final AtomicLong outboxQueueDepth = new AtomicLong(0);
+    private final AtomicLong kafkaOutboxQueueDepth = new AtomicLong(0);
+    private final AtomicLong kafkaOutboxOldestAgeSeconds = new AtomicLong(0);
     private final AtomicLong staleProcessingCount = new AtomicLong(0);
+    private final AtomicLong paymentReadModelCount = new AtomicLong(0);
+    private final AtomicLong projectionFailedCount = new AtomicLong(0);
+    private final AtomicLong projectionOldestFailedAgeSeconds = new AtomicLong(0);
 
     public ConnectorHealthService(PaymentRequestRepository paymentRequestRepository,
                                   PaymentIntentRepository paymentIntentRepository,
                                   OutboxEventRepository outboxEventRepository,
+                                  PaymentReadModelRepository paymentReadModelRepository,
+                                  ProjectionProcessedEventRepository projectionProcessedEventRepository,
                                   ProviderAccountRepository providerAccountRepository,
                                   MeterRegistry meterRegistry) {
         this.paymentRequestRepository  = paymentRequestRepository;
         this.paymentIntentRepository   = paymentIntentRepository;
         this.outboxEventRepository     = outboxEventRepository;
+        this.paymentReadModelRepository = paymentReadModelRepository;
+        this.projectionProcessedEventRepository = projectionProcessedEventRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.meterRegistry             = meterRegistry;
     }
@@ -81,8 +97,28 @@ public class ConnectorHealthService {
                 .description("Unprocessed outbox events pending webhook delivery")
                 .register(meterRegistry);
 
+        Gauge.builder("payment.kafka.outbox.queue.depth", kafkaOutboxQueueDepth, AtomicLong::get)
+                .description("Outbox events pending Kafka publication")
+                .register(meterRegistry);
+
+        Gauge.builder("payment.kafka.outbox.oldest.age.seconds", kafkaOutboxOldestAgeSeconds, AtomicLong::get)
+                .description("Age in seconds of the oldest outbox event pending Kafka publication")
+                .register(meterRegistry);
+
         Gauge.builder("payment.stale.processing.count", staleProcessingCount, AtomicLong::get)
                 .description("PROCESSING payment intents older than 30 minutes")
+                .register(meterRegistry);
+
+        Gauge.builder("payment.projection.read_model.count", paymentReadModelCount, AtomicLong::get)
+                .description("Rows in the payment read model projection")
+                .register(meterRegistry);
+
+        Gauge.builder("payment.projection.failed.count", projectionFailedCount, AtomicLong::get)
+                .description("Projection events recorded as failed")
+                .register(meterRegistry);
+
+        Gauge.builder("payment.projection.oldest_failed.age.seconds", projectionOldestFailedAgeSeconds, AtomicLong::get)
+                .description("Age in seconds of the oldest failed projection event")
                 .register(meterRegistry);
     }
 
@@ -92,8 +128,13 @@ public class ConnectorHealthService {
         try {
             refreshSuccessRates();
             outboxQueueDepth.set(outboxEventRepository.countByPublishedFalse());
+            kafkaOutboxQueueDepth.set(outboxEventRepository.countByKafkaPublishedFalse());
+            kafkaOutboxOldestAgeSeconds.set(oldestKafkaOutboxAgeSeconds());
             staleProcessingCount.set(paymentIntentRepository.countStaleProcessing(
                     Instant.now().minus(STALE_THRESHOLD)));
+            paymentReadModelCount.set(paymentReadModelRepository.count());
+            projectionFailedCount.set(projectionProcessedEventRepository.countByStatus(ProjectionEventStatus.FAILED));
+            projectionOldestFailedAgeSeconds.set(oldestFailedProjectionAgeSeconds());
         } catch (Exception e) {
             log.warn("ConnectorHealthService refresh failed: {}", e.getMessage());
         }
@@ -138,5 +179,19 @@ public class ConnectorHealthService {
                     .tag("label",      label)
                     .register(meterRegistry);
         }
+    }
+
+    private long oldestKafkaOutboxAgeSeconds() {
+        Instant now = Instant.now();
+        return outboxEventRepository.findFirstByKafkaPublishedFalseOrderByCreatedAtAsc()
+                .map(event -> Duration.between(event.getCreatedAt(), now).toSeconds())
+                .orElse(0L);
+    }
+
+    private long oldestFailedProjectionAgeSeconds() {
+        Instant now = Instant.now();
+        return projectionProcessedEventRepository.findFirstByStatusOrderByProcessedAtAsc(ProjectionEventStatus.FAILED)
+                .map(event -> Duration.between(event.getProcessedAt(), now).toSeconds())
+                .orElse(0L);
     }
 }

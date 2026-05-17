@@ -103,6 +103,23 @@ public class PaymentMetrics {
                 .increment();
     }
 
+    // ── payment.kafka.outbox.* ───────────────────────────────────────────────
+
+    public void recordKafkaOutboxPublished(String eventType) {
+        Counter.builder("payment.kafka.outbox.published")
+                .description("Number of outbox events successfully published to Kafka")
+                .tag("event_type", nullToUnknown(eventType))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordKafkaOutboxFailed() {
+        Counter.builder("payment.kafka.outbox.failed")
+                .description("Number of Kafka outbox publish failures")
+                .register(registry)
+                .increment();
+    }
+
     // ── payment.stale.resolved ────────────────────────────────────────────────
 
     public void recordStaleResolved(String resolvedStatus) {

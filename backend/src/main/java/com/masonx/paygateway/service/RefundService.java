@@ -1,5 +1,9 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
@@ -8,6 +12,8 @@ import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.RefundResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -17,10 +23,14 @@ import java.util.UUID;
 @Service
 public class RefundService {
 
+    private static final Logger log = LoggerFactory.getLogger(RefundService.class);
+
     private final PaymentIntentRepository paymentIntentRepository;
     private final RefundRepository refundRepository;
     private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
     private final PaymentMetrics metrics;
 
@@ -28,12 +38,16 @@ public class RefundService {
                          RefundRepository refundRepository,
                          PaymentProviderDispatcher dispatcher,
                          ProviderAccountService providerAccountService,
+                         OutboxEventRepository outboxEventRepository,
+                         ObjectMapper objectMapper,
                          PlatformTransactionManager txManager,
                          PaymentMetrics metrics) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
+        this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
         this.txTemplate = new TransactionTemplate(txManager);
         this.metrics = metrics;
     }
@@ -114,7 +128,26 @@ public class RefundService {
             refund.setStatus(r.success() ? RefundStatus.SUCCEEDED : RefundStatus.FAILED);
             refund.setProviderRefundId(r.providerRefundId());
             refund.setFailureReason(r.failureReason());
-            return RefundResponse.from(refundRepository.save(refund));
+            refund = refundRepository.save(refund);
+            RefundResponse response = RefundResponse.from(refund);
+            writeOutboxEvent(refund.getMerchantId(),
+                    r.success() ? "refund.succeeded" : "refund.failed",
+                    refund.getId(),
+                    response);
+            return response;
         });
+    }
+
+    private void writeOutboxEvent(UUID merchantId, String eventType, UUID resourceId,
+                                  RefundResponse payload) {
+        try {
+            String json = objectMapper.writeValueAsString(payload);
+            outboxEventRepository.save(new OutboxEvent(merchantId, eventType, resourceId, json));
+        } catch (JsonProcessingException e) {
+            // Refund outcome is already persisted. Do not roll back the financial state because
+            // a webhook/search side-effect payload could not be serialized.
+            log.warn("Failed to serialize outbox payload for event {} on refund {}: {}",
+                    eventType, resourceId, e.getMessage());
+        }
     }
 }

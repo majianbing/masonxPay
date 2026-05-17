@@ -18,6 +18,45 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── Kafka ──────────────────────────────────────────────────────────────────
+  kafka:
+    build:
+      context: ./monitor/kafka
+      dockerfile: Dockerfile
+      args:
+        KAFKA_IMAGE: apache/kafka:4.1.2
+        JMX_EXPORTER_VERSION: 1.0.1
+    image: masonxpay-kafka:local
+    hostname: kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:9092,PLAINTEXT_HOST://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OPTS: -javaagent:/opt/kafka/libs/jmx_prometheus_javaagent.jar=7071:/opt/kafka/config/kafka-jmx.yml
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9094:9094"
+      - "7071:7071"
+    healthcheck:
+      test: ["CMD-SHELL", "env -u KAFKA_OPTS /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
   backend:
     build:
@@ -26,6 +65,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -47,6 +88,17 @@ services:
       PAY_BASE_URL: ${PAY_BASE_URL:-http://localhost:3000}
       # High-throughput profile sharding
       PAYMENT_SHARD_COUNT: ${PAYMENT_SHARD_COUNT:-64}
+      # Kafka outbox publisher
+      KAFKA_OUTBOX_ENABLED: ${KAFKA_OUTBOX_ENABLED:-true}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_OUTBOX_TOPIC: ${KAFKA_OUTBOX_TOPIC:-payment.lifecycle.events}
+      KAFKA_OUTBOX_TOPIC_PARTITIONS: ${KAFKA_OUTBOX_TOPIC_PARTITIONS:-12}
+      KAFKA_WEBHOOK_CONSUMER_ENABLED: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:-true}
+      KAFKA_WEBHOOK_CONSUMER_GROUP_ID: ${KAFKA_WEBHOOK_CONSUMER_GROUP_ID:-masonxpay-webhook-worker}
+      KAFKA_PAYMENT_PROJECTION_ENABLED: ${KAFKA_PAYMENT_PROJECTION_ENABLED:-true}
+      KAFKA_PAYMENT_PROJECTION_GROUP_ID: ${KAFKA_PAYMENT_PROJECTION_GROUP_ID:-masonxpay-payment-projection}
+      PAYMENT_PROJECTION_BACKFILL_ENABLED: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:-true}
+      WEBHOOK_OUTBOX_POLLER_ENABLED: ${WEBHOOK_OUTBOX_POLLER_ENABLED:-false}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -115,4 +167,5 @@ services:
 
 volumes:
   postgres_data:
+  kafka_data:
   grafana_data:

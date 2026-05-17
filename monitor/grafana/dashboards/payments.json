@@ -400,6 +400,200 @@
           "legendFormat": "{{status}}"
         }
       ]
+    },
+
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Kafka",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "collapsed": false
+    },
+
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Kafka Broker Up",
+      "description": "Prometheus scrape health for Kafka JMX exporter.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "up{job='kafka-jmx'}",
+          "legendFormat": "Kafka"
+        }
+      ]
+    },
+
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Kafka Outbox Queue",
+      "description": "Outbox events waiting for Kafka publication.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "payment_kafka_outbox_queue_depth",
+          "legendFormat": "Queue"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Oldest Kafka Outbox Event",
+      "description": "Age of the oldest event waiting for Kafka publication.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 300 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "payment_kafka_outbox_oldest_age_seconds",
+          "legendFormat": "Oldest"
+        }
+      ]
+    },
+
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Under-Replicated Partitions",
+      "description": "Should be zero in local single-node mode.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "kafka_server_replicamanager_underreplicatedpartitions",
+          "legendFormat": "Under Replicated"
+        }
+      ]
+    },
+
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Kafka Outbox Publish Rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "lineWidth": 2 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_kafka_outbox_published_total[5m])) by (event_type)",
+          "legendFormat": "published {{event_type}}"
+        },
+        {
+          "expr": "rate(payment_kafka_outbox_failed_total[5m])",
+          "legendFormat": "failed"
+        }
+      ]
+    },
+
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Kafka Broker Throughput",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(kafka_server_brokertopicmetrics_bytesinpersec_total[5m])",
+          "legendFormat": "bytes in"
+        },
+        {
+          "expr": "rate(kafka_server_brokertopicmetrics_bytesoutpersec_total[5m])",
+          "legendFormat": "bytes out"
+        }
+      ]
     }
 
   ]

@@ -3,6 +3,8 @@ package com.masonx.paygateway.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.projection.PaymentReadModel;
+import com.masonx.paygateway.domain.projection.PaymentReadModelRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.web.dto.RefundResponse;
 import com.masonx.paygateway.service.RefundService;
@@ -13,6 +15,7 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -39,6 +42,7 @@ import java.util.UUID;
 public class DashboardPaymentController {
 
     private final PaymentIntentRepository paymentIntentRepository;
+    private final PaymentReadModelRepository paymentReadModelRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final RefundRepository refundRepository;
     private final RefundService refundService;
@@ -46,12 +50,14 @@ public class DashboardPaymentController {
     private final com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository;
 
     public DashboardPaymentController(PaymentIntentRepository paymentIntentRepository,
+                                      PaymentReadModelRepository paymentReadModelRepository,
                                       PaymentRequestRepository paymentRequestRepository,
                                       RefundRepository refundRepository,
                                       RefundService refundService,
                                       ObjectMapper objectMapper,
                                       com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository) {
         this.paymentIntentRepository = paymentIntentRepository;
+        this.paymentReadModelRepository = paymentReadModelRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.refundRepository = refundRepository;
         this.refundService = refundService;
@@ -70,20 +76,20 @@ public class DashboardPaymentController {
             @RequestParam(required = false) String labelSearch,
             @RequestParam(required = false) String dateFrom,
             @RequestParam(required = false) String dateTo,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+            @PageableDefault(size = 20, sort = "sourceCreatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Specification<PaymentIntent> spec = (root, query, cb) -> {
+        Specification<PaymentReadModel> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("merchantId"), merchantId));
 
             if (mode != null && !mode.isBlank())
-                predicates.add(cb.equal(root.get("mode"), ApiKeyMode.valueOf(mode.toUpperCase())));
+                predicates.add(cb.equal(root.get("mode"), mode.toUpperCase()));
             if (status != null && !status.isBlank())
-                predicates.add(cb.equal(root.get("status"), PaymentIntentStatus.valueOf(status.toUpperCase())));
+                predicates.add(cb.equal(root.get("status"), status.toUpperCase()));
             if (provider != null && !provider.isBlank())
-                predicates.add(cb.equal(root.get("resolvedProvider"), PaymentProvider.valueOf(provider.toUpperCase())));
+                predicates.add(cb.equal(root.get("resolvedProvider"), provider.toUpperCase()));
             if (search != null && !search.isBlank())
-                predicates.add(cb.like(root.get("id").as(String.class), search.toLowerCase() + "%"));
+                predicates.add(cb.like(cb.lower(root.get("searchText")), "%" + search.toLowerCase() + "%"));
             if (labelSearch != null && !labelSearch.isBlank()) {
                 Subquery<UUID> sub = query.subquery(UUID.class);
                 Root<ProviderAccount> pa = sub.from(ProviderAccount.class);
@@ -93,20 +99,20 @@ public class DashboardPaymentController {
                 predicates.add(cb.exists(sub));
             }
             if (dateFrom != null && !dateFrom.isBlank())
-                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"),
+                predicates.add(cb.greaterThanOrEqualTo(root.get("sourceCreatedAt"),
                         LocalDate.parse(dateFrom).atStartOfDay(ZoneOffset.UTC).toInstant()));
             if (dateTo != null && !dateTo.isBlank())
-                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"),
+                predicates.add(cb.lessThanOrEqualTo(root.get("sourceCreatedAt"),
                         LocalDate.parse(dateTo).atTime(23, 59, 59).toInstant(ZoneOffset.UTC)));
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
 
-        Page<PaymentIntent> page = paymentIntentRepository.findAll(spec, pageable);
+        Page<PaymentReadModel> page = paymentReadModelRepository.findAll(spec, projectionPageable(pageable));
 
         // Bulk-fetch connector account labels to avoid N+1
         Set<UUID> accountIds = page.stream()
-                .map(PaymentIntent::getConnectorAccountId)
+                .map(PaymentReadModel::getConnectorAccountId)
                 .filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
         Map<UUID, String> accountLabels = providerAccountRepository.findAllById(accountIds)
@@ -115,12 +121,54 @@ public class DashboardPaymentController {
                         ProviderAccount::getId,
                         ProviderAccount::getLabel));
 
-        return ResponseEntity.ok(page.map(intent -> {
-            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
-            String label = intent.getConnectorAccountId() != null
-                    ? accountLabels.get(intent.getConnectorAccountId()) : null;
-            return PaymentIntentResponse.from(intent, attempts, objectMapper, label);
-        }));
+        return ResponseEntity.ok(page.map(model -> toPaymentIntentResponse(model,
+                model.getConnectorAccountId() != null ? accountLabels.get(model.getConnectorAccountId()) : null)));
+    }
+
+    private PaymentIntentResponse toPaymentIntentResponse(PaymentReadModel model, String connectorAccountLabel) {
+        return new PaymentIntentResponse(
+                model.getPaymentIntentId(),
+                model.getMerchantId(),
+                model.getMode(),
+                model.getAmount(),
+                model.getCurrency(),
+                model.getStatus(),
+                model.getCaptureMethod(),
+                model.getResolvedProvider(),
+                model.getConnectorAccountId(),
+                connectorAccountLabel,
+                model.getProviderPaymentId(),
+                model.getIdempotencyKey(),
+                model.getOrderId(),
+                model.getDescription(),
+                model.getBillingEmail() != null
+                        ? new BillingDetails(null, null, model.getBillingEmail(), null, null)
+                        : null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                model.getSourceCreatedAt(),
+                model.getSourceUpdatedAt(),
+                List.of());
+    }
+
+    private Pageable projectionPageable(Pageable pageable) {
+        Sort mapped = Sort.by(pageable.getSort().stream()
+                .map(order -> new Sort.Order(order.getDirection(), projectionSortProperty(order.getProperty())))
+                .toList());
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), mapped);
+    }
+
+    private String projectionSortProperty(String property) {
+        return switch (property) {
+            case "createdAt" -> "sourceCreatedAt";
+            case "updatedAt" -> "sourceUpdatedAt";
+            case "id" -> "paymentIntentId";
+            default -> property;
+        };
     }
 
     @GetMapping("/{id}")

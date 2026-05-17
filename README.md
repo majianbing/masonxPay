@@ -36,9 +36,12 @@ pay.masonx/
 │   ├── server/            @gateway/server — Node.js / TypeScript server SDK
 │   └── browser/           @gateway/browser — Browser SDK source (TypeScript)
 ├── monitor/               Observability stack (Prometheus + Grafana)
+│   ├── kafka/
+│   │   ├── Dockerfile         Apache Kafka image with Prometheus JMX exporter
+│   │   └── kafka-jmx.yml      Kafka broker JMX metric rules
 │   ├── prometheus/
-│   │   ├── prometheus.yml     Scrape config (targets backend:8080/actuator/prometheus)
-│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queue depth, stale intents)
+│   │   ├── prometheus.yml     Scrape config (backend + Kafka JMX)
+│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queues, Kafka health)
 │   └── grafana/
 │       ├── provisioning/      Auto-wired datasource + dashboard loader
 │       └── dashboards/        payments.json — pre-built payments dashboard
@@ -59,13 +62,14 @@ pay.masonx/
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
   - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
 - **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
-- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, and row-level locks for financial state transitions
+- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, row-level locks for financial state transitions, Kafka-backed outbox publication, Kafka webhook fan-out, and a Kafka-fed payment read projection
 - **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
-- **Webhook delivery** — transactional outbox pattern, configurable endpoints with HMAC signing, exponential backoff retry
+- **Webhook delivery** — transactional outbox pattern, Kafka consumer fan-out in the Docker high-throughput profile, configurable endpoints with HMAC signing, exponential backoff retry
+- **Async read models** — Kafka projection worker maintains tenant-scoped payment read models with processed-event idempotency tracking
 - **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
 - **Merchant dashboard** — payments, refunds, routing rules, connectors, API keys, logs, members
 - **TypeScript SDKs** — server SDK (`@gateway/server`) and browser SDK (`@gateway/browser`)
-- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health, Prometheus alerting rules
+- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health / Kafka health, Prometheus alerting rules
 
 ---
 
@@ -75,9 +79,10 @@ pay.masonx/
 |-------|-----------|
 | Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
 | Database | PostgreSQL + Flyway migrations + ShardingSphere-JDBC logical payment shards |
+| Async events | Spring Kafka + Apache Kafka local broker + transactional outbox |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square, Braintree |
-| Observability | Micrometer + Prometheus + Grafana |
+| Observability | Micrometer + Prometheus + Grafana + Kafka JMX exporter |
 | Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | Browser SDK | Vanilla TypeScript, esbuild for bundling |
 | Server SDK | TypeScript, Node.js 18+ |
@@ -111,6 +116,7 @@ STRIPE_SECRET_KEY=sk_test_...
 All other values have safe defaults for local development.
 
 The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and backfills the local/demo logical payment shard tables automatically.
+It also enables Kafka webhook fan-out by default and disables the scheduled webhook outbox poller, so local Docker runs exercise the async-worker path.
 
 **2. Start the stack**
 
@@ -118,15 +124,16 @@ The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and 
 docker compose up --build
 ```
 
-This builds and starts five containers:
+This builds and starts six containers:
 
 | Container | URL | Description |
 |-----------|-----|-------------|
 | `dashboard` | http://localhost:3000 | Next.js merchant portal |
 | `backend` | http://localhost:8080 | Spring Boot API |
 | `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
-| `prometheus` | http://localhost:9090 | Metrics scraper (scrapes `/actuator/prometheus` every 15s) |
-| `grafana` | http://localhost:3001 | Payments dashboard — login: admin / admin |
+| `kafka` | localhost:9094 | Apache Kafka broker for outbox event publication |
+| `prometheus` | http://localhost:9090 | Metrics scraper (backend + Kafka JMX every 15s) |
+| `grafana` | http://localhost:3001 | Payments + Kafka dashboard — login: admin / admin |
 
 > **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
 
@@ -159,6 +166,39 @@ docker compose down -v
 docker compose up --build
 ```
 
+**Kafka quick checks**
+
+```bash
+# List local Kafka topics
+docker compose exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+# Verify Prometheus sees the Kafka JMX exporter
+curl 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22kafka-jmx%22%7D'
+
+# Inspect broker metrics directly
+curl http://localhost:7071/metrics
+
+# Verify the webhook worker consumer group
+docker compose exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group masonxpay-webhook-worker
+```
+
+Docker defaults:
+
+```bash
+KAFKA_WEBHOOK_CONSUMER_ENABLED=true
+KAFKA_WEBHOOK_CONSUMER_GROUP_ID=masonxpay-webhook-worker
+KAFKA_PAYMENT_PROJECTION_ENABLED=true
+KAFKA_PAYMENT_PROJECTION_GROUP_ID=masonxpay-payment-projection
+PAYMENT_PROJECTION_BACKFILL_ENABLED=true
+WEBHOOK_OUTBOX_POLLER_ENABLED=false
+```
+
+The `local` Spring profile uses the same Kafka path with `localhost:9094`, so you can run Postgres and Kafka in Docker while starting the backend from Maven.
+Manual backend runs without the `local` profile keep `KAFKA_WEBHOOK_CONSUMER_ENABLED=false` and `WEBHOOK_OUTBOX_POLLER_ENABLED=true` unless explicitly overridden.
+
 ---
 
 ### Option B — Local development (manual)
@@ -170,7 +210,7 @@ Use this if you want hot-reload or are working on only one part of the stack.
 **1. Database**
 
 ```bash
-createdb paygateway
+docker compose up -d postgres kafka
 ```
 
 Flyway runs migrations automatically on startup — no manual schema setup needed.
@@ -182,6 +222,15 @@ cd backend
 cp ../.env .env          # spring-dotenv loads .env from the working directory
 mvn spring-boot:run
 # API available at http://localhost:8012 (local profile default)
+```
+
+The local Spring profile connects to Kafka through `localhost:9094`, enables Kafka outbox publication, enables the webhook consumer, enables the payment projection consumer, and disables the scheduled webhook outbox poller. To run the backend without Kafka, override:
+
+```bash
+KAFKA_OUTBOX_ENABLED=false KAFKA_WEBHOOK_CONSUMER_ENABLED=false \
+KAFKA_PAYMENT_PROJECTION_ENABLED=false \
+PAYMENT_PROJECTION_BACKFILL_ENABLED=false \
+WEBHOOK_OUTBOX_POLLER_ENABLED=true mvn spring-boot:run
 ```
 
 Or set env vars directly:

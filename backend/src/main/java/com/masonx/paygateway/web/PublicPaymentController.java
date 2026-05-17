@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
-import com.masonx.paygateway.event.PaymentGatewayEvent;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
@@ -26,7 +27,6 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -47,7 +47,7 @@ public class PublicPaymentController {
     private final PaymentIntentRepository      paymentIntentRepository;
     private final PaymentRequestRepository     paymentRequestRepository;
     private final PaymentTokenService          paymentTokenService;
-    private final ApplicationEventPublisher    eventPublisher;
+    private final OutboxEventRepository        outboxEventRepository;
     private final ObjectMapper                 objectMapper;
     private final PaymentMetrics               metrics;
 
@@ -61,7 +61,7 @@ public class PublicPaymentController {
                                    PaymentIntentRepository paymentIntentRepository,
                                    PaymentRequestRepository paymentRequestRepository,
                                    PaymentTokenService paymentTokenService,
-                                   ApplicationEventPublisher eventPublisher,
+                                   OutboxEventRepository outboxEventRepository,
                                    ObjectMapper objectMapper,
                                    PaymentMetrics metrics) {
         this.paymentLinkRepository     = paymentLinkRepository;
@@ -71,7 +71,7 @@ public class PublicPaymentController {
         this.paymentIntentRepository   = paymentIntentRepository;
         this.paymentRequestRepository  = paymentRequestRepository;
         this.paymentTokenService       = paymentTokenService;
-        this.eventPublisher            = eventPublisher;
+        this.outboxEventRepository     = outboxEventRepository;
         this.objectMapper              = objectMapper;
         this.metrics                   = metrics;
     }
@@ -419,10 +419,10 @@ public class PublicPaymentController {
         try {
             PaymentIntentResponse payload = PaymentIntentResponse.from(intent, List.of(attempt), objectMapper, null);
             String json = objectMapper.writeValueAsString(payload);
-            eventPublisher.publishEvent(
-                    new PaymentGatewayEvent(this, intent.getMerchantId(), eventType, intent.getId(), json));
+            outboxEventRepository.save(new OutboxEvent(intent.getMerchantId(), eventType, intent.getId(), json));
         } catch (JsonProcessingException e) {
-            // non-critical — log and move on
+            log.warn("Failed to serialize outbox payload for event {} on public payment intent {}: {}",
+                    eventType, intent.getId(), e.getMessage());
         }
     }
 

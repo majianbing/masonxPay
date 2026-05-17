@@ -50,6 +50,7 @@ Do not add `@Transactional` to methods with remote provider calls. Use short DB 
 ### General
 - Prefer small, focused changes over large rewrites.
 - Keep existing architecture unless there is a clear reason to change it.
+- Keep every submodule as clean and simple as possible; when adding features, preserve clear ownership boundaries instead of turning one module into a catch-all.
 - Do not introduce new dependencies without explaining why.
 - Avoid clever code; prefer readable, maintainable code.
 - Preserve backward compatibility unless explicitly requested.
