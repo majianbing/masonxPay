@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 public class RedissonConfig {
 
     @Bean(destroyMethod = "shutdown")
-    public RedissonClient redissonClient(@Value("${spring.data.redis.url:}") String url,
+    public RedissonClient redissonClient(@Value("${REDIS_URL:}") String url,
                                          @Value("${spring.data.redis.host:localhost}") String host,
                                          @Value("${spring.data.redis.port:6379}") int port,
                                          @Value("${spring.data.redis.password:}") String password) {
