@@ -67,6 +67,12 @@ management:
     tags:
       application: masonxpay
       environment: preview
+    distribution:
+      percentiles-histogram:
+        payment.charge.latency: true
+        http.server.requests: true
+      slo:
+        payment.charge.latency: 25ms,50ms,100ms,250ms,500ms,1s,2s,5s
 
 app:
   cors:
@@ -133,17 +139,25 @@ app:
       enabled: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:true}
       ttl-seconds: ${REDIS_PROVIDER_HEALTH_CACHE_TTL_SECONDS:600}
 
+  provider-simulator:
+    enabled: ${PROVIDER_SIMULATOR_ENABLED:false}
+    base-latency-ms: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:25}
+    jitter-ms: ${PROVIDER_SIMULATOR_JITTER_MS:25}
+    failure-rate: ${PROVIDER_SIMULATOR_FAILURE_RATE:0.0}
+    timeout-rate: ${PROVIDER_SIMULATOR_TIMEOUT_RATE:0.0}
+    timeout-latency-ms: ${PROVIDER_SIMULATOR_TIMEOUT_LATENCY_MS:2000}
+
   sentinel:
     flow-rules:
       - resource: "POST:/api/v1/payment-intents"
         grade: QPS
-        count: 200
+        count: 460
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 3000
         limit-app: default
       - resource: "POST:/api/v1/payment-intents/{id}/confirm"
         grade: QPS
-        count: 100
+        count: 460
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 5000
         limit-app: default

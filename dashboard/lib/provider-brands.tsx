@@ -55,4 +55,14 @@ export const PROVIDER_BRAND: Record<string, { name: string; icon: React.ReactNod
     ),
     color: 'border-gray-900 bg-gray-900/5 text-gray-900',
   },
+  SIMULATOR: {
+    name: 'Mason Simulator',
+    icon: (
+      <svg viewBox="0 0 28 28" className="size-5" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#2563EB" />
+        <path d="M7 19V9h3l4 6 4-6h3v10h-2.4v-6.1L15 18h-2l-3.6-5.1V19H7Z" fill="#fff" />
+      </svg>
+    ),
+    color: 'border-blue-700 bg-blue-700/5 text-blue-700',
+  },
 };

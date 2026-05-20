@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 public record CreateProviderAccountRequest(
-        @NotNull  String provider,       // STRIPE | SQUARE | BRAINTREE | …
+        @NotNull  String provider,       // STRIPE | SQUARE | BRAINTREE | MOLLIE | SIMULATOR
         @NotBlank String mode,           // TEST | LIVE
         @NotBlank String label,
         boolean primary,
@@ -27,5 +27,8 @@ public record CreateProviderAccountRequest(
         String btPrivateKey,             // Braintree private key (server-side API auth, encrypted at rest)
 
         // ── Mollie ────────────────────────────────────────────────────────────
-        String mollieApiKey              // test_xxx or live_xxx — server-side only, encrypted at rest
+        String mollieApiKey,             // test_xxx or live_xxx — server-side only, encrypted at rest
+
+        // ── Mason Simulator ──────────────────────────────────────────────────
+        Double simulatorSuccessRatePercent // 0-100 synthetic PSP success rate. TEST-only, no secrets.
 ) {}

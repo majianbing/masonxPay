@@ -68,6 +68,14 @@ public class CredentialsCodec {
                 account.setProviderConfig(toJson(Map.of("clientKey", "mollie")));
                 account.setSecretKeyHint(hint(m.apiKey()));
             }
+            case SimulatorCredentials s -> {
+                account.setEncryptedCredentials(null);
+                account.setProviderConfig(toJson(Map.of(
+                        "clientKey", "mason-simulator",
+                        "successRate", Double.toString(s.successRate())
+                )));
+                account.setSecretKeyHint(null);
+            }
         }
     }
 
@@ -83,6 +91,9 @@ public class CredentialsCodec {
                     req.btMerchantId(), req.btPublicKey(), req.btPrivateKey(),
                     mode == ApiKeyMode.TEST);
             case MOLLIE -> new MollieCredentials(req.mollieApiKey(), mode == ApiKeyMode.TEST);
+            case SIMULATOR -> new SimulatorCredentials(
+                    mode == ApiKeyMode.TEST,
+                    percentToRate(req.simulatorSuccessRatePercent()));
             default -> throw new IllegalArgumentException("Unsupported provider: " + provider);
         };
     }
@@ -90,6 +101,14 @@ public class CredentialsCodec {
     // ── decode ────────────────────────────────────────────────────────────────
 
     public ProviderCredentials decode(ProviderAccount account) {
+        if (account.getProvider() == PaymentProvider.SIMULATOR) {
+            Map<String, String> config = account.getProviderConfig() != null
+                    ? fromJson(account.getProviderConfig())
+                    : Map.of();
+            return new SimulatorCredentials(
+                    account.getMode() == ApiKeyMode.TEST,
+                    parseRate(config.get("successRate"), 1.0));
+        }
         if (account.getEncryptedCredentials() != null) {
             Map<String, String> secrets = fromJson(
                     encryption.decrypt(account.getEncryptedCredentials()));
@@ -113,6 +132,7 @@ public class CredentialsCodec {
                         secrets.get("privateKey"),
                         sandbox);
                 case MOLLIE -> new MollieCredentials(secrets.get("apiKey"), sandbox);
+                case SIMULATOR -> new SimulatorCredentials(sandbox, 1.0);
                 default -> throw new IllegalStateException(
                         "No credential decoder for provider: " + account.getProvider());
             };
@@ -138,6 +158,7 @@ public class CredentialsCodec {
                 case SQUARE    -> config.get("applicationId");
                 case BRAINTREE -> config.get("merchantId");
                 case MOLLIE    -> config.get("clientKey"); // "mollie" sentinel
+                case SIMULATOR -> config.get("clientKey");
                 default        -> null;
             };
         }
@@ -165,6 +186,21 @@ public class CredentialsCodec {
     private String hint(String value) {
         if (value == null || value.length() < 4) return value;
         return value.substring(value.length() - 4);
+    }
+
+    private double percentToRate(Double percent) {
+        if (percent == null || Double.isNaN(percent)) return 1.0;
+        return Math.max(0.0, Math.min(100.0, percent)) / 100.0;
+    }
+
+    private double parseRate(String value, double fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try {
+            double parsed = Double.parseDouble(value);
+            return Math.max(0.0, Math.min(1.0, parsed));
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     private String toJson(Map<String, String> map) {

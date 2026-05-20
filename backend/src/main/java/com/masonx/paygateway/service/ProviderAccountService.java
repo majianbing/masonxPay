@@ -5,6 +5,7 @@ import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.web.dto.CreateProviderAccountRequest;
@@ -23,10 +24,14 @@ public class ProviderAccountService {
 
     private final ProviderAccountRepository repo;
     private final CredentialsCodec codec;
+    private final ProviderSimulatorProperties simulatorProperties;
 
-    public ProviderAccountService(ProviderAccountRepository repo, CredentialsCodec codec) {
+    public ProviderAccountService(ProviderAccountRepository repo,
+                                  CredentialsCodec codec,
+                                  ProviderSimulatorProperties simulatorProperties) {
         this.repo = repo;
         this.codec = codec;
+        this.simulatorProperties = simulatorProperties;
     }
 
     @Transactional(readOnly = true)
@@ -40,6 +45,7 @@ public class ProviderAccountService {
     public ProviderAccountResponse create(UUID merchantId, CreateProviderAccountRequest req) {
         PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
         ApiKeyMode mode = ApiKeyMode.valueOf(req.mode().toUpperCase());
+        validateProviderMode(provider, mode);
 
         if (req.primary()) {
             repo.clearPrimaryForProvider(merchantId, provider, mode);
@@ -128,5 +134,17 @@ public class ProviderAccountService {
     private ProviderAccount loadOwned(UUID merchantId, UUID accountId) {
         return repo.findByIdAndMerchantId(accountId, merchantId)
                 .orElseThrow(() -> new IllegalArgumentException("Connector not found"));
+    }
+
+    private void validateProviderMode(PaymentProvider provider, ApiKeyMode mode) {
+        if (provider != PaymentProvider.SIMULATOR) {
+            return;
+        }
+        if (!simulatorProperties.isEnabled()) {
+            throw new IllegalStateException("Mason Simulator provider is disabled");
+        }
+        if (mode != ApiKeyMode.TEST) {
+            throw new IllegalArgumentException("Mason Simulator provider is only available in TEST mode");
+        }
     }
 }

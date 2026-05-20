@@ -2,59 +2,104 @@
   "uid": "masonxpay-payments",
   "title": "MasonXPay — Payments",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "timepicker": {},
-  "templating": { "list": [] },
-  "annotations": { "list": [] },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
   "links": [],
   "panels": [
-
     {
       "id": 1,
       "type": "row",
       "title": "Overview",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false
     },
-
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Payment Volume (confirmations/s)",
-      "description": "Rate of payment intents reaching a terminal state after confirmation.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Payment Volume",
+      "description": "Confirmed payment intents by provider and status. Uses total counters so manual/local tests remain visible after the request burst.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "sum(rate(payment_intent_confirmed_total[2m])) by (provider, status)",
+          "expr": "sum(payment_intent_confirmed_total) by (provider, status) or on() vector(0)",
           "legendFormat": "{{provider}} / {{status}}"
         }
       ]
     },
-
     {
       "id": 3,
       "type": "timeseries",
       "title": "Charge Latency p50 / p95 (by provider)",
       "description": "Wall-clock time of individual charge calls to each provider.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": []
       },
       "targets": [
@@ -68,16 +113,27 @@
         }
       ]
     },
-
     {
       "id": 4,
       "type": "stat",
-      "title": "Overall Success Rate (last 30 min)",
-      "description": "Fraction of confirmed intents that succeeded.",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Overall Success Rate",
+      "description": "Current success ratio from confirmed-intent counters. Connector health panels still show rolling 30-minute account health.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "orientation": "auto",
         "colorMode": "background",
         "graphMode": "none",
@@ -89,9 +145,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",    "value": null },
-              { "color": "yellow", "value": 0.80 },
-              { "color": "green",  "value": 0.95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           }
         },
@@ -99,21 +164,32 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(payment_intent_confirmed_total{status='SUCCEEDED'}[30m])) / sum(rate(payment_intent_confirmed_total[30m]))",
+          "expr": "(sum(payment_intent_confirmed_total{status=\"SUCCEEDED\"}) / clamp_min(sum(payment_intent_confirmed_total), 1)) or vector(0)",
           "legendFormat": "Success Rate"
         }
       ]
     },
-
     {
       "id": 5,
       "type": "stat",
       "title": "Failover Events (last 1h)",
       "description": "Number of times the retry loop moved to a secondary connector.",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "area"
       },
@@ -123,9 +199,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red",    "value": 20 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
             ]
           }
         },
@@ -133,71 +218,117 @@
       },
       "targets": [
         {
-          "expr": "increase(payment_intent_failover_total[1h])",
+          "expr": "sum(increase(payment_intent_failover_total[1h])) or vector(0)",
           "legendFormat": "Failovers"
         }
       ]
     },
-
     {
       "id": 6,
       "type": "stat",
       "title": "Refunds Initiated (last 1h)",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
         "graphMode": "area"
       },
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "increase(payment_refund_initiated_total[1h])",
+          "expr": "sum(increase(payment_refund_initiated_total[1h])) or vector(0)",
           "legendFormat": "Refunds"
         }
       ]
     },
-
     {
       "id": 7,
       "type": "stat",
       "title": "Manual Captures (last 1h)",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
         "graphMode": "area"
       },
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "increase(payment_capture_attempted_total[1h])",
+          "expr": "sum(increase(payment_capture_attempted_total[1h])) or vector(0)",
           "legendFormat": "Captures"
         }
       ]
     },
-
     {
       "id": 8,
       "type": "timeseries",
       "title": "Failure Breakdown by Code",
       "description": "Rate of failed intents broken down by provider failure code.",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ]
+        }
       },
       "fieldConfig": {
-        "defaults": { "unit": "reqps", "custom": { "lineWidth": 1 } },
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1
+          }
+        },
         "overrides": []
       },
       "targets": [
@@ -207,24 +338,39 @@
         }
       ]
     },
-
     {
       "id": 9,
       "type": "row",
       "title": "Connector Health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
       "collapsed": false
     },
-
     {
       "id": 10,
       "type": "bargauge",
       "title": "30-min Success Rate by Connector",
       "description": "Rolling 30-minute success rate per connector account. Updated every 5 minutes by ConnectorHealthService.",
-      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "orientation": "horizontal",
         "displayMode": "gradient",
         "showUnfilled": true
@@ -237,9 +383,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",    "value": null },
-              { "color": "yellow", "value": 0.80 },
-              { "color": "green",  "value": 0.95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           }
         },
@@ -247,68 +402,109 @@
       },
       "targets": [
         {
-          "expr": "connector_success_rate",
+          "expr": "connector_success_rate or vector(1)",
           "legendFormat": "{{label}} ({{provider}})"
         }
       ]
     },
-
     {
       "id": 11,
       "type": "timeseries",
       "title": "Connector Success Rate Trend",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "min": 0,
           "max": 1,
-          "custom": { "lineWidth": 2 }
+          "custom": {
+            "lineWidth": 2
+          }
         },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "connector_success_rate",
+          "expr": "connector_success_rate or vector(1)",
           "legendFormat": "{{label}} ({{provider}})"
         }
       ]
     },
-
     {
       "id": 12,
       "type": "row",
       "title": "Operations",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
       "collapsed": false
     },
-
     {
       "id": 13,
       "type": "timeseries",
       "title": "Webhook Outbox Queue Depth",
       "description": "Unprocessed outbox events. Spikes are normal during bursts; sustained growth indicates a delivery problem.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "lineWidth": 2 },
+          "custom": {
+            "lineWidth": 2
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 20 },
-              { "color": "red",    "value": 50 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
             ]
           }
         },
@@ -316,33 +512,56 @@
       },
       "targets": [
         {
-          "expr": "payment_outbox_queue_depth",
+          "expr": "payment_outbox_queue_depth or vector(0)",
           "legendFormat": "Queue Depth"
         }
       ]
     },
-
     {
       "id": 14,
       "type": "timeseries",
       "title": "Stale PROCESSING Intents",
       "description": "Payment intents stuck in PROCESSING for more than 30 minutes. Should be near zero; the reconciliation job resolves these every 5 minutes.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "lineWidth": 2 },
+          "custom": {
+            "lineWidth": 2
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red",    "value": 10 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
             ]
           }
         },
@@ -350,75 +569,116 @@
       },
       "targets": [
         {
-          "expr": "payment_stale_processing_count",
+          "expr": "payment_stale_processing_count or vector(0)",
           "legendFormat": "Stale Intents"
         }
       ]
     },
-
     {
       "id": 15,
       "type": "stat",
       "title": "Webhook Deliveries Processed (last 1h)",
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 39 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
         "graphMode": "area"
       },
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "increase(payment_webhook_outbox_processed_total[1h])",
+          "expr": "sum(increase(payment_webhook_outbox_processed_total[1h])) or vector(0)",
           "legendFormat": "Deliveries"
         }
       ]
     },
-
     {
       "id": 16,
       "type": "stat",
       "title": "Stale Intents Resolved (last 1h)",
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 39 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
         "graphMode": "area"
       },
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "increase(payment_stale_resolved_total[1h])",
+          "expr": "sum(increase(payment_stale_resolved_total[1h])) or vector(0)",
           "legendFormat": "{{status}}"
         }
       ]
     },
-
     {
       "id": 17,
       "type": "row",
       "title": "Kafka",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
       "collapsed": false
     },
-
     {
       "id": 18,
       "type": "stat",
       "title": "Kafka Broker Up",
       "description": "Prometheus scrape health for Kafka JMX exporter.",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 44
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "none"
       },
@@ -428,8 +688,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           }
         },
@@ -437,21 +703,32 @@
       },
       "targets": [
         {
-          "expr": "up{job='kafka-jmx'}",
+          "expr": "up{job='kafka-jmx'} or vector(0)",
           "legendFormat": "Kafka"
         }
       ]
     },
-
     {
       "id": 19,
       "type": "stat",
       "title": "Kafka Outbox Queue",
       "description": "Outbox events waiting for Kafka publication.",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 44
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "area"
       },
@@ -461,9 +738,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 20 },
-              { "color": "red", "value": 50 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
             ]
           }
         },
@@ -471,21 +757,32 @@
       },
       "targets": [
         {
-          "expr": "payment_kafka_outbox_queue_depth",
+          "expr": "payment_kafka_outbox_queue_depth or vector(0)",
           "legendFormat": "Queue"
         }
       ]
     },
-
     {
       "id": 20,
       "type": "stat",
       "title": "Oldest Kafka Outbox Event",
       "description": "Age of the oldest event waiting for Kafka publication.",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 44
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "area"
       },
@@ -495,9 +792,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 60 },
-              { "color": "red", "value": 300 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
             ]
           }
         },
@@ -505,21 +811,32 @@
       },
       "targets": [
         {
-          "expr": "payment_kafka_outbox_oldest_age_seconds",
+          "expr": "payment_kafka_outbox_oldest_age_seconds or vector(0)",
           "legendFormat": "Oldest"
         }
       ]
     },
-
     {
       "id": 21,
       "type": "stat",
       "title": "Under-Replicated Partitions",
       "description": "Should be zero in local single-node mode.",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 44 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 44
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "background",
         "graphMode": "none"
       },
@@ -529,8 +846,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
@@ -538,63 +861,98 @@
       },
       "targets": [
         {
-          "expr": "kafka_server_replicamanager_underreplicatedpartitions",
+          "expr": "kafka_server_replicamanager_underreplicatedpartitions or vector(0)",
           "legendFormat": "Under Replicated"
         }
       ]
     },
-
     {
       "id": 22,
       "type": "timeseries",
       "title": "Kafka Outbox Publish Rate",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "sum(rate(payment_kafka_outbox_published_total[5m])) by (event_type)",
+          "expr": "sum(rate(payment_kafka_outbox_published_total[5m])) by (event_type) or on() vector(0)",
           "legendFormat": "published {{event_type}}"
         },
         {
-          "expr": "rate(payment_kafka_outbox_failed_total[5m])",
+          "expr": "sum(rate(payment_kafka_outbox_failed_total[5m])) or vector(0)",
           "legendFormat": "failed"
         }
-      ]
+      ],
+      "description": "Kafka outbox publish/failure rate. Falls back to zero when Kafka is optional or no lifecycle event was published in the current range."
     },
-
     {
       "id": 23,
       "type": "timeseries",
       "title": "Kafka Broker Throughput",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "fieldConfig": {
-        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": []
       },
       "targets": [
         {
-          "expr": "rate(kafka_server_brokertopicmetrics_bytesinpersec_total[5m])",
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesinpersec_total[5m])) or max(kafka_producer_incoming_byte_rate) or vector(0)",
           "legendFormat": "bytes in"
         },
         {
-          "expr": "rate(kafka_server_brokertopicmetrics_bytesoutpersec_total[5m])",
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesoutpersec_total[5m])) or max(kafka_producer_outgoing_byte_rate) or vector(0)",
           "legendFormat": "bytes out"
         }
-      ]
+      ],
+      "description": "Kafka broker byte throughput from JMX exporter. Uses broker counters plus producer client byte-rate fallback for local sparse traffic."
     }
-
   ]
 }

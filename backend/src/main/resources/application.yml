@@ -77,6 +77,12 @@ management:
   metrics:
     tags:
       application: masonxpay
+    distribution:
+      percentiles-histogram:
+        payment.charge.latency: true
+        http.server.requests: true
+      slo:
+        payment.charge.latency: 25ms,50ms,100ms,250ms,500ms,1s,2s,5s
 
 app:
   cors:
@@ -141,6 +147,14 @@ app:
       enabled: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:true}
       ttl-seconds: ${REDIS_PROVIDER_HEALTH_CACHE_TTL_SECONDS:600}
 
+  provider-simulator:
+    enabled: ${PROVIDER_SIMULATOR_ENABLED:false}
+    base-latency-ms: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:25}
+    jitter-ms: ${PROVIDER_SIMULATOR_JITTER_MS:25}
+    failure-rate: ${PROVIDER_SIMULATOR_FAILURE_RATE:0.0}
+    timeout-rate: ${PROVIDER_SIMULATOR_TIMEOUT_RATE:0.0}
+    timeout-latency-ms: ${PROVIDER_SIMULATOR_TIMEOUT_LATENCY_MS:2000}
+
   # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
   # Rules are loaded at startup from these properties.
   # To migrate to Nacos: add sentinel-datasource-nacos, push these values as
@@ -152,7 +166,7 @@ app:
       # 60 req/min per merchant = 1/s; requests wait up to 5s before rejection
       - resource: "POST:/api/v1/payment-intents"
         grade: QPS
-        count: 200
+        count: 1000
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 5000
         limit-app: default
@@ -160,7 +174,7 @@ app:
       # Confirm (actual charge) — tighter limit, longer queue tolerance
       - resource: "POST:/api/v1/payment-intents/{id}/confirm"
         grade: QPS
-        count: 200
+        count: 1000
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 8000
         limit-app: default

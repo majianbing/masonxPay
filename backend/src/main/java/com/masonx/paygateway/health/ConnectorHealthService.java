@@ -162,10 +162,14 @@ public class ConnectorHealthService {
         Instant since = Instant.now().minus(ROLLING_WINDOW);
         List<Object[]> rows = paymentRequestRepository.computeConnectorSuccessRates(since);
 
-        // Build a lookup of accountId → ProviderAccount for tagging gauges
+        // Register every active account with a healthy default so new simulator
+        // or real PSP connectors appear before they have rolling payment data.
         Map<UUID, ProviderAccount> accountMap = new ConcurrentHashMap<>();
         providerAccountRepository.findAllByStatus(ProviderAccountStatus.ACTIVE)
-                .forEach(a -> accountMap.put(a.getId(), a));
+                .forEach(account -> {
+                    accountMap.put(account.getId(), account);
+                    registerSuccessRateGauge(account.getId(), account, 1.0);
+                });
 
         for (Object[] row : rows) {
             UUID accountId = (UUID) row[0];
@@ -173,22 +177,25 @@ public class ConnectorHealthService {
             long succeeded = ((Number) row[2]).longValue();
             double rate    = total > 0 ? (double) succeeded / total : 1.0;
 
-            String key = accountId.toString();
-            successRates.put(key, rate);
-            redisProviderHealthCache.put(accountId, rate);
-
-            ProviderAccount account = accountMap.get(accountId);
-            String provider = account != null ? account.getProvider().name() : "unknown";
-            String label    = account != null ? account.getLabel()           : accountId.toString();
-
-            // Idempotent — Micrometer returns the existing meter if name+tags already registered
-            Gauge.builder("connector.success.rate", successRates, m -> m.getOrDefault(key, 1.0))
-                    .description("Rolling 30-min payment success rate for a connector account")
-                    .tag("provider",   provider)
-                    .tag("account_id", key)
-                    .tag("label",      label)
-                    .register(meterRegistry);
+            registerSuccessRateGauge(accountId, accountMap.get(accountId), rate);
         }
+    }
+
+    private void registerSuccessRateGauge(UUID accountId, ProviderAccount account, double rate) {
+        String key = accountId.toString();
+        successRates.put(key, rate);
+        redisProviderHealthCache.put(accountId, rate);
+
+        String provider = account != null ? account.getProvider().name() : "unknown";
+        String label    = account != null ? account.getLabel()           : key;
+
+        // Idempotent — Micrometer returns the existing meter if name+tags already registered
+        Gauge.builder("connector.success.rate", successRates, m -> m.getOrDefault(key, 1.0))
+                .description("Rolling 30-min payment success rate for a connector account")
+                .tag("provider",   provider)
+                .tag("account_id", key)
+                .tag("label",      label)
+                .register(meterRegistry);
     }
 
     private long oldestKafkaOutboxAgeSeconds() {

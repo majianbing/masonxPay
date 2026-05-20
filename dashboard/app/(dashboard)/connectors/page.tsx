@@ -49,8 +49,9 @@ interface ProviderAccount {
   createdAt: string;
 }
 
-const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE'] as const;
+const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'SIMULATOR'] as const;
 type Provider = typeof PROVIDERS[number];
+const SIMULATOR_PROVIDER_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER === 'true';
 
 const PROVIDER_META: Record<Provider, {
   label: string;
@@ -89,12 +90,19 @@ const PROVIDER_META: Record<Provider, {
     methods: ['iDEAL', 'Cards', 'Klarna', 'Bancontact', 'PayPal'],
     docsUrl: 'https://docs.mollie.com',
   },
+  SIMULATOR: {
+    label: 'Mason Simulator',
+    tagline: 'Synthetic PSP for benchmark and preview testing',
+    description: 'TEST-only fake provider that exercises routing, confirm, capture, refund, and outbox flows without calling external PSP sandboxes.',
+    methods: ['Cards', 'Synthetic latency', 'Synthetic failures'],
+    docsUrl: '/docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md',
+  },
 };
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE'] as const),
+  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'SIMULATOR'] as const),
   mode: z.enum(['TEST', 'LIVE']),
   label: z.string().min(1, 'Label required'),
   primary: z.boolean(),
@@ -109,6 +117,8 @@ const createSchema = z.object({
   btPrivateKey: z.string().optional(),
   // Mollie
   mollieApiKey: z.string().optional(),
+  // Mason Simulator
+  simulatorSuccessRatePercent: z.coerce.number().min(0).max(100).default(100),
   // Phase 3.5: fee configuration
   fixedFeeCents: z.coerce.number().int().min(0).default(0),
   rateBps: z.coerce.number().int().min(0).default(0),
@@ -128,6 +138,9 @@ const createSchema = z.object({
   }
   if (data.provider === 'MOLLIE') {
     if (!data.mollieApiKey) ctx.addIssue({ code: 'custom', path: ['mollieApiKey'], message: 'API key required' });
+  }
+  if (data.provider === 'SIMULATOR' && data.mode !== 'TEST') {
+    ctx.addIssue({ code: 'custom', path: ['provider'], message: 'Mason Simulator is only available in TEST mode' });
   }
 });
 type CreateForm = z.infer<typeof createSchema>;
@@ -328,7 +341,13 @@ export default function ConnectorsPage() {
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<CreateForm>({
     resolver: zodResolver(createSchema) as any,
-    defaultValues: { provider: 'STRIPE', mode: mode as 'TEST' | 'LIVE', primary: true, weight: 1 },
+    defaultValues: {
+      provider: 'STRIPE',
+      mode: mode as 'TEST' | 'LIVE',
+      primary: true,
+      weight: 1,
+      simulatorSuccessRatePercent: 100,
+    },
   });
 
   const createMutation = useMutation({
@@ -391,7 +410,7 @@ export default function ConnectorsPage() {
   function openDialog() {
     setDialogStep('select');
     setSelectedProvider('STRIPE');
-    reset({ provider: 'STRIPE', mode: mode as 'TEST' | 'LIVE', primary: true, weight: 1 });
+    reset({ provider: 'STRIPE', mode: mode as 'TEST' | 'LIVE', primary: true, weight: 1, simulatorSuccessRatePercent: 100 });
     setCreateOpen(true);
   }
 
@@ -406,6 +425,9 @@ export default function ConnectorsPage() {
   }
 
   const currentMode = mode as 'TEST' | 'LIVE';
+  const selectableProviders = currentMode === 'TEST'
+    ? PROVIDERS.filter((provider) => provider !== 'SIMULATOR' || SIMULATOR_PROVIDER_ENABLED)
+    : PROVIDERS.filter((provider) => provider !== 'SIMULATOR');
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -414,7 +436,7 @@ export default function ConnectorsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Connectors</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Connect your own payment provider accounts. Credentials are encrypted at rest with AES-256.
+            Connect payment provider accounts. Real provider credentials are encrypted at rest with AES-256.
           </p>
         </div>
         <Button onClick={openDialog}>
@@ -428,7 +450,7 @@ export default function ConnectorsPage() {
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground text-sm">No connectors yet.</p>
             <p className="text-muted-foreground text-sm mt-1">
-              Add a Stripe, Square, or Braintree account to start processing payments.
+              Add a provider account to start processing payments.
             </p>
             <Button className="mt-4" onClick={openDialog}>
               <Plus className="size-4 mr-1" /> Add Connector
@@ -496,7 +518,7 @@ export default function ConnectorsPage() {
             </DialogHeader>
 
             <div className="flex flex-col gap-3 py-2">
-              {PROVIDERS.map((p) => (
+                  {selectableProviders.map((p) => (
                 <ProviderPickerCard
                   key={p}
                   provider={p}
@@ -635,6 +657,33 @@ export default function ConnectorsPage() {
                   <p className="text-xs text-muted-foreground">
                     Found in Mollie Dashboard → Developers → API keys. AES-256 encrypted at rest.
                   </p>
+                </div>
+              )}
+
+              {/* ── Mason Simulator fields ── */}
+              {selectedProvider === 'SIMULATOR' && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm text-blue-900 space-y-3">
+                  <p>
+                    Mason Simulator has no external credentials. It is TEST-only and uses backend benchmark
+                    settings for latency and timeouts.
+                  </p>
+                  <div className="space-y-1">
+                    <Label className="text-blue-950">Success Rate <span className="text-blue-700">(%)</span></Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      placeholder="95"
+                      {...register('simulatorSuccessRatePercent')}
+                    />
+                    {errors.simulatorSuccessRatePercent && (
+                      <p className="text-xs text-red-600">{errors.simulatorSuccessRatePercent.message}</p>
+                    )}
+                    <p className="text-xs text-blue-800">
+                      Use values below 100 to generate synthetic PSP declines for routing, alerting, and dashboard tests.
+                    </p>
+                  </div>
                 </div>
               )}
 

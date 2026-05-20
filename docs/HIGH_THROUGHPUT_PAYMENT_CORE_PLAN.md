@@ -448,6 +448,12 @@ Current H4 progress:
   - OpenSearch lagging
   - provider timeout/retry storm
 
+Current H7 progress:
+
+- Updated `bench/k6/script.js` to cover create, idempotency replay, get, dashboard list, confirm, and refund flows.
+- Added the TEST-only Mason Simulator provider as a normal connector/provider adapter so confirm/refund benchmarks exercise routing, provider credential loading, retry orchestration, payment request writes, state transitions, refund guards, and outbox writes without calling external PSP sandboxes.
+- Updated the benchmark overlay to run in default Postgres-only mode or optional Kafka/Redis `infra` mode, with `RUN_MODE` labels for comparison.
+
 ### Related Track: AI-Assisted Operations Control Plane
 
 The AI-assisted control plane is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.

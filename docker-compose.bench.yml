@@ -2,11 +2,15 @@
 #
 # ── Quick start ──────────────────────────────────────────────────────────────
 #
-#   # 1. Start the constrained stack (replaces docker compose up)
+#   # 1. Start the constrained Postgres-only stack (replaces docker compose up)
 #   docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build
 #
 #   # 2. Run the benchmark (k6 exits when done; results printed to stdout)
 #   docker compose -f docker-compose.yml -f docker-compose.bench.yml --profile bench run --rm k6
+#
+#   # Optional: run the same benchmark against Kafka/Redis preview-style infra
+#   docker compose -f docker-compose.yml -f docker-compose.bench.yml --profile infra up -d --build
+#   RUN_MODE=infra docker compose -f docker-compose.yml -f docker-compose.bench.yml --profile bench --profile infra run --rm k6
 #
 # ── Instance-size profiles ───────────────────────────────────────────────────
 #
@@ -54,13 +58,40 @@ services:
           memory: ${BENCH_DB_MEM:-512m}
 
   backend:
+    environment:
+      PROVIDER_SIMULATOR_ENABLED: ${PROVIDER_SIMULATOR_ENABLED:-true}
+      PROVIDER_SIMULATOR_BASE_LATENCY_MS: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:-25}
+      PROVIDER_SIMULATOR_JITTER_MS: ${PROVIDER_SIMULATOR_JITTER_MS:-25}
+      PROVIDER_SIMULATOR_FAILURE_RATE: ${PROVIDER_SIMULATOR_FAILURE_RATE:-0.0}
+      PROVIDER_SIMULATOR_TIMEOUT_RATE: ${PROVIDER_SIMULATOR_TIMEOUT_RATE:-0.0}
+      # Keep rate limiting out of the default benchmark signal. To benchmark
+      # limiter behavior explicitly, override these values lower at runtime.
+      REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW: ${BENCH_REDIS_CREATE_LIMIT:-100000}
+      REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW: ${BENCH_REDIS_CONFIRM_LIMIT:-100000}
     deploy:
       resources:
         limits:
           cpus: '${BENCH_BACKEND_CPU:-1.0}'
           memory: ${BENCH_BACKEND_MEM:-1g}
 
+  kafka:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_KAFKA_CPU:-0.75}'
+          memory: ${BENCH_KAFKA_MEM:-1g}
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_REDIS_CPU:-0.25}'
+          memory: ${BENCH_REDIS_MEM:-256m}
+
   dashboard:
+    build:
+      args:
+        NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER: ${NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER:-true}
     deploy:
       resources:
         limits:
@@ -114,9 +145,12 @@ services:
       - ./bench/results:/results
     environment:
       BASE_URL: ${BASE_URL:-http://backend:8080}
+      RUN_MODE: ${RUN_MODE:-postgres_only}
+      SIMULATOR_SUCCESS_RATE_PERCENT: ${SIMULATOR_SUCCESS_RATE_PERCENT:-100}
       # Push k6 metrics into Prometheus so the Grafana bench dashboard has live data.
-      # Classic histograms (default) — no --enable-feature=native-histograms needed.
       K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      # Export trend stats as plain Prometheus series such as k6_http_req_duration_p95.
+      K6_PROMETHEUS_RW_TREND_STATS: p(50),p(95),p(99),avg,min,max
       # HTML report saved locally — open bench/results/report.html after the run
       K6_WEB_DASHBOARD: "true"
       K6_WEB_DASHBOARD_EXPORT: /results/report.html

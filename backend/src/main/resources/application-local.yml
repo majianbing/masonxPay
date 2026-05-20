@@ -77,6 +77,12 @@ management:
   metrics:
     tags:
       application: masonxpay
+    distribution:
+      percentiles-histogram:
+        payment.charge.latency: true
+        http.server.requests: true
+      slo:
+        payment.charge.latency: 25ms,50ms,100ms,250ms,500ms,1s,2s,5s
 
 app:
   cors:
@@ -152,7 +158,7 @@ app:
       # 60 req/min per merchant = 1/s; requests wait up to 5s before rejection
       - resource: "POST:/api/v1/payment-intents"
         grade: QPS
-        count: 60
+        count: 460
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 5000
         limit-app: default
@@ -160,7 +166,7 @@ app:
       # Confirm (actual charge) — tighter limit, longer queue tolerance
       - resource: "POST:/api/v1/payment-intents/{id}/confirm"
         grade: QPS
-        count: 30
+        count: 460
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 8000
         limit-app: default
