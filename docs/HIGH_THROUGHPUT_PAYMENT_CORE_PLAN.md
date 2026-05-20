@@ -228,7 +228,7 @@ Kafka responsibilities:
 - OpenSearch/Elasticsearch projection updates
 - reconciliation events
 - merchant notification events
-- dead-letter topics for failed async processing
+- durable worker status for failed async processing
 
 Partitioning:
 
@@ -255,15 +255,28 @@ DB transaction:
 
 After commit:
   outbox publisher publishes to Kafka
-  mark outbox event published
+  mark outbox event Kafka-published
 ```
+
+The existing DB outbox remains the recovery source. Kafka publication uses a separate
+`kafka_published` state so webhook fan-out state and Kafka delivery state do not block
+or overwrite each other. Published outbox rows are retained only long enough for replay
+and incident investigation, then cleaned in small batches when both webhook fan-out and
+Kafka publication are complete.
+
+Event/log lifecycle:
+
+- `outbox_events`: cleanup is safe only when `published = TRUE` and `kafka_published = TRUE`.
+- `gateway_events` and `webhook_deliveries`: keep longer than outbox rows because merchants may need delivery history and replay.
+- `gateway_logs`: remains a side-flow audit/observability table and should keep its existing partition/retention policy.
+- Projection/search history belongs in OpenSearch or purpose-built read models, not in the payment state check path.
 
 ## Redis Usage
 
-Use Spring Data Redis for explicit, bounded use cases:
+Use Redisson and Spring Data Redis for explicit, bounded use cases:
 
 - idempotency hot cache backed by Postgres uniqueness
-- per-merchant/API key/IP rate limiting
+- Redisson-backed per-merchant/API key/IP rate limiting
 - provider health and circuit breaker hint cache
 - short-lived checkout/session data
 - duplicate suppression for async workers where DB verification still exists
@@ -317,7 +330,7 @@ Add metrics before claiming throughput improvements:
 - Kafka consumer lag
 - outbox backlog and oldest unpublished event age
 - OpenSearch indexing lag
-- webhook retry and dead-letter counts
+- webhook retry and worker failure counts
 
 Keep `X-Request-Id` propagation across API, outbox, Kafka, workers, and provider calls.
 
@@ -359,26 +372,63 @@ Current H2 progress:
 
 ### Phase H3: Kafka Outbox Publisher
 
-- Add Kafka dependency and local Docker Compose service.
-- Publish existing outbox events to Kafka after commit.
-- Add idempotent Kafka consumers.
-- Add dead-letter topics and retry policy.
-- Preserve database outbox as the recovery mechanism.
+- Add Kafka dependency and local Docker Compose service. Done.
+- Publish existing outbox events to Kafka after commit. Done.
+- Track Kafka publish state separately from webhook fan-out state. Done.
+- Add published-outbox retention cleanup for rows that completed both webhook fan-out and Kafka publication. Done.
+- Add Kafka broker JMX metrics to Prometheus/Grafana. Done.
+- Preserve database outbox as the recovery mechanism. Done.
+- Defer idempotent Kafka consumers and worker status handling to H4.
+
+Current H3 status:
+
+- Docker uses the official Apache Kafka image, extended locally only to attach the Prometheus JMX exporter Java agent.
+- The `payment.lifecycle.events` topic is created by Spring Kafka with 12 partitions.
+- The publisher is at-least-once: every message carries `outboxEventId`, so H4 consumers must dedupe by event id.
+- Kafka publication state is independent from webhook fan-out state through `kafka_published`, `kafka_published_at`, `kafka_publish_attempts`, and `kafka_last_error`.
+- Prometheus scrapes backend outbox metrics and Kafka broker JMX metrics; Grafana includes Kafka health, outbox depth/age, publish rate, broker throughput, and under-replicated partitions.
+- H3 test coverage covers successful publish, failed publish, and topic configuration.
 
 ### Phase H4: Async Workers
 
-- Move webhook delivery work behind Kafka consumers.
-- Add OpenSearch/Elasticsearch projection worker.
-- Add reconciliation event worker.
+- Move webhook delivery work behind Kafka consumers. Done for the webhook fan-out worker.
+- Add payment read projection worker. Done.
+- Add OpenSearch/Elasticsearch projection worker later for dashboard search scale-out.
 - Keep all workers idempotent.
+- Defer reconciliation worker split and notification worker until there is a concrete production requirement.
+
+Current H4 progress:
+
+- Default Docker and `local` runs keep Kafka disabled and the scheduled DB outbox poller enabled, so the live demo can run with Postgres only.
+- The optional Docker `infra` profile and the preview profile enable Kafka for high-throughput async fan-out when Kafka is available.
+- The Kafka consumer reads `payment.lifecycle.events`, extracts `outboxEventId`, and calls the same idempotent webhook fan-out path used by the original outbox poller.
+- `WebhookDeliveryService.processOutboxEvent(...)` locks only unpublished outbox rows, creates `gateway_events` and `webhook_deliveries`, marks the outbox row published, and then performs immediate webhook delivery attempts outside the database transaction.
+- Kafka itself is not the retry ledger. Producer-side publication retry is driven by `outbox_events.kafka_published=false`, `kafka_publish_attempts`, and `kafka_last_error`. Webhook delivery retry is driven by `webhook_deliveries` status and attempt metadata. We are not adding Kafka-native DLQ topics for this phase.
+- Malformed Kafka envelopes are skipped with a warning because they indicate a producer/envelope bug rather than a normal business retry case.
+- `PaymentProjectionConsumerService` uses its own consumer group (`masonxpay-payment-projection`) so it does not compete with webhook delivery for Kafka partitions.
+- Payment projection writes `payment_read_models`, a tenant-scoped dashboard/read-model table keyed by `payment_intent_id`.
+- Projection idempotency and failure visibility use `projection_processed_events`, keyed by `outbox_event_id` and including `merchant_id`.
+- Payment intent events upsert the read model. Refund events update refund summary fields when the payment projection already exists; missing payment projections are recorded as failed projection events for operational visibility.
+- `PaymentProjectionBackfillService` can backfill `payment_read_models` from existing payment/refund rows through the physical datasource. It is enabled in Docker/local profiles and disabled by default in the base profile so production can run it intentionally.
+- Dashboard payment list/search reads use `payment_read_models` when Kafka projection is enabled; with Kafka disabled, the list falls back to authoritative core payment tables. Payment detail always reads authoritative core payment tables.
+- Projection health is exposed through `payment.projection.read_model.count`, `payment.projection.failed.count`, and `payment.projection.oldest_failed.age.seconds`, with Prometheus alerts for failed/stale projection events.
 
 ### Phase H5: Redis Hot Path
 
-- Add Redis dependency and local Docker Compose service.
-- Add Redis-backed rate limiting.
-- Add Redis idempotency fast path with Postgres verification.
-- Add provider health/routing cache.
-- Define fallback behavior for Redis outages.
+- Added Spring Data Redis, Redisson, and a local Docker Redis service.
+- Added `RedisRateLimitFilter` for API-key payment create/confirm limits using Redisson `RRateLimiter`. Redis is the enforcement counter, but outage behavior is explicit and fail-open by default.
+- Added `PaymentIdempotencyCache` for completed payment-create idempotency routes. It is a fast path only; misses and Redis failures fall back to the sharded Postgres idempotency registry. New routes are cached only after the Postgres transaction commits.
+- Added `RedisProviderHealthCache` so routing health hints can be shared across app nodes. The existing in-memory health map remains the fallback.
+- Added Redis hot-path metrics for rate-limit allow/block/fallback, idempotency hit/miss/fallback, and provider-health fallback.
+- Base, Docker, and `local` profiles keep Redis disabled by default so live demos can run without Redis. The optional Docker `infra` profile plus explicit flags, and the preview profile, enable Redis for the high-throughput hot path.
+
+### Phase H5b: Preview Runtime
+
+- Added `application-preview.yml`, `.env.preview`, and `docker-compose.preview.yml` to run a production-like local stack before H6 reliability and operability work.
+- Preview enables Kafka outbox publication, webhook consumers, payment projection consumers, Redis hot path, Prometheus, and Grafana by default.
+- Preview disables the legacy webhook DB poller and keeps projection backfill opt-in so repair/backfill behavior is intentional.
+- Preview uses `REDIS_URL=redis://redis:6379`, matching how managed Redis endpoints are usually provided in production.
+- Preview is still a single-node laptop environment. It validates behavior, observability, and operational workflow, but not multi-node durability or regional failover.
 
 ### Phase H6: Dashboard Read Models
 
@@ -397,6 +447,12 @@ Current H2 progress:
   - one shard degraded
   - OpenSearch lagging
   - provider timeout/retry storm
+
+### Related Track: AI-Assisted Operations Control Plane
+
+The AI-assisted control plane is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
+
+See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
 
 ## Open Decisions
 

@@ -30,7 +30,7 @@ public class WebhookSimulatorController {
         // Log only non-sensitive metadata — never headers (contain HMAC signatures) or body (payment data)
         log.info("[webhook-test] received delivery from={} size={}",
                 request.getRemoteAddr(), body == null ? 0 : body.length());
-
+        log.info("[webhook-test] received body={}", body);
         return ResponseEntity.ok(Map.of("received", "true"));
     }
 }

@@ -30,6 +30,23 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT_MS:200ms}
+
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -55,6 +72,8 @@ management:
   health:
     mail:
       enabled: false
+    redis:
+      enabled: ${REDIS_HEALTH_ENABLED:false}
   metrics:
     tags:
       application: masonxpay
@@ -80,10 +99,47 @@ app:
   logs:
     retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)
   pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs
+  webhook:
+    outbox-poller:
+      enabled: ${WEBHOOK_OUTBOX_POLLER_ENABLED:true}
 
   sharding:
     payment:
       shard-count: ${PAYMENT_SHARD_COUNT:64}
+
+  kafka:
+    outbox:
+      enabled: ${KAFKA_OUTBOX_ENABLED:false}
+      topic: ${KAFKA_OUTBOX_TOPIC:payment.lifecycle.events}
+      batch-size: ${KAFKA_OUTBOX_BATCH_SIZE:100}
+      poll-delay-ms: ${KAFKA_OUTBOX_POLL_DELAY_MS:1000}
+      send-timeout-ms: ${KAFKA_OUTBOX_SEND_TIMEOUT_MS:5000}
+      retention-days: ${KAFKA_OUTBOX_RETENTION_DAYS:14}
+      cleanup-batch-size: ${KAFKA_OUTBOX_CLEANUP_BATCH_SIZE:1000}
+      topic-partitions: ${KAFKA_OUTBOX_TOPIC_PARTITIONS:12}
+    webhook-consumer:
+      enabled: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:false}
+      group-id: ${KAFKA_WEBHOOK_CONSUMER_GROUP_ID:masonxpay-webhook-worker}
+    payment-projection:
+      enabled: ${KAFKA_PAYMENT_PROJECTION_ENABLED:false}
+      group-id: ${KAFKA_PAYMENT_PROJECTION_GROUP_ID:masonxpay-payment-projection}
+  projection:
+    backfill:
+      enabled: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:false}
+  redis:
+    enabled: ${REDIS_HOT_PATH_ENABLED:false}
+    fail-open: ${REDIS_HOT_PATH_FAIL_OPEN:true}
+    idempotency:
+      enabled: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:true}
+      ttl-seconds: ${REDIS_IDEMPOTENCY_CACHE_TTL_SECONDS:86400}
+    rate-limit:
+      enabled: ${REDIS_RATE_LIMIT_ENABLED:true}
+      window-seconds: ${REDIS_RATE_LIMIT_WINDOW_SECONDS:60}
+      create-payment-intent-per-window: ${REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW:600}
+      confirm-payment-intent-per-window: ${REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW:300}
+    provider-health:
+      enabled: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:true}
+      ttl-seconds: ${REDIS_PROVIDER_HEALTH_CACHE_TTL_SECONDS:600}
 
   # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
   # Rules are loaded at startup from these properties.

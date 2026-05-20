@@ -36,9 +36,12 @@ pay.masonx/
 │   ├── server/            @gateway/server — Node.js / TypeScript server SDK
 │   └── browser/           @gateway/browser — Browser SDK source (TypeScript)
 ├── monitor/               Observability stack (Prometheus + Grafana)
+│   ├── kafka/
+│   │   ├── Dockerfile         Apache Kafka image with Prometheus JMX exporter
+│   │   └── kafka-jmx.yml      Kafka broker JMX metric rules
 │   ├── prometheus/
-│   │   ├── prometheus.yml     Scrape config (targets backend:8080/actuator/prometheus)
-│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queue depth, stale intents)
+│   │   ├── prometheus.yml     Scrape config (backend + Kafka JMX)
+│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queues, Kafka health)
 │   └── grafana/
 │       ├── provisioning/      Auto-wired datasource + dashboard loader
 │       └── dashboards/        payments.json — pre-built payments dashboard
@@ -46,8 +49,19 @@ pay.masonx/
 │   └── aws/
 │       ├── standalone/    Single-EC2 CloudFormation stack
 │       └── managed/       EC2 + RDS + Amplify CloudFormation stack
+├── docs/                  Roadmap, high-throughput plan, development guide
 └── docker-compose.yml     Local Docker quickstart (all services)
 ```
+
+---
+
+## Documentation
+
+- [Project roadmap](docs/ROADMAP.md)
+- [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
+- [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
+- [Development guide](docs/DEVELOPMENT_GUIDE.md)
+- [Historical full prompt/reference](docs/payment-gateway-full-prompt.md)
 
 ---
 
@@ -59,13 +73,14 @@ pay.masonx/
   - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
   - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
 - **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
-- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, and row-level locks for financial state transitions
+- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, row-level locks for financial state transitions, Kafka-backed outbox publication, Kafka webhook fan-out, Kafka-fed payment read projection, and Redis hot-path optimization
 - **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
-- **Webhook delivery** — transactional outbox pattern, configurable endpoints with HMAC signing, exponential backoff retry
+- **Webhook delivery** — transactional outbox pattern, Kafka consumer fan-out in the Docker high-throughput profile, configurable endpoints with HMAC signing, exponential backoff retry
+- **Async read models** — Kafka projection worker maintains tenant-scoped payment read models with processed-event idempotency tracking
 - **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
 - **Merchant dashboard** — payments, refunds, routing rules, connectors, API keys, logs, members
 - **TypeScript SDKs** — server SDK (`@gateway/server`) and browser SDK (`@gateway/browser`)
-- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health, Prometheus alerting rules
+- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health / Kafka health, Redis fallback/hit counters, Prometheus alerting rules
 
 ---
 
@@ -75,9 +90,11 @@ pay.masonx/
 |-------|-----------|
 | Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
 | Database | PostgreSQL + Flyway migrations + ShardingSphere-JDBC logical payment shards |
+| Async events | Spring Kafka + Apache Kafka local broker + transactional outbox |
+| Hot path | Redis + Redisson for distributed rate limiting, idempotency route cache, and provider health hints |
 | Auth | JWT (jjwt 0.12.5) + API key authentication |
 | Payment providers | Stripe, Square, Braintree |
-| Observability | Micrometer + Prometheus + Grafana |
+| Observability | Micrometer + Prometheus + Grafana + Kafka JMX exporter |
 | Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | Browser SDK | Vanilla TypeScript, esbuild for bundling |
 | Server SDK | TypeScript, Node.js 18+ |
@@ -111,6 +128,7 @@ STRIPE_SECRET_KEY=sk_test_...
 All other values have safe defaults for local development.
 
 The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and backfills the local/demo logical payment shard tables automatically.
+The default Docker path is intentionally Postgres-only for lightweight live demos: Kafka and Redis are optional, and the scheduled DB outbox poller remains enabled.
 
 **2. Start the stack**
 
@@ -125,7 +143,7 @@ This builds and starts five containers:
 | `dashboard` | http://localhost:3000 | Next.js merchant portal |
 | `backend` | http://localhost:8080 | Spring Boot API |
 | `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
-| `prometheus` | http://localhost:9090 | Metrics scraper (scrapes `/actuator/prometheus` every 15s) |
+| `prometheus` | http://localhost:9090 | Metrics scraper |
 | `grafana` | http://localhost:3001 | Payments dashboard — login: admin / admin |
 
 > **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
@@ -159,6 +177,89 @@ docker compose down -v
 docker compose up --build
 ```
 
+**Optional Kafka/Redis quick checks**
+
+Start the optional infra profile when you want to exercise Kafka fan-out or Redis hot-path behavior in the default Docker stack:
+
+```bash
+KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
+KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
+REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
+REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
+docker compose --profile infra up --build
+```
+
+```bash
+# List local Kafka topics
+docker compose exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+# Verify Prometheus sees the Kafka JMX exporter
+curl 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22kafka-jmx%22%7D'
+
+# Inspect broker metrics directly
+curl http://localhost:7071/metrics
+
+# Verify the webhook worker consumer group
+docker compose exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group masonxpay-webhook-worker
+```
+
+Docker defaults:
+
+```bash
+KAFKA_OUTBOX_ENABLED=false
+KAFKA_WEBHOOK_CONSUMER_ENABLED=false
+KAFKA_WEBHOOK_CONSUMER_GROUP_ID=masonxpay-webhook-worker
+KAFKA_PAYMENT_PROJECTION_ENABLED=false
+KAFKA_PAYMENT_PROJECTION_GROUP_ID=masonxpay-payment-projection
+PAYMENT_PROJECTION_BACKFILL_ENABLED=false
+REDIS_HOT_PATH_ENABLED=false
+REDIS_HOT_PATH_FAIL_OPEN=true
+REDIS_RATE_LIMIT_ENABLED=false
+REDIS_IDEMPOTENCY_CACHE_ENABLED=false
+REDIS_PROVIDER_HEALTH_CACHE_ENABLED=false
+REDIS_HEALTH_ENABLED=false
+WEBHOOK_OUTBOX_POLLER_ENABLED=true
+```
+
+The `local` Spring profile is also Postgres-only by default. To use Kafka through `localhost:9094` and Redis at `localhost:6379`, start the optional infra profile and enable the same env flags explicitly.
+Production can provide a managed Redis endpoint with `REDIS_URL`, for example `redis://host:6379` or `rediss://host:6380`; Docker can keep using `REDIS_HOST` and `REDIS_PORT`.
+When Kafka projection is disabled, the dashboard payment list falls back to authoritative payment tables instead of the Kafka-fed read model.
+
+---
+
+### Option A2 — Preview profile
+
+Use preview when you want a production-like local runtime before H6 reliability work. It still runs on your Mac through Docker, but it uses stricter defaults than local development: `SPRING_PROFILES_ACTIVE=preview`, Kafka async workers enabled, Redis hot path enabled through `REDIS_URL`, webhook DB polling disabled, health details hidden, projection backfill disabled by default, shorter observability retention, and named preview consumer groups.
+
+Your 32GB M1 Pro is enough for this single-node preview stack. Kafka is still one broker, so it mimics behavior and operations, not multi-AZ production durability.
+
+```bash
+docker compose -p masonxpay-preview --env-file .env.preview \
+  -f docker-compose.yml \
+  -f docker-compose.preview.yml \
+  --profile infra \
+  up --build
+```
+
+If the normal Docker stack is already running, stop it first because preview uses the same host ports. The `masonxpay-preview` project name keeps preview volumes separate from the default local stack.
+
+Useful preview checks:
+
+```bash
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra ps
+
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra logs -f backend
+
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra exec kafka env -u KAFKA_OPTS \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group masonxpay-payment-projection-preview
+```
+
+Use `.env.preview` for local preview values only. Keep real production secrets in a deployment secret manager, not in this file.
+
 ---
 
 ### Option B — Local development (manual)
@@ -170,7 +271,7 @@ Use this if you want hot-reload or are working on only one part of the stack.
 **1. Database**
 
 ```bash
-createdb paygateway
+docker compose up -d postgres
 ```
 
 Flyway runs migrations automatically on startup — no manual schema setup needed.
@@ -182,6 +283,18 @@ cd backend
 cp ../.env .env          # spring-dotenv loads .env from the working directory
 mvn spring-boot:run
 # API available at http://localhost:8012 (local profile default)
+```
+
+The local Spring profile uses Postgres and the DB-backed outbox poller by default. To run the backend with Kafka and Redis locally, start the optional infra profile and enable the flags:
+
+```bash
+docker compose --profile infra up -d postgres kafka redis
+
+KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
+KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
+REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
+REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
+mvn spring-boot:run
 ```
 
 Or set env vars directly:

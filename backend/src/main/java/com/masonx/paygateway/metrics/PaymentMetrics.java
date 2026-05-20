@@ -103,6 +103,79 @@ public class PaymentMetrics {
                 .increment();
     }
 
+    // ── payment.kafka.outbox.* ───────────────────────────────────────────────
+
+    public void recordKafkaOutboxPublished(String eventType) {
+        Counter.builder("payment.kafka.outbox.published")
+                .description("Number of outbox events successfully published to Kafka")
+                .tag("event_type", nullToUnknown(eventType))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordKafkaOutboxFailed() {
+        Counter.builder("payment.kafka.outbox.failed")
+                .description("Number of Kafka outbox publish failures")
+                .register(registry)
+                .increment();
+    }
+
+    // ── payment.redis.* ─────────────────────────────────────────────────────
+
+    public void recordRedisRateLimitAllowed(String resource) {
+        Counter.builder("payment.redis.rate_limit.allowed")
+                .description("Requests allowed by the Redis-backed rate limiter")
+                .tag("resource", nullToUnknown(resource))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisRateLimitBlocked(String resource) {
+        Counter.builder("payment.redis.rate_limit.blocked")
+                .description("Requests blocked by the Redis-backed rate limiter")
+                .tag("resource", nullToUnknown(resource))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisRateLimitFallback(String resource) {
+        Counter.builder("payment.redis.rate_limit.fallback")
+                .description("Requests allowed or rejected through Redis rate-limit fallback behavior")
+                .tag("resource", nullToUnknown(resource))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisIdempotencyCacheHit() {
+        Counter.builder("payment.redis.idempotency.hit")
+                .description("Payment create idempotency route cache hits")
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisIdempotencyCacheMiss() {
+        Counter.builder("payment.redis.idempotency.miss")
+                .description("Payment create idempotency route cache misses")
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisIdempotencyFallback(String reason) {
+        Counter.builder("payment.redis.idempotency.fallback")
+                .description("Payment create idempotency cache fallback events")
+                .tag("reason", nullToUnknown(reason))
+                .register(registry)
+                .increment();
+    }
+
+    public void recordRedisProviderHealthFallback(String operation) {
+        Counter.builder("payment.redis.provider_health.fallback")
+                .description("Provider health cache fallback events")
+                .tag("operation", nullToUnknown(operation))
+                .register(registry)
+                .increment();
+    }
+
     // ── payment.stale.resolved ────────────────────────────────────────────────
 
     public void recordStaleResolved(String resolvedStatus) {

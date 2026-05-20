@@ -35,6 +35,17 @@ public class OutboxEvent {
     @Column(nullable = false)
     private boolean published = false;
 
+    @Column(nullable = false)
+    private boolean kafkaPublished = false;
+
+    private Instant kafkaPublishedAt;
+
+    @Column(nullable = false)
+    private int kafkaPublishAttempts = 0;
+
+    @Column(columnDefinition = "TEXT")
+    private String kafkaLastError;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -54,5 +65,20 @@ public class OutboxEvent {
     public String getPayload() { return payload; }
     public boolean isPublished() { return published; }
     public void setPublished(boolean published) { this.published = published; }
+    public boolean isKafkaPublished() { return kafkaPublished; }
+    public Instant getKafkaPublishedAt() { return kafkaPublishedAt; }
+    public int getKafkaPublishAttempts() { return kafkaPublishAttempts; }
+    public String getKafkaLastError() { return kafkaLastError; }
     public Instant getCreatedAt() { return createdAt; }
+
+    public void markKafkaPublished(Instant publishedAt) {
+        this.kafkaPublished = true;
+        this.kafkaPublishedAt = publishedAt;
+        this.kafkaLastError = null;
+    }
+
+    public void recordKafkaPublishFailure(String error) {
+        this.kafkaPublishAttempts++;
+        this.kafkaLastError = error;
+    }
 }

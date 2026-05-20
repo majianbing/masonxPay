@@ -48,6 +48,87 @@ groups:
             {{ $value }} outbox events are waiting to be fanned out to webhook endpoints.
             Threshold: 50. Check WebhookDeliveryService logs for processing errors.
 
+      - alert: KafkaOutboxQueueDepthHigh
+        expr: payment_kafka_outbox_queue_depth > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka outbox queue depth is {{ $value }}"
+          description: >
+            {{ $value }} outbox events are waiting for Kafka publication.
+            Threshold: 50. Check KafkaOutboxPublisherService logs and broker health.
+
+      - alert: KafkaPublishFailures
+        expr: rate(payment_kafka_outbox_failed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka outbox publish failures detected"
+          description: >
+            Kafka outbox publish failures are occurring at {{ $value | humanize }}/s.
+            Check broker availability, topic health, and publisher errors.
+
+      - alert: KafkaBrokerDown
+        expr: up{job="kafka-jmx"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka broker metrics are unavailable"
+          description: >
+            Prometheus cannot scrape Kafka JMX metrics. The broker may be down or
+            the JMX exporter Java agent may not be serving metrics.
+
+      - alert: PaymentProjectionFailures
+        expr: payment_projection_failed_count > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payment projection has failed events"
+          description: >
+            {{ $value }} payment projection event(s) are marked FAILED. Check
+            projection_processed_events and PaymentProjectionConsumerService logs.
+
+      - alert: PaymentProjectionOldFailure
+        expr: payment_projection_oldest_failed_age_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payment projection has an old failed event"
+          description: >
+            The oldest failed projection event has been unresolved for
+            {{ $value | humanizeDuration }}. Dashboard read models may be stale.
+
+      - alert: RedisHotPathFallback
+        expr: |
+          rate(payment_redis_rate_limit_fallback_total[5m])
+          + rate(payment_redis_idempotency_fallback_total[5m])
+          + rate(payment_redis_provider_health_fallback_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis hot path is falling back"
+          description: >
+            Redis-backed rate limiting, idempotency cache, or provider health cache
+            is using fallback behavior. Payment correctness is still backed by
+            Postgres, but latency and cross-node coordination may be degraded.
+
+      - alert: KafkaUnderReplicatedPartitions
+        expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka has under-replicated partitions"
+          description: >
+            Kafka reports {{ $value }} under-replicated partition(s). In local
+            single-node mode this should remain zero.
+
       # ── Stale PROCESSING intents ────────────────────────────────────────────
       # Fires when too many payment intents are stuck in PROCESSING beyond the
       # 30-min card threshold — likely missed webhooks or a provider outage.

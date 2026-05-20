@@ -1,0 +1,44 @@
+startDelaySeconds: 0
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+ssl: false
+
+rules:
+  - pattern: kafka.server<type=ReplicaManager, name=(UnderReplicatedPartitions|PartitionCount|LeaderCount)><>Value
+    name: kafka_server_replicamanager_$1
+    type: GAUGE
+
+  - pattern: kafka.controller<type=KafkaController, name=(ActiveControllerCount|OfflinePartitionsCount)><>Value
+    name: kafka_controller_kafkacontroller_$1
+    type: GAUGE
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(BytesInPerSec|BytesOutPerSec|MessagesInPerSec|FailedProduceRequestsPerSec|FailedFetchRequestsPerSec)><>Count
+    name: kafka_server_brokertopicmetrics_$1_total
+    type: COUNTER
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(BytesInPerSec|BytesOutPerSec|MessagesInPerSec|FailedProduceRequestsPerSec|FailedFetchRequestsPerSec), topic=(.+)><>Count
+    name: kafka_server_brokertopicmetrics_$1_total
+    labels:
+      topic: "$2"
+    type: COUNTER
+
+  - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count
+    name: kafka_network_requestmetrics_requests_total
+    labels:
+      request: "$1"
+    type: COUNTER
+
+  - pattern: kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(.+)><>(50thPercentile|95thPercentile|99thPercentile)
+    name: kafka_network_requestmetrics_totaltimems
+    labels:
+      request: "$1"
+      quantile: "$2"
+    type: GAUGE
+
+  - pattern: java.lang<type=Memory><HeapMemoryUsage>used
+    name: kafka_jvm_memory_heap_used_bytes
+    type: GAUGE
+
+  - pattern: java.lang<type=Memory><HeapMemoryUsage>max
+    name: kafka_jvm_memory_heap_max_bytes
+    type: GAUGE

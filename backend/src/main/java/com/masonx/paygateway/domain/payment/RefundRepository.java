@@ -22,4 +22,8 @@ public interface RefundRepository extends JpaRepository<Refund, UUID>, JpaSpecif
            "(com.masonx.paygateway.domain.payment.RefundStatus.PENDING, " +
            "com.masonx.paygateway.domain.payment.RefundStatus.SUCCEEDED)")
     long sumActiveByPaymentIntentId(@Param("intentId") UUID intentId);
+
+    @Query("SELECT COALESCE(SUM(r.amount), 0) FROM Refund r " +
+           "WHERE r.paymentIntentId = :intentId AND r.status = com.masonx.paygateway.domain.payment.RefundStatus.SUCCEEDED")
+    long sumSucceededByPaymentIntentId(@Param("intentId") UUID intentId);
 }

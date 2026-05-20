@@ -1,6 +1,9 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.CaptureMethod;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
@@ -130,6 +133,51 @@ class RefundServiceTest {
         }
     }
 
+    @Test
+    void createRefund_providerSucceeds_writesRefundSucceededOutboxEvent() {
+        PaymentIntent intent = succeededIntent(10_000L);
+        LockingPaymentIntentRepository paymentIntents = new LockingPaymentIntentRepository(intent);
+        InMemoryRefundRepository refunds = new InMemoryRefundRepository();
+        InMemoryOutboxEventRepository outbox = new InMemoryOutboxEventRepository();
+        FakeProvider provider = new FakeProvider();
+        RefundService service = service(paymentIntents, refunds, outbox, provider);
+
+        var response = service.createRefund(
+                MERCHANT_ID, INTENT_ID, new CreateRefundRequest(4_000L, "requested_by_customer"));
+
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(outbox.saved).hasSize(1);
+        OutboxEvent event = outbox.saved.get(0);
+        assertThat(event.getMerchantId()).isEqualTo(MERCHANT_ID);
+        assertThat(event.getEventType()).isEqualTo("refund.succeeded");
+        assertThat(event.getResourceId()).isEqualTo(response.id());
+        assertThat(event.getPayload()).contains("\"id\":\"" + response.id() + "\"");
+        assertThat(event.getPayload()).contains("\"paymentIntentId\":\"" + INTENT_ID + "\"");
+    }
+
+    @Test
+    void createRefund_providerFails_writesRefundFailedOutboxEvent() {
+        PaymentIntent intent = succeededIntent(10_000L);
+        LockingPaymentIntentRepository paymentIntents = new LockingPaymentIntentRepository(intent);
+        InMemoryRefundRepository refunds = new InMemoryRefundRepository();
+        InMemoryOutboxEventRepository outbox = new InMemoryOutboxEventRepository();
+        FakeProvider provider = new FakeProvider();
+        provider.success = false;
+        RefundService service = service(paymentIntents, refunds, outbox, provider);
+
+        var response = service.createRefund(
+                MERCHANT_ID, INTENT_ID, new CreateRefundRequest(4_000L, "requested_by_customer"));
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.failureReason()).isEqualTo("provider declined refund");
+        assertThat(outbox.saved).hasSize(1);
+        OutboxEvent event = outbox.saved.get(0);
+        assertThat(event.getMerchantId()).isEqualTo(MERCHANT_ID);
+        assertThat(event.getEventType()).isEqualTo("refund.failed");
+        assertThat(event.getResourceId()).isEqualTo(response.id());
+        assertThat(event.getPayload()).contains("\"failureReason\":\"provider declined refund\"");
+    }
+
     private RefundService service(LockingPaymentIntentRepository paymentIntents,
                                   InMemoryRefundRepository refunds,
                                   FakeProvider provider) {
@@ -138,6 +186,23 @@ class RefundServiceTest {
                 refunds.proxy(),
                 new PaymentProviderDispatcher(List.of(provider)),
                 new FakeProviderAccountService(),
+                new InMemoryOutboxEventRepository().proxy(),
+                new ObjectMapper().findAndRegisterModules(),
+                new LockingTransactionManager(paymentIntents),
+                new PaymentMetrics(new SimpleMeterRegistry()));
+    }
+
+    private RefundService service(LockingPaymentIntentRepository paymentIntents,
+                                  InMemoryRefundRepository refunds,
+                                  InMemoryOutboxEventRepository outbox,
+                                  FakeProvider provider) {
+        return new RefundService(
+                paymentIntents.proxy(),
+                refunds.proxy(),
+                new PaymentProviderDispatcher(List.of(provider)),
+                new FakeProviderAccountService(),
+                outbox.proxy(),
+                new ObjectMapper().findAndRegisterModules(),
                 new LockingTransactionManager(paymentIntents),
                 new PaymentMetrics(new SimpleMeterRegistry()));
     }
@@ -268,9 +333,34 @@ class RefundServiceTest {
         }
     }
 
+    private static final class InMemoryOutboxEventRepository implements InvocationHandler {
+        private final List<OutboxEvent> saved = new ArrayList<>();
+
+        private OutboxEventRepository proxy() {
+            return (OutboxEventRepository) Proxy.newProxyInstance(
+                    OutboxEventRepository.class.getClassLoader(),
+                    new Class<?>[]{OutboxEventRepository.class},
+                    this);
+        }
+
+        @Override
+        public synchronized Object invoke(Object proxy, Method method, Object[] args) {
+            return switch (method.getName()) {
+                case "save" -> {
+                    OutboxEvent event = (OutboxEvent) args[0];
+                    ReflectionTestUtils.setField(event, "id", UUID.randomUUID());
+                    saved.add(event);
+                    yield event;
+                }
+                default -> defaultObjectMethod(this, method, args);
+            };
+        }
+    }
+
     private static final class FakeProvider extends AbstractFakeProvider {
         private int refundCalls;
         private long delayMs;
+        private boolean success = true;
 
         @Override
         public RefundResult refund(RefundRequest request, ProviderCredentials creds) {
@@ -282,7 +372,8 @@ class RefundServiceTest {
                     Thread.currentThread().interrupt();
                 }
             }
-            return new RefundResult(true, "re_" + request.refundId(), null);
+            return new RefundResult(success, success ? "re_" + request.refundId() : null,
+                    success ? null : "provider declined refund");
         }
     }
 

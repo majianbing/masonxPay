@@ -20,6 +20,15 @@ scrape_configs:
         labels:
           application: masonxpay
 
+  - job_name: kafka-jmx
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - kafka:7071
+        labels:
+          application: masonxpay
+          component: kafka
+
   # ── AWS EC2 multi-node (production) ────────────────────────────────────────
   # Uncomment this block and remove the static_configs block above when deploying
   # to multiple EC2 instances. Prometheus queries the EC2 API to discover all
