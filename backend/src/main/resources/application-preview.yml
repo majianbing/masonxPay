@@ -61,6 +61,8 @@ management:
   health:
     mail:
       enabled: false
+    redis:
+      enabled: ${REDIS_HEALTH_ENABLED:true}
   metrics:
     tags:
       application: masonxpay

@@ -72,6 +72,8 @@ management:
   health:
     mail:
       enabled: false
+    redis:
+      enabled: ${REDIS_HEALTH_ENABLED:false}
   metrics:
     tags:
       application: masonxpay
@@ -99,7 +101,7 @@ app:
   pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs
   webhook:
     outbox-poller:
-      enabled: ${WEBHOOK_OUTBOX_POLLER_ENABLED:false}
+      enabled: ${WEBHOOK_OUTBOX_POLLER_ENABLED:true}
 
   sharding:
     payment:
@@ -107,7 +109,7 @@ app:
 
   kafka:
     outbox:
-      enabled: ${KAFKA_OUTBOX_ENABLED:true}
+      enabled: ${KAFKA_OUTBOX_ENABLED:false}
       topic: ${KAFKA_OUTBOX_TOPIC:payment.lifecycle.events}
       batch-size: ${KAFKA_OUTBOX_BATCH_SIZE:100}
       poll-delay-ms: ${KAFKA_OUTBOX_POLL_DELAY_MS:1000}
@@ -116,16 +118,16 @@ app:
       cleanup-batch-size: ${KAFKA_OUTBOX_CLEANUP_BATCH_SIZE:1000}
       topic-partitions: ${KAFKA_OUTBOX_TOPIC_PARTITIONS:12}
     webhook-consumer:
-      enabled: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:true}
+      enabled: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:false}
       group-id: ${KAFKA_WEBHOOK_CONSUMER_GROUP_ID:masonxpay-webhook-worker}
     payment-projection:
-      enabled: ${KAFKA_PAYMENT_PROJECTION_ENABLED:true}
+      enabled: ${KAFKA_PAYMENT_PROJECTION_ENABLED:false}
       group-id: ${KAFKA_PAYMENT_PROJECTION_GROUP_ID:masonxpay-payment-projection}
   projection:
     backfill:
-      enabled: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:true}
+      enabled: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:false}
   redis:
-    enabled: ${REDIS_HOT_PATH_ENABLED:true}
+    enabled: ${REDIS_HOT_PATH_ENABLED:false}
     fail-open: ${REDIS_HOT_PATH_FAIL_OPEN:true}
     idempotency:
       enabled: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:true}

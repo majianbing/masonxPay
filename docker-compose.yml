@@ -20,6 +20,7 @@ services:
 
   # ── Kafka ──────────────────────────────────────────────────────────────────
   kafka:
+    profiles: ["infra"]
     build:
       context: ./monitor/kafka
       dockerfile: Dockerfile
@@ -59,6 +60,7 @@ services:
 
   # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
+    profiles: ["infra"]
     image: redis:7-alpine
     restart: unless-stopped
     ports:
@@ -77,10 +79,6 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -103,26 +101,27 @@ services:
       # High-throughput profile sharding
       PAYMENT_SHARD_COUNT: ${PAYMENT_SHARD_COUNT:-64}
       # Kafka outbox publisher
-      KAFKA_OUTBOX_ENABLED: ${KAFKA_OUTBOX_ENABLED:-true}
+      KAFKA_OUTBOX_ENABLED: ${KAFKA_OUTBOX_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       KAFKA_OUTBOX_TOPIC: ${KAFKA_OUTBOX_TOPIC:-payment.lifecycle.events}
       KAFKA_OUTBOX_TOPIC_PARTITIONS: ${KAFKA_OUTBOX_TOPIC_PARTITIONS:-12}
-      KAFKA_WEBHOOK_CONSUMER_ENABLED: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:-true}
+      KAFKA_WEBHOOK_CONSUMER_ENABLED: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:-false}
       KAFKA_WEBHOOK_CONSUMER_GROUP_ID: ${KAFKA_WEBHOOK_CONSUMER_GROUP_ID:-masonxpay-webhook-worker}
-      KAFKA_PAYMENT_PROJECTION_ENABLED: ${KAFKA_PAYMENT_PROJECTION_ENABLED:-true}
+      KAFKA_PAYMENT_PROJECTION_ENABLED: ${KAFKA_PAYMENT_PROJECTION_ENABLED:-false}
       KAFKA_PAYMENT_PROJECTION_GROUP_ID: ${KAFKA_PAYMENT_PROJECTION_GROUP_ID:-masonxpay-payment-projection}
-      PAYMENT_PROJECTION_BACKFILL_ENABLED: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:-true}
-      WEBHOOK_OUTBOX_POLLER_ENABLED: ${WEBHOOK_OUTBOX_POLLER_ENABLED:-false}
+      PAYMENT_PROJECTION_BACKFILL_ENABLED: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:-false}
+      WEBHOOK_OUTBOX_POLLER_ENABLED: ${WEBHOOK_OUTBOX_POLLER_ENABLED:-true}
       # Redis hot path
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_HOT_PATH_ENABLED: ${REDIS_HOT_PATH_ENABLED:-true}
+      REDIS_HOT_PATH_ENABLED: ${REDIS_HOT_PATH_ENABLED:-false}
       REDIS_HOT_PATH_FAIL_OPEN: ${REDIS_HOT_PATH_FAIL_OPEN:-true}
-      REDIS_RATE_LIMIT_ENABLED: ${REDIS_RATE_LIMIT_ENABLED:-true}
+      REDIS_RATE_LIMIT_ENABLED: ${REDIS_RATE_LIMIT_ENABLED:-false}
       REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW: ${REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW:-600}
       REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW: ${REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW:-300}
-      REDIS_IDEMPOTENCY_CACHE_ENABLED: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:-true}
-      REDIS_PROVIDER_HEALTH_CACHE_ENABLED: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:-true}
+      REDIS_IDEMPOTENCY_CACHE_ENABLED: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:-false}
+      REDIS_PROVIDER_HEALTH_CACHE_ENABLED: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:-false}
+      REDIS_HEALTH_ENABLED: ${REDIS_HEALTH_ENABLED:-false}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

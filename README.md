@@ -128,7 +128,7 @@ STRIPE_SECRET_KEY=sk_test_...
 All other values have safe defaults for local development.
 
 The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and backfills the local/demo logical payment shard tables automatically.
-It also enables Kafka webhook fan-out by default and disables the scheduled webhook outbox poller, so local Docker runs exercise the async-worker path.
+The default Docker path is intentionally Postgres-only for lightweight live demos: Kafka and Redis are optional, and the scheduled DB outbox poller remains enabled.
 
 **2. Start the stack**
 
@@ -136,16 +136,15 @@ It also enables Kafka webhook fan-out by default and disables the scheduled webh
 docker compose up --build
 ```
 
-This builds and starts six containers:
+This builds and starts five containers:
 
 | Container | URL | Description |
 |-----------|-----|-------------|
 | `dashboard` | http://localhost:3000 | Next.js merchant portal |
 | `backend` | http://localhost:8080 | Spring Boot API |
 | `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
-| `kafka` | localhost:9094 | Apache Kafka broker for outbox event publication |
-| `prometheus` | http://localhost:9090 | Metrics scraper (backend + Kafka JMX every 15s) |
-| `grafana` | http://localhost:3001 | Payments + Kafka dashboard — login: admin / admin |
+| `prometheus` | http://localhost:9090 | Metrics scraper |
+| `grafana` | http://localhost:3001 | Payments dashboard — login: admin / admin |
 
 > **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
 
@@ -178,7 +177,17 @@ docker compose down -v
 docker compose up --build
 ```
 
-**Kafka quick checks**
+**Optional Kafka/Redis quick checks**
+
+Start the optional infra profile when you want to exercise Kafka fan-out or Redis hot-path behavior in the default Docker stack:
+
+```bash
+KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
+KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
+REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
+REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
+docker compose --profile infra up --build
+```
 
 ```bash
 # List local Kafka topics
@@ -200,22 +209,24 @@ docker compose exec kafka env -u KAFKA_OPTS \
 Docker defaults:
 
 ```bash
-KAFKA_WEBHOOK_CONSUMER_ENABLED=true
+KAFKA_OUTBOX_ENABLED=false
+KAFKA_WEBHOOK_CONSUMER_ENABLED=false
 KAFKA_WEBHOOK_CONSUMER_GROUP_ID=masonxpay-webhook-worker
-KAFKA_PAYMENT_PROJECTION_ENABLED=true
+KAFKA_PAYMENT_PROJECTION_ENABLED=false
 KAFKA_PAYMENT_PROJECTION_GROUP_ID=masonxpay-payment-projection
-PAYMENT_PROJECTION_BACKFILL_ENABLED=true
-REDIS_HOT_PATH_ENABLED=true
+PAYMENT_PROJECTION_BACKFILL_ENABLED=false
+REDIS_HOT_PATH_ENABLED=false
 REDIS_HOT_PATH_FAIL_OPEN=true
-REDIS_RATE_LIMIT_ENABLED=true
-REDIS_IDEMPOTENCY_CACHE_ENABLED=true
-REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true
-WEBHOOK_OUTBOX_POLLER_ENABLED=false
+REDIS_RATE_LIMIT_ENABLED=false
+REDIS_IDEMPOTENCY_CACHE_ENABLED=false
+REDIS_PROVIDER_HEALTH_CACHE_ENABLED=false
+REDIS_HEALTH_ENABLED=false
+WEBHOOK_OUTBOX_POLLER_ENABLED=true
 ```
 
-The `local` Spring profile uses the same Kafka path with `localhost:9094` and Redis at `localhost:6379`, so you can run Postgres, Kafka, and Redis in Docker while starting the backend from Maven.
+The `local` Spring profile is also Postgres-only by default. To use Kafka through `localhost:9094` and Redis at `localhost:6379`, start the optional infra profile and enable the same env flags explicitly.
 Production can provide a managed Redis endpoint with `REDIS_URL`, for example `redis://host:6379` or `rediss://host:6380`; Docker can keep using `REDIS_HOST` and `REDIS_PORT`.
-Manual backend runs without the `local` profile keep Kafka consumers and Redis hot-path behavior disabled unless explicitly overridden.
+When Kafka projection is disabled, the dashboard payment list falls back to authoritative payment tables instead of the Kafka-fed read model.
 
 ---
 
@@ -229,6 +240,7 @@ Your 32GB M1 Pro is enough for this single-node preview stack. Kafka is still on
 docker compose -p masonxpay-preview --env-file .env.preview \
   -f docker-compose.yml \
   -f docker-compose.preview.yml \
+  --profile infra \
   up --build
 ```
 
@@ -237,11 +249,11 @@ If the normal Docker stack is already running, stop it first because preview use
 Useful preview checks:
 
 ```bash
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml ps
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra ps
 
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml logs -f backend
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra logs -f backend
 
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml exec kafka env -u KAFKA_OPTS \
+docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra exec kafka env -u KAFKA_OPTS \
   /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
   --describe --group masonxpay-payment-projection-preview
 ```
@@ -259,7 +271,7 @@ Use this if you want hot-reload or are working on only one part of the stack.
 **1. Database**
 
 ```bash
-docker compose up -d postgres kafka
+docker compose up -d postgres
 ```
 
 Flyway runs migrations automatically on startup — no manual schema setup needed.
@@ -273,14 +285,16 @@ mvn spring-boot:run
 # API available at http://localhost:8012 (local profile default)
 ```
 
-The local Spring profile connects to Kafka through `localhost:9094`, enables Kafka outbox publication, enables the webhook consumer, enables the payment projection consumer, and disables the scheduled webhook outbox poller. To run the backend without Kafka, override:
+The local Spring profile uses Postgres and the DB-backed outbox poller by default. To run the backend with Kafka and Redis locally, start the optional infra profile and enable the flags:
 
 ```bash
-KAFKA_OUTBOX_ENABLED=false KAFKA_WEBHOOK_CONSUMER_ENABLED=false \
-KAFKA_PAYMENT_PROJECTION_ENABLED=false \
-PAYMENT_PROJECTION_BACKFILL_ENABLED=false \
-REDIS_HOT_PATH_ENABLED=false \
-WEBHOOK_OUTBOX_POLLER_ENABLED=true mvn spring-boot:run
+docker compose --profile infra up -d postgres kafka redis
+
+KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
+KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
+REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
+REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
+mvn spring-boot:run
 ```
 
 Or set env vars directly:

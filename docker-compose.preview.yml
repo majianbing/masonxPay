@@ -27,6 +27,13 @@ services:
       - redis_preview_data:/data
 
   backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-preview}
       DB_NAME: ${PREVIEW_DB_NAME:-paygateway_preview}

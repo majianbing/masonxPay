@@ -58,6 +58,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Java: 4-space indentation, package root `com.masonx.paygateway`, constructor injection, DTOs at API boundaries.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
 - Keep business logic out of controllers.
+- Add clean, simple comments on classes and methods when they clarify intent, ownership, or non-obvious behavior. Explain what the code is doing without restating obvious implementation details.
 - Avoid broad `catch (Exception)` blocks unless there is a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
 - Do not claim tests passed unless they actually ran.

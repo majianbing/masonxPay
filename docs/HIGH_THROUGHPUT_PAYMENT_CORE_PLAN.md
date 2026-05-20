@@ -399,10 +399,8 @@ Current H3 status:
 
 Current H4 progress:
 
-- Docker enables `KafkaWebhookConsumerService` by default through `KAFKA_WEBHOOK_CONSUMER_ENABLED=true`.
-- Docker disables the legacy scheduled webhook outbox poller through `WEBHOOK_OUTBOX_POLLER_ENABLED=false`, so webhook fan-out follows the Kafka path in the local high-throughput profile.
-- The `local` Spring profile points Kafka clients at `localhost:9094`, enables the Kafka outbox publisher, enables the Kafka webhook consumer, and disables the scheduled webhook outbox poller by default. This supports the normal local workflow where Postgres and Kafka run in Docker while the backend runs from Maven.
-- Manual backend runs without the `local` profile keep the scheduled poller enabled and Kafka webhook consumer disabled by default, so development without Kafka remains usable.
+- Default Docker and `local` runs keep Kafka disabled and the scheduled DB outbox poller enabled, so the live demo can run with Postgres only.
+- The optional Docker `infra` profile and the preview profile enable Kafka for high-throughput async fan-out when Kafka is available.
 - The Kafka consumer reads `payment.lifecycle.events`, extracts `outboxEventId`, and calls the same idempotent webhook fan-out path used by the original outbox poller.
 - `WebhookDeliveryService.processOutboxEvent(...)` locks only unpublished outbox rows, creates `gateway_events` and `webhook_deliveries`, marks the outbox row published, and then performs immediate webhook delivery attempts outside the database transaction.
 - Kafka itself is not the retry ledger. Producer-side publication retry is driven by `outbox_events.kafka_published=false`, `kafka_publish_attempts`, and `kafka_last_error`. Webhook delivery retry is driven by `webhook_deliveries` status and attempt metadata. We are not adding Kafka-native DLQ topics for this phase.
@@ -412,7 +410,7 @@ Current H4 progress:
 - Projection idempotency and failure visibility use `projection_processed_events`, keyed by `outbox_event_id` and including `merchant_id`.
 - Payment intent events upsert the read model. Refund events update refund summary fields when the payment projection already exists; missing payment projections are recorded as failed projection events for operational visibility.
 - `PaymentProjectionBackfillService` can backfill `payment_read_models` from existing payment/refund rows through the physical datasource. It is enabled in Docker/local profiles and disabled by default in the base profile so production can run it intentionally.
-- Dashboard payment list/search reads now use `payment_read_models`; payment detail still reads authoritative core payment tables.
+- Dashboard payment list/search reads use `payment_read_models` when Kafka projection is enabled; with Kafka disabled, the list falls back to authoritative core payment tables. Payment detail always reads authoritative core payment tables.
 - Projection health is exposed through `payment.projection.read_model.count`, `payment.projection.failed.count`, and `payment.projection.oldest_failed.age.seconds`, with Prometheus alerts for failed/stale projection events.
 
 ### Phase H5: Redis Hot Path
@@ -422,7 +420,7 @@ Current H4 progress:
 - Added `PaymentIdempotencyCache` for completed payment-create idempotency routes. It is a fast path only; misses and Redis failures fall back to the sharded Postgres idempotency registry. New routes are cached only after the Postgres transaction commits.
 - Added `RedisProviderHealthCache` so routing health hints can be shared across app nodes. The existing in-memory health map remains the fallback.
 - Added Redis hot-path metrics for rate-limit allow/block/fallback, idempotency hit/miss/fallback, and provider-health fallback.
-- Base profile keeps Redis disabled by default; Docker and the `local` profile enable it for the high-throughput profile.
+- Base, Docker, and `local` profiles keep Redis disabled by default so live demos can run without Redis. The optional Docker `infra` profile plus explicit flags, and the preview profile, enable Redis for the high-throughput hot path.
 
 ### Phase H5b: Preview Runtime
 
