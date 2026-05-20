@@ -83,6 +83,9 @@ docker compose down -v
 
 # Rebuild after code changes
 docker compose up --build
+
+# OR, With Redis/Kafka
+docker compose --profile infra up --build
 ```
 
 ## Benchmarks
