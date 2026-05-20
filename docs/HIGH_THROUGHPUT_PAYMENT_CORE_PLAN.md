@@ -437,22 +437,24 @@ Current H4 progress:
 - Add projection lag indicators where needed.
 - Keep payment detail/status checks routed to authoritative shards.
 
-### Phase H7: Benchmarks and Interview Narrative
+### Phase H7: Benchmarks and Interview Narrative — Done
 
-- Add k6 scenarios for create/confirm/idempotency/retry flows.
-- Add dashboards for shard distribution, Kafka lag, Redis hit rate, and p95/p99 latency.
-- Document failure modes:
+- Added k6 scenarios for create, confirm, refund, idempotency replay, get-by-id, and dashboard list flows.
+- Added a TEST-only Mason Simulator provider as a normal connector/provider adapter so benchmarks exercise routing, provider credential loading, retry orchestration, payment request writes, state transitions, refund guards, and outbox writes without calling external PSP sandboxes.
+- Added configurable simulator PSP success rates for degradation testing.
+- Added benchmark overlay support for default Postgres-only mode and optional Kafka/Redis `infra` mode, with `RUN_MODE` labels for comparison.
+- Updated Prometheus/Grafana dashboards for payment volume, success rate, provider latency, Kafka outbox publish rate, broker throughput, k6 operation latency, and HTTP status mix.
+- Updated `bench/README.md` with local run commands, Grafana panel behavior, simulator PSP settings, and interpretation notes.
+
+Follow-up hardening, not H7 blockers:
+
+- Capture fresh benchmark baselines from `bench/results/` after repeated local and preview runs.
+- Add deeper failure-mode playbooks:
   - Kafka unavailable
   - Redis unavailable
   - one shard degraded
   - OpenSearch lagging
   - provider timeout/retry storm
-
-Current H7 progress:
-
-- Updated `bench/k6/script.js` to cover create, idempotency replay, get, dashboard list, confirm, and refund flows.
-- Added the TEST-only Mason Simulator provider as a normal connector/provider adapter so confirm/refund benchmarks exercise routing, provider credential loading, retry orchestration, payment request writes, state transitions, refund guards, and outbox writes without calling external PSP sandboxes.
-- Updated the benchmark overlay to run in default Postgres-only mode or optional Kafka/Redis `infra` mode, with `RUN_MODE` labels for comparison.
 
 ### Related Track: AI-Assisted Operations Control Plane
 

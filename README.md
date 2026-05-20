@@ -1,506 +1,125 @@
 # MasonXPay
 
-> There is no open source Java version of the payment orchestration system, let's vibe coding one.
+MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supports multi-provider payments, hosted checkout, embedded checkout, routing rules, webhooks, observability, and a high-throughput payment-core track.
 
-A fully-featured, [HyperSwitch](https://github.com/juspay/hyperswitch)-like payment gateway built with Java and Spring Boot — supporting multiple providers, intelligent routing, and both hosted and embeddable checkout.
+## Live Demo
 
-## Live demo
+Hosted on Vercel + Render + Neon free tier. The first request may take around 30 seconds while the backend wakes up.
 
-Hosted on Vercel + Render + Neon (free tier — allow ~30s warm-up on first request).
+| Item | Value |
+|------|-------|
+| Dashboard | https://masonx-pay.vercel.app |
+| Demo user | `demo@masonx.me` |
+| Demo password | `demo@masonx.me` |
+| Backend API | https://masonxpay.onrender.com |
 
-| | |
-|---|---|
-| **Dashboard** | https://masonx-pay.vercel.app |
-| **Username** | demo@masonx.me |
-| **Password** | demo@masonx.me |
-| **Backend API** | https://masonxpay.onrender.com |
-| **Database** | Neon PostgreSQL (https://console.neon.tech) |
+## What It Includes
 
----
+- Multi-provider connector management: Stripe, Square, Braintree, Mollie, and TEST-only Mason Simulator.
+- Payment lifecycle: create, confirm, capture, cancel, refund, idempotency, and webhook delivery.
+- Checkout options: hosted payment links and embedded browser SDK checkout.
+- Merchant dashboard: payments, refunds, routing rules, connectors, API keys, webhooks, logs, and team access.
+- High-throughput core: 64 logical payment shards, ShardingSphere-JDBC, Kafka outbox/workers, Redis hot path, and payment read projections.
+- Observability: Prometheus metrics, Grafana dashboards, Kafka JMX metrics, alert rules, and request tracing.
+- Benchmarks: k6 scenarios for create, confirm, refund, idempotency replay, get, and list flows.
 
-## Repository layout
+## Repository Layout
 
-```
-pay.masonx/
-├── backend/               Spring Boot backend (Java 21)
-│   ├── src/
-│   ├── pom.xml
-│   └── Dockerfile
-├── dashboard/             Merchant dashboard (Next.js)
-│   ├── Dockerfile
-│   └── public/
-│       ├── demo.html          Integration demo — try the API without writing code
-│       ├── gateway-sdk.js     Browser SDK (full, ~13 KB)
-│       └── gateway-sdk.min.js Browser SDK (compressed, ~6 KB)
-├── sdk/
-│   ├── server/            @gateway/server — Node.js / TypeScript server SDK
-│   └── browser/           @gateway/browser — Browser SDK source (TypeScript)
-├── monitor/               Observability stack (Prometheus + Grafana)
-│   ├── kafka/
-│   │   ├── Dockerfile         Apache Kafka image with Prometheus JMX exporter
-│   │   └── kafka-jmx.yml      Kafka broker JMX metric rules
-│   ├── prometheus/
-│   │   ├── prometheus.yml     Scrape config (backend + Kafka JMX)
-│   │   └── alert_rules.yml    Alerting rules (success rate, latency, queues, Kafka health)
-│   └── grafana/
-│       ├── provisioning/      Auto-wired datasource + dashboard loader
-│       └── dashboards/        payments.json — pre-built payments dashboard
-├── cloud-deploy/
-│   └── aws/
-│       ├── standalone/    Single-EC2 CloudFormation stack
-│       └── managed/       EC2 + RDS + Amplify CloudFormation stack
-├── docs/                  Roadmap, high-throughput plan, development guide
-└── docker-compose.yml     Local Docker quickstart (all services)
+```text
+backend/        Java 21 Spring Boot API
+dashboard/      Next.js merchant dashboard and hosted checkout
+sdk/server/     TypeScript server SDK
+sdk/browser/    TypeScript browser checkout SDK
+monitor/        Prometheus, Grafana, Kafka JMX, alerting
+bench/          k6 benchmark scenarios and results
+cloud-deploy/   AWS deployment references
+docs/           Roadmap and architecture plans
 ```
 
----
+## Recommended Local Run
 
-## Documentation
-
-- [Project roadmap](docs/ROADMAP.md)
-- [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
-- [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
-- [Development guide](docs/DEVELOPMENT_GUIDE.md)
-- [Historical full prompt/reference](docs/payment-gateway-full-prompt.md)
-
----
-
-## Features
-
-- **Multi-provider routing** — Stripe, Square, and Braintree supported today; extensible to Adyen, PayPal, Mollie, Razorpay, and more. Weighted-random routing rules with priority, currency, amount, and country filters
-- **Connector management** — connect multiple accounts per provider, set weights, designate a primary, preview charges from the dashboard
-- **Two checkout modes**
-  - **Hosted pay link** — create a link, share the URL, customer pays on your hosted `/pay/{token}` page
-  - **Embedded form** (Pattern B) — drop `GatewayEmbedded` on your own page with `pk_xxx`; card never touches your server
-- **Complete payment lifecycle** — create → confirm → capture → refund, with idempotency keys and manual capture support
-- **High-throughput payment core track** — 64 logical payment shards via ShardingSphere-JDBC, local/demo shard backfill, optimistic payment versioning, row-level locks for financial state transitions, Kafka-backed outbox publication, Kafka webhook fan-out, Kafka-fed payment read projection, and Redis hot-path optimization
-- **Role-based access control** — five roles (OWNER, ADMIN, DEVELOPER, FINANCE, VIEWER) enforced per-merchant
-- **Webhook delivery** — transactional outbox pattern, Kafka consumer fan-out in the Docker high-throughput profile, configurable endpoints with HMAC signing, exponential backoff retry
-- **Async read models** — Kafka projection worker maintains tenant-scoped payment read models with processed-event idempotency tracking
-- **API key pairs** — `pk_xxx` publishable (browser-safe) + `sk_xxx` secret (server-only), TEST and LIVE modes
-- **Merchant dashboard** — payments, refunds, routing rules, connectors, API keys, logs, members
-- **TypeScript SDKs** — server SDK (`@gateway/server`) and browser SDK (`@gateway/browser`)
-- **Observability** — Micrometer metrics at `/actuator/prometheus`, per-request trace ID propagation (`X-Request-Id`), Grafana dashboard with payment volume / latency / success rates / connector health / Kafka health, Redis fallback/hit counters, Prometheus alerting rules
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Java 21, Spring Boot 3.2, Spring Security 6, Spring Data JPA |
-| Database | PostgreSQL + Flyway migrations + ShardingSphere-JDBC logical payment shards |
-| Async events | Spring Kafka + Apache Kafka local broker + transactional outbox |
-| Hot path | Redis + Redisson for distributed rate limiting, idempotency route cache, and provider health hints |
-| Auth | JWT (jjwt 0.12.5) + API key authentication |
-| Payment providers | Stripe, Square, Braintree |
-| Observability | Micrometer + Prometheus + Grafana + Kafka JMX exporter |
-| Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
-| Browser SDK | Vanilla TypeScript, esbuild for bundling |
-| Server SDK | TypeScript, Node.js 18+ |
-
----
-
-## Getting started
-
-### Option A — Docker (recommended)
-
-The fastest way to run the full stack locally. Only Docker is required — no Java, Node, or PostgreSQL needed on your machine.
-
-**1. Clone and configure**
+Use Docker Compose. This is the supported local path and does not require local Java, Node, or PostgreSQL setup.
 
 ```bash
-git clone https://github.com/your-org/pay.masonx.git
-cd pay.masonx
 cp .env.docker.example .env
-```
-
-Open `.env` and set the two required values:
-
-```bash
-# Required — generate a random secret:  openssl rand -base64 32
-JWT_SECRET=your-random-secret-here
-
-# Optional — add Stripe keys to enable payment processing
-STRIPE_SECRET_KEY=sk_test_...
-```
-
-All other values have safe defaults for local development.
-
-The Docker profile uses `PAYMENT_SHARD_COUNT=64` by default. Flyway creates and backfills the local/demo logical payment shard tables automatically.
-The default Docker path is intentionally Postgres-only for lightweight live demos: Kafka and Redis are optional, and the scheduled DB outbox poller remains enabled.
-
-**2. Start the stack**
-
-```bash
 docker compose up --build
 ```
 
-This builds and starts five containers:
+Open:
 
-| Container | URL | Description |
-|-----------|-----|-------------|
-| `dashboard` | http://localhost:3000 | Next.js merchant portal |
-| `backend` | http://localhost:8080 | Spring Boot API |
-| `postgres` | localhost:5432 | PostgreSQL (data persists in a Docker volume) |
-| `prometheus` | http://localhost:9090 | Metrics scraper |
-| `grafana` | http://localhost:3001 | Payments dashboard — login: admin / admin |
+| Service | URL |
+|---------|-----|
+| Dashboard | http://localhost:3000 |
+| Backend API | http://localhost:8080 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3001 |
 
-> **First boot takes ~10–15 minutes** — Maven downloads dependencies and builds the JAR, then Next.js compiles the dashboard. Subsequent starts are fast (layers are cached).
+Grafana login: `admin` / `admin`.
 
-**3. Create your account**
+First build can take several minutes because Maven and Next.js dependencies are downloaded inside Docker. Later starts are faster because Docker layers are cached.
 
-Open http://localhost:3000 and register. The first registration creates a merchant account with the OWNER role. Flyway runs all database migrations automatically on startup.
+## Local Demo Flow
 
-**4. Try the integration demo**
+1. Open http://localhost:3000.
+2. Register a local account.
+3. Add a TEST connector, or enable Mason Simulator for benchmark/provider-flow testing.
+4. Create a payment link or use the integration demo at http://localhost:3000/demo.html.
+5. Watch metrics in Grafana at http://localhost:3001.
 
-Open http://localhost:3000/demo.html — enter your API key and test payment links, direct API calls, and the embedded checkout form interactively. No code required.
-
----
-
-**Useful commands**
+## Useful Commands
 
 ```bash
-# Follow logs for all services
+# Follow all logs
 docker compose logs -f
 
-# Follow logs for one service
+# Follow backend logs
 docker compose logs -f backend
 
-# Stop everything (data is preserved)
+# Stop containers and keep data
 docker compose down
 
-# Stop and wipe the database volume (full reset)
+# Stop containers and reset local data
 docker compose down -v
 
 # Rebuild after code changes
 docker compose up --build
 ```
 
-**Optional Kafka/Redis quick checks**
+## Benchmarks
 
-Start the optional infra profile when you want to exercise Kafka fan-out or Redis hot-path behavior in the default Docker stack:
-
-```bash
-KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
-KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
-REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
-REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
-docker compose --profile infra up --build
-```
+Run the recommended benchmark profile:
 
 ```bash
-# List local Kafka topics
-docker compose exec kafka env -u KAFKA_OPTS \
-  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-
-# Verify Prometheus sees the Kafka JMX exporter
-curl 'http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22kafka-jmx%22%7D'
-
-# Inspect broker metrics directly
-curl http://localhost:7071/metrics
-
-# Verify the webhook worker consumer group
-docker compose exec kafka env -u KAFKA_OPTS \
-  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-  --describe --group masonxpay-webhook-worker
+docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.bench.yml --profile bench run --rm k6
 ```
 
-Docker defaults:
-
-```bash
-KAFKA_OUTBOX_ENABLED=false
-KAFKA_WEBHOOK_CONSUMER_ENABLED=false
-KAFKA_WEBHOOK_CONSUMER_GROUP_ID=masonxpay-webhook-worker
-KAFKA_PAYMENT_PROJECTION_ENABLED=false
-KAFKA_PAYMENT_PROJECTION_GROUP_ID=masonxpay-payment-projection
-PAYMENT_PROJECTION_BACKFILL_ENABLED=false
-REDIS_HOT_PATH_ENABLED=false
-REDIS_HOT_PATH_FAIL_OPEN=true
-REDIS_RATE_LIMIT_ENABLED=false
-REDIS_IDEMPOTENCY_CACHE_ENABLED=false
-REDIS_PROVIDER_HEALTH_CACHE_ENABLED=false
-REDIS_HEALTH_ENABLED=false
-WEBHOOK_OUTBOX_POLLER_ENABLED=true
-```
-
-The `local` Spring profile is also Postgres-only by default. To use Kafka through `localhost:9094` and Redis at `localhost:6379`, start the optional infra profile and enable the same env flags explicitly.
-Production can provide a managed Redis endpoint with `REDIS_URL`, for example `redis://host:6379` or `rediss://host:6380`; Docker can keep using `REDIS_HOST` and `REDIS_PORT`.
-When Kafka projection is disabled, the dashboard payment list falls back to authoritative payment tables instead of the Kafka-fed read model.
-
----
-
-### Option A2 — Preview profile
-
-Use preview when you want a production-like local runtime before H6 reliability work. It still runs on your Mac through Docker, but it uses stricter defaults than local development: `SPRING_PROFILES_ACTIVE=preview`, Kafka async workers enabled, Redis hot path enabled through `REDIS_URL`, webhook DB polling disabled, health details hidden, projection backfill disabled by default, shorter observability retention, and named preview consumer groups.
-
-Your 32GB M1 Pro is enough for this single-node preview stack. Kafka is still one broker, so it mimics behavior and operations, not multi-AZ production durability.
-
-```bash
-docker compose -p masonxpay-preview --env-file .env.preview \
-  -f docker-compose.yml \
-  -f docker-compose.preview.yml \
-  --profile infra \
-  up --build
-```
-
-If the normal Docker stack is already running, stop it first because preview uses the same host ports. The `masonxpay-preview` project name keeps preview volumes separate from the default local stack.
-
-Useful preview checks:
-
-```bash
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra ps
-
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra logs -f backend
-
-docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml --profile infra exec kafka env -u KAFKA_OPTS \
-  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-  --describe --group masonxpay-payment-projection-preview
-```
-
-Use `.env.preview` for local preview values only. Keep real production secrets in a deployment secret manager, not in this file.
-
----
-
-### Option B — Local development (manual)
-
-Use this if you want hot-reload or are working on only one part of the stack.
-
-**Prerequisites:** Java 21, Maven, PostgreSQL 14+, Node.js 18+
-
-**1. Database**
-
-```bash
-docker compose up -d postgres
-```
-
-Flyway runs migrations automatically on startup — no manual schema setup needed.
-
-**2. Backend**
-
-```bash
-cd backend
-cp ../.env .env          # spring-dotenv loads .env from the working directory
-mvn spring-boot:run
-# API available at http://localhost:8012 (local profile default)
-```
-
-The local Spring profile uses Postgres and the DB-backed outbox poller by default. To run the backend with Kafka and Redis locally, start the optional infra profile and enable the flags:
-
-```bash
-docker compose --profile infra up -d postgres kafka redis
-
-KAFKA_OUTBOX_ENABLED=true KAFKA_WEBHOOK_CONSUMER_ENABLED=true \
-KAFKA_PAYMENT_PROJECTION_ENABLED=true WEBHOOK_OUTBOX_POLLER_ENABLED=false \
-REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT_ENABLED=true \
-REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
-mvn spring-boot:run
-```
-
-Or set env vars directly:
-
-```bash
-DB_HOST=localhost DB_NAME=paygateway DB_USERNAME=your_user \
-DB_PASSWORD=your_pass JWT_SECRET=your-secret \
-mvn spring-boot:run -pl backend
-```
-
-Provider credentials (Stripe `sk_xxx`, Square `accessToken`) are stored **AES-256 encrypted** in the database — no provider keys in config files.
-
-**3. Dashboard**
-
-```bash
-cd dashboard
-echo "NEXT_PUBLIC_API_URL=http://localhost:8012" > .env.local
-npm install
-npm run dev
-# Dashboard available at http://localhost:3000
-```
-
-**4. Try the integration demo**
-
-Open `http://localhost:3000/demo.html` in your browser. No code required — enter your API key and test payment links, direct API calls, and the embedded form (Pattern B) interactively.
-
----
-
-## Integration — two paths
-
-### Path A — Hosted pay link (simplest)
-
-Your server creates a link; the customer pays on your hosted page.
-
-```typescript
-// Server (Node.js) — using @gateway/server
-import { GatewayNode } from '@gateway/server';
-
-const gateway = new GatewayNode('sk_test_xxx', { merchantId: 'your-merchant-id' });
-
-const link = await gateway.paymentLinks.create({
-  title: 'Order #123',
-  amount: 4200,       // cents
-  currency: 'usd',
-  redirectUrl: 'https://yourshop.com/thank-you',
-});
-
-// Send link.payUrl to your customer — they open it and pay
-// https://pay.yourgateway.com/pay/TOKEN
-```
-
-### Path B — Embedded form (Pattern B, no server round-trip before the form)
-
-Drop the browser SDK on your checkout page. The customer's card never touches your server.
-
-```html
-<!-- 1. Load the SDK -->
-<script src="https://pay.yourgateway.com/gateway-sdk.min.js"></script>
-<div id="payment-form"></div>
-
-<script>
-  // 2. Mount with your publishable key — fetches available providers automatically
-  const gw = new GatewayEmbedded('pk_test_xxx', {
-    baseUrl: 'https://api.yourgateway.com',
-  });
-  await gw.mount('#payment-form');
-
-  // 3. When the customer clicks Pay, you receive a gateway token
-  gw.on('token', async ({ gatewayToken }) => {
-    // 4. Send to YOUR server — never confirm client-side
-    await fetch('/your-server/pay', {
-      method: 'POST',
-      body: JSON.stringify({ gatewayToken, amount: 4200, currency: 'usd' }),
-    });
-  });
-</script>
-```
-
-```typescript
-// 5. Your server confirms with @gateway/server
-const intent = await gateway.paymentIntents.create({ amount, currency, idempotencyKey: '...' });
-const result = await gateway.paymentIntents.confirm(intent.id, {
-  paymentMethodId: gatewayToken, // gw_tok_xxx — routing already resolved in the browser
-});
-```
-
----
-
-## SDKs
-
-### `@gateway/server` — server-side (Node.js / TypeScript)
-
-See [`sdk/server/README.md`](sdk/server/README.md) for the full reference.
-
-```bash
-cd sdk/server && npm install && npm run build
-```
-
-Covers: payment intents, refunds, API keys, webhook endpoints, webhook verification, routing rules, logs.
-
-### `@gateway/browser` — browser-side (TypeScript / plain JS)
-
-**Architecture: the SDK is the single source of truth for all client-side payment UI.**
-The provider picker, payment form inputs, pay button, and result callbacks all live inside the SDK.
-Pages and apps (including the hosted `/pay/[token]` page) are consumers — they call `mountCheckout()` and handle `onSuccess`/`onError`. They own no provider-specific logic.
-
-#### Two modes
-
-| Mode | Use case | Entry point |
-|------|----------|-------------|
-| **Hosted** | Merchant-created pay links at `/pay/{token}` | `gw.mountCheckout(el, { linkToken, onSuccess, onError })` |
-| **Embedded** | Drop the form into your own page with `pk_xxx` | `gw.mount(el)` + listen for `token` event |
-
-#### Hosted mode — `mountCheckout`
-
-```ts
-import { GatewayEmbedded } from '@gateway/browser';
-
-const gw = new GatewayEmbedded('', { baseUrl: 'https://your-backend' });
-
-gw.on('ready', () => { /* form is mounted and interactive */ });
-
-await gw.mountCheckout(document.getElementById('payment-container'), {
-  linkToken: 'lnk_xxx',          // from the pay link URL
-  onSuccess: (result) => {
-    console.log(result.paymentIntentId); // charge complete
-  },
-  onError: (err) => {
-    console.error(err.message);
-  },
-});
-
-// Cleanup (e.g. React useEffect return)
-gw.destroy();
-```
-
-#### Embedded mode — `mount` + `token` event
-
-```ts
-const gw = new GatewayEmbedded('pk_test_xxx', { baseUrl: 'https://your-backend' });
-
-gw.on('ready', () => { /* form ready */ });
-gw.on('token', async ({ paymentMethodId }) => {
-  // paymentMethodId is a gateway token (gw_tok_xxx)
-  // send it to your server to call POST /api/v1/payment-intents
-});
-gw.on('error', ({ message }) => { /* show error */ });
-
-await gw.mount('#payment-container');
-```
-
-#### Local development — no build step required
-
-The dashboard references the SDK as a local package (`file:../sdk/browser`).
-Next.js is configured with `transpilePackages: ['@gateway/browser']` and the SDK `main` points directly to `src/index.ts`, so **Next.js imports and compiles the TypeScript source at dev time**.
-
-```
-# Terminal 1
-cd backend && mvn spring-boot:run
-
-# Terminal 2 — SDK changes are picked up automatically; no sdk build needed
-cd dashboard && npm run dev
-```
-
-When you edit `sdk/browser/src/index.ts`, Turbopack detects the change through the symlink and hot-reloads the pay page. If a change isn't reflected, restart `npm run dev`.
-
-#### Docker — SDK is built into the image
-
-`docker compose up --build` copies `sdk/browser/` into the dashboard image before `npm ci`, so the container always uses the SDK source as it exists at build time. To pick up SDK changes in Docker, re-run `docker compose up --build`.
-
-#### Distributable bundle (for `<script>` tag consumers)
-
-```bash
-cd sdk/browser && npm install
-npm run bundle  # → dist/gateway-sdk.min.js
-```
-
-The pre-built files (`gateway-sdk.js` and `gateway-sdk.min.js`) in `dashboard/public/` can be served from any CDN or static host.
-
----
-
-## API overview
-
-All merchant API endpoints are under `/api/v1/` and require `Authorization: Bearer sk_xxx`.
-Public checkout endpoints are under `/pub/` and require no authentication (or `pk_xxx` for the embedded SDK path).
-
-| Resource | Endpoint prefix |
-|----------|----------------|
-| Auth | `/api/v1/auth/` |
-| Payment intents | `/api/v1/payment-intents/` |
-| Payment links | `/api/v1/merchants/{id}/payment-links/` |
-| Connectors | `/api/v1/merchants/{id}/connectors/` |
-| Routing rules | `/api/v1/merchants/{id}/routing-rules/` |
-| Webhook endpoints | `/api/v1/merchants/{id}/webhook-endpoints/` |
-| API keys | `/api/v1/merchants/{id}/api-keys/` |
-| Members | `/api/v1/merchants/{id}/members/` |
-| Hosted checkout | `/pub/checkout-session`, `/pub/tokenize`, `/pub/pay/{token}/checkout` |
-
----
-
-## RBAC — roles and permissions
-
-| Role | Payments | Refunds | Connectors | Routing | API Keys | Members |
-|------|----------|---------|------------|---------|----------|---------|
-| OWNER | R/W | R/W | R/W | R/W | R/W | R/W |
-| ADMIN | R/W | R/W | R/W | R/W | R/W | R/W |
-| DEVELOPER | R/W | R | R/W | R/W | R/W | R |
-| FINANCE | R/W | R/W | R | R | R | R |
-| VIEWER | R | R | R | R | R | R |
+Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/README.md) for simulator success-rate settings and Grafana panel interpretation.
+
+## Documentation
+
+- [Roadmap](docs/ROADMAP.md)
+- [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
+- [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
+- [Development guide](docs/DEVELOPMENT_GUIDE.md)
+- [Server SDK](sdk/server/README.md)
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Backend | Java 21, Spring Boot 3.2, Spring Security, Spring Data JPA |
+| Database | PostgreSQL, Flyway, ShardingSphere-JDBC |
+| Async | Apache Kafka, Spring Kafka, transactional outbox |
+| Hot path | Redis, Redisson |
+| Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
+| SDKs | TypeScript server SDK and browser SDK |
+| Observability | Micrometer, Prometheus, Grafana, Kafka JMX |
+
+## Security Notes
+
+- API requests use `Authorization: Bearer sk_xxx`.
+- Browser checkout uses publishable `pk_xxx` keys.
+- Provider credentials are encrypted at rest.
+- Provider webhooks require signature verification.
+- Do not put production secrets in `.env` files; use a deployment secret manager.

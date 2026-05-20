@@ -41,11 +41,11 @@ High-throughput H1-H5b is complete:
 - H4: async webhook/projection workers.
 - H5: Redis hot path.
 - H5b: preview profile.
+- H7: benchmark/simulator observability.
 
 Next likely work:
 
 - H6: dashboard search/read projections.
-- H7: benchmarks and failure-mode documentation.
 - Phase AI: model-agnostic AI-assisted operations control plane.
 
 ## Key Commands

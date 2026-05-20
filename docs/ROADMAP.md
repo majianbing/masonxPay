@@ -103,7 +103,7 @@ See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
 | H5 | **Redis hot path** | ✅ | Added Redis local/Docker service, Redisson-backed merchant/API rate limiting, payment-create idempotency route cache, provider health cache, and fail-open outage fallback metrics. Postgres remains authoritative for payment state and idempotency. |
 | H5b | **Preview runtime hardening** | ✅ | Added `application-preview.yml`, `.env.preview`, and `docker-compose.preview.yml` for a production-like local stack before H6: Kafka workers and Redis hot path enabled, webhook DB poller off, projection backfill opt-in, health details hidden, and preview consumer groups. |
 | H6 | **Dashboard search/read projections** | [ ] | Use OpenSearch/Elasticsearch for merchant dashboard search and views, not payment state authority. |
-| H7 | **Benchmarks and failure-mode docs** | [~] | Updated k6 to compare Postgres-only vs optional Kafka/Redis infra, added idempotency replay metrics, and introduced a TEST-only Mason Simulator provider for confirm/refund benchmark flows. Remaining: run fresh benchmark baselines, add shard/Kafka/Redis dashboards, and document failure-mode playbooks. |
+| H7 | **Benchmarks and failure-mode docs** | ✅ | k6 now compares Postgres-only vs optional Kafka/Redis infra, covers create/confirm/refund/get/list/idempotency flows, creates a TEST-only Mason Simulator connector through the normal provider path, supports configurable simulator PSP success rates, and feeds Prometheus/Grafana bench/payment dashboards. Fresh numeric baselines and deeper failure-mode playbooks remain follow-up hardening, not H7 blockers. |
 
 ---
 
