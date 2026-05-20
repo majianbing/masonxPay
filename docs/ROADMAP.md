@@ -107,6 +107,68 @@ See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
 
 ---
 
+## Phase AI — Assisted Payment Operations Control Plane
+
+MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted control plane.
+
+See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
+
+Core safety rule: AI does not authorize, decline, or route payments directly. AI analyzes telemetry, explains incidents, recommends routing-policy changes, and can draft safe configuration updates. A deterministic validator and a human approval step remain between AI output and production routing changes. The runtime routing engine continues to execute explicit, versioned configuration only.
+
+Model strategy: the AI control plane should be provider-agnostic. Support multiple model providers such as OpenAI/ChatGPT, Anthropic Claude, and Google Gemini behind a stable internal `AiModelProvider` interface. The dashboard should let platform admins configure available providers, credentials, default model, fallback model, cost/latency limits, and which model is allowed for each workflow stage. The selected model affects investigation and explanation quality only; it must not change payment execution semantics.
+
+Engineering principles:
+
+- Start with simple workflow orchestration before autonomous agents.
+- Use narrow, explicit tools for telemetry reads, incident summaries, policy drafting, and validation.
+- Keep all write-capable tools behind deterministic validators and human approval.
+- Treat external model providers as outside the trust boundary by default; send only redacted, aggregated, policy-approved evidence.
+- Keep the AI control plane useful when external models are disabled: deterministic incident detection, policy validation, human review, and rollback still work without model calls.
+- Run evaluations for incident classification, recommendation quality, policy validation, and explanation clarity before changing defaults.
+- Log model, prompt/template version, input evidence references, output proposal, validator result, approver, and final applied config version.
+- Enforce tenant and role permissions through existing MasonXPay access control; AI may only see data the requesting user or service role is allowed to inspect.
+
+Target flow:
+
+```text
+payment traffic simulator
+  -> success-rate / latency / retry metrics
+  -> provider degradation detected
+  -> AI agent investigates
+  -> AI agent proposes routing-policy change
+  -> policy validator checks constraints
+  -> human approves
+  -> routing config updated
+  -> deterministic routing engine executes
+```
+
+Example incident:
+
+```text
+Incident:
+  Stripe SG VISA success rate dropped from 97.8% to 82.3%
+
+Agent recommendation:
+  reduce Stripe SG VISA traffic from 80% to 20%
+  increase alternate SG VISA provider traffic from 20% to 80%
+  keep Mastercard unchanged
+  rollback automatically if alternate provider error rate > 5%
+```
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| AI0 | **Safety and authority model** | [ ] | Define hard boundaries: AI is advisory; validator and human approval are mandatory; deterministic routing engine is the only runtime decision maker. |
+| AI1 | **Traffic simulator and incident seeds** | [ ] | Generate synthetic payment traffic, provider degradation, latency spikes, retry storms, and regional/card-brand incidents for preview and benchmark environments. |
+| AI2 | **Telemetry-to-incident detector** | [ ] | Convert success-rate, latency, retry, failover, provider, country, currency, and card-brand metrics into structured incident candidates. |
+| AI3 | **Model-agnostic AI investigation workflow** | [ ] | Build provider adapters for OpenAI/ChatGPT, Claude, and Gemini; support configurable default/fallback models; summarize evidence, compare baseline vs current telemetry, explain impact, and draft routing-policy changes without applying them. |
+| AI3b | **AI evidence redaction and data policy** | [ ] | Add field-level allowlists, redaction, external-model deployment modes, no-external-AI kill switch, prompt-injection handling, and tests that prevent sensitive data from reaching model providers. |
+| AI4 | **Policy change model and validator** | [ ] | Add a typed change proposal format plus validation for tenant scope, provider availability, traffic caps, rollback criteria, blast radius, and forbidden changes. |
+| AI5 | **Human approval and model settings UI** | [ ] | Add dashboard review UI with diff, explanation, simulated impact, rollback plan, approval/rejection audit trail, versioned routing config updates, and platform-admin controls for default model/provider configuration. |
+| AI6 | **Deterministic execution and rollback** | [ ] | Apply approved policy changes through existing routing rules and monitor rollback conditions with deterministic workers, not AI. |
+| AI7 | **Agent harness, evals, and auditability** | [ ] | Add prompt/template versioning, golden incident datasets, offline evals, model comparison reports, trace links, tool-call audit logs, and rollout gates for changing default models. |
+
+---
+
 ## Dependency graph
 
 ```
@@ -118,4 +180,5 @@ Phase 0 (done)
             ├── Phase 3 (orchestration — connector breadth + intelligence)
             ├── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
             └── Phase H (high-throughput core — sharding, Redis, Kafka, read projections)
+                    └── Phase AI (assisted ops control plane — advisory agent + validator + approval)
 ```

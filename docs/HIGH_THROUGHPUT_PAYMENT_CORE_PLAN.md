@@ -450,6 +450,12 @@ Current H4 progress:
   - OpenSearch lagging
   - provider timeout/retry storm
 
+### Related Track: AI-Assisted Operations Control Plane
+
+The AI-assisted control plane is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
+
+See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
+
 ## Open Decisions
 
 Closed decisions:

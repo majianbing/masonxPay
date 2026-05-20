@@ -49,8 +49,19 @@ pay.masonx/
 │   └── aws/
 │       ├── standalone/    Single-EC2 CloudFormation stack
 │       └── managed/       EC2 + RDS + Amplify CloudFormation stack
+├── docs/                  Roadmap, high-throughput plan, development guide
 └── docker-compose.yml     Local Docker quickstart (all services)
 ```
+
+---
+
+## Documentation
+
+- [Project roadmap](docs/ROADMAP.md)
+- [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
+- [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
+- [Development guide](docs/DEVELOPMENT_GUIDE.md)
+- [Historical full prompt/reference](docs/payment-gateway-full-prompt.md)
 
 ---
 
