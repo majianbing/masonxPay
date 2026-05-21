@@ -2,6 +2,10 @@
 
 MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supports multi-provider payments, hosted checkout, embedded checkout, routing rules, webhooks, observability, and a high-throughput payment-core track.
 
+## Product Inspiration
+
+The orchestration idea behind MasonXPay was shaped by studying strong market examples such as [Hyperswitch](https://hyperswitch.io) and [Yuno](https://y.uno). Seeing how these products approach payment orchestration, provider abstraction, routing, and operational visibility helped clarify the kind of platform MasonXPay should become: an independent implementation focused on multi-provider payment operations, resilient payment state, and merchant-facing control.
+
 ## Live Demo
 
 Hosted on Vercel + Render + Neon free tier. The first request may take around 30 seconds while the backend wakes up.
