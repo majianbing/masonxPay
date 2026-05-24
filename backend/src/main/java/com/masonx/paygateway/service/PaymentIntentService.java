@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
@@ -15,6 +16,7 @@ import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.redis.PaymentIdempotencyCache;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import com.masonx.paygateway.sharding.IdempotencyReservationStatus;
 import com.masonx.paygateway.sharding.PaymentIdempotencyRoute;
 import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
@@ -236,14 +238,30 @@ public class PaymentIntentService {
                 routePlan = RoutePlan.single(firstAccount);
             } else {
                 String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
-                RoutingEngine.RoutingResult routing = routingEngine
-                        .resolve(auth.getMerchantId(), intent.getAmount(), intent.getCurrency(), null, pmType)
-                        .or(() -> routingEngine.resolveAnyAccount(auth.getMerchantId(), auth.getMode())
-                                .map(a -> new RoutingEngine.RoutingResult(a, null)))
+                RoutingContext routingContext = new RoutingContext(
+                        auth.getMerchantId(),
+                        auth.getMode(),
+                        intent.getAmount(),
+                        intent.getCurrency(),
+                        null,
+                        pmType,
+                        intent.getCaptureMethod(),
+                        null,
+                        intent.getOrderId(),
+                        parseMetadata(intent.getMetadata()),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                );
+                routePlan = routingEngine.resolvePlan(routingContext)
                         .orElseThrow(() -> new IllegalStateException("No active payment connector configured"));
-                firstAccount = routing.primary();
+                firstAccount = routePlan.first().account();
                 rawPmId = req.paymentMethodId();
-                routePlan = RoutePlan.from(routing);
             }
 
             intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
@@ -470,6 +488,17 @@ public class PaymentIntentService {
             return objectMapper.writeValueAsString(metadata);
         } catch (JsonProcessingException e) {
             return null;
+        }
+    }
+
+    private Map<String, String> parseMetadata(String metadata) {
+        if (metadata == null || metadata.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(metadata, new TypeReference<>() {});
+        } catch (JsonProcessingException e) {
+            return Map.of();
         }
     }
 }

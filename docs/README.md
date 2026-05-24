@@ -6,6 +6,7 @@ This directory keeps the larger planning, architecture, and historical reference
 
 - `ROADMAP.md`: product roadmap, high-throughput phases, and AI-assisted operations control-plane milestones.
 - `HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`: detailed H-track design for sharding, Kafka, Redis, projections, and preview runtime.
+- `PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`: Yuno-like routing, retry, fallback, payment-instrument, and future tokenization architecture.
 - `AI_CONTROL_PLANE_PLAN.md`: AI-assisted payment operations control-plane architecture, model-provider strategy, safety boundaries, workflow, and eval plan.
 - `DEVELOPMENT_GUIDE.md`: detailed engineering guide migrated from the old root `CLAUDE.md`, including connector, SDK, MFA, and implementation rules.
 - `payment-gateway-full-prompt.md`: historical full prompt/reference material.

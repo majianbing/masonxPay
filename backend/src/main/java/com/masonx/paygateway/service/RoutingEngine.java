@@ -1,19 +1,34 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.routing.RoutePolicy;
+import com.masonx.paygateway.domain.routing.RoutePolicyRepository;
+import com.masonx.paygateway.domain.routing.RoutePolicyRoute;
+import com.masonx.paygateway.domain.routing.RoutePolicyRouteRepository;
+import com.masonx.paygateway.domain.routing.RoutePolicyStatus;
+import com.masonx.paygateway.domain.routing.RoutePolicyStep;
+import com.masonx.paygateway.domain.routing.RoutePolicyStepRepository;
 import com.masonx.paygateway.domain.routing.RoutingRule;
 import com.masonx.paygateway.domain.routing.RoutingRuleRepository;
 import com.masonx.paygateway.health.ConnectorHealthService;
+import com.masonx.paygateway.service.routing.ProviderAccountCapabilityService;
+import com.masonx.paygateway.service.routing.RoutingContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
@@ -35,18 +50,51 @@ public class RoutingEngine {
     private final ConnectorCircuitBreaker   circuitBreaker;
     private final ConnectorHealthService    healthService;
     private final ConnectorFeeService       feeService;
+    private final RoutePolicyRepository     routePolicyRepository;
+    private final RoutePolicyRouteRepository routePolicyRouteRepository;
+    private final RoutePolicyStepRepository routePolicyStepRepository;
+    private final ProviderAccountCapabilityService capabilityService;
+    private final ObjectMapper              objectMapper;
     private final Random                    random = new Random();
+
+    @Autowired
+    public RoutingEngine(RoutingRuleRepository routingRuleRepository,
+                         ProviderAccountRepository providerAccountRepository,
+                         ConnectorCircuitBreaker circuitBreaker,
+                         ConnectorHealthService healthService,
+                         ConnectorFeeService feeService,
+                         RoutePolicyRepository routePolicyRepository,
+                         RoutePolicyRouteRepository routePolicyRouteRepository,
+                         RoutePolicyStepRepository routePolicyStepRepository,
+                         ProviderAccountCapabilityService capabilityService,
+                         ObjectMapper objectMapper) {
+        this.routingRuleRepository      = routingRuleRepository;
+        this.providerAccountRepository  = providerAccountRepository;
+        this.circuitBreaker             = circuitBreaker;
+        this.healthService              = healthService;
+        this.feeService                 = feeService;
+        this.routePolicyRepository      = routePolicyRepository;
+        this.routePolicyRouteRepository = routePolicyRouteRepository;
+        this.routePolicyStepRepository  = routePolicyStepRepository;
+        this.capabilityService          = capabilityService;
+        this.objectMapper               = objectMapper;
+    }
 
     public RoutingEngine(RoutingRuleRepository routingRuleRepository,
                          ProviderAccountRepository providerAccountRepository,
                          ConnectorCircuitBreaker circuitBreaker,
                          ConnectorHealthService healthService,
                          ConnectorFeeService feeService) {
-        this.routingRuleRepository     = routingRuleRepository;
-        this.providerAccountRepository = providerAccountRepository;
-        this.circuitBreaker            = circuitBreaker;
-        this.healthService             = healthService;
-        this.feeService                = feeService;
+        this.routingRuleRepository      = routingRuleRepository;
+        this.providerAccountRepository  = providerAccountRepository;
+        this.circuitBreaker             = circuitBreaker;
+        this.healthService              = healthService;
+        this.feeService                 = feeService;
+        this.routePolicyRepository      = null;
+        this.routePolicyRouteRepository = null;
+        this.routePolicyStepRepository  = null;
+        this.capabilityService          = null;
+        this.objectMapper               = null;
     }
 
     /**
@@ -132,6 +180,239 @@ public class RoutingEngine {
         }
 
         return Optional.of(new RoutingResult(primary, fallback));
+    }
+
+    /**
+     * Resolves a versioned route policy first, then falls back to legacy routing rules.
+     * Policy steps are concrete provider accounts ordered by step_order, filtered by
+     * health, cost, tenant, mode, and declared account capabilities.
+     */
+    public Optional<RoutePlan> resolvePlan(RoutingContext context) {
+        Optional<RoutePlan> policyPlan = resolveActivePolicyPlan(context);
+        if (policyPlan.isPresent()) {
+            return policyPlan;
+        }
+
+        return resolve(context.merchantId(), context.amount(), context.currency(),
+                context.country(), context.paymentMethodType())
+                .map(RoutePlan::from)
+                .or(() -> resolveAnyAccount(context.merchantId(), context.mode()).map(RoutePlan::single));
+    }
+
+    private Optional<RoutePlan> resolveActivePolicyPlan(RoutingContext context) {
+        if (routePolicyRepository == null) {
+            return Optional.empty();
+        }
+
+        Optional<RoutePolicy> activePolicy = routePolicyRepository.findByMerchantIdAndModeAndStatus(
+                context.merchantId(), context.mode(), RoutePolicyStatus.ACTIVE);
+        if (activePolicy.isEmpty()) {
+            return Optional.empty();
+        }
+
+        RoutePolicy policy = activePolicy.get();
+        List<RoutePolicyRoute> routes = routePolicyRouteRepository
+                .findAllByMerchantIdAndPolicyIdOrderByRouteOrderAsc(context.merchantId(), policy.getId());
+        Optional<RoutePolicyRoute> selectedRoute = routes.stream()
+                .filter(route -> matchesPolicyRoute(route, context))
+                .findFirst()
+                .or(() -> routes.stream().filter(RoutePolicyRoute::isDefaultRoute).findFirst());
+        if (selectedRoute.isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<RouteCandidate> candidates = routePolicyStepRepository
+                .findAllByMerchantIdAndRouteIdOrderByStepOrderAsc(context.merchantId(), selectedRoute.get().getId())
+                .stream()
+                .map(step -> executableCandidate(step, context))
+                .flatMap(Optional::stream)
+                .toList();
+
+        return candidates.isEmpty() ? Optional.empty() : Optional.of(new RoutePlan(candidates));
+    }
+
+    private Optional<RouteCandidate> executableCandidate(RoutePolicyStep step, RoutingContext context) {
+        Optional<ProviderAccount> account = providerAccountRepository
+                .findByIdAndMerchantId(step.getProviderAccountId(), context.merchantId());
+        if (account.isEmpty()) {
+            return Optional.empty();
+        }
+
+        ProviderAccount candidate = account.get();
+        if (candidate.getStatus() != ProviderAccountStatus.ACTIVE || candidate.getMode() != context.mode()) {
+            return Optional.empty();
+        }
+        if (step.isSkipIfDegraded()
+                && (circuitBreaker.isOpen(candidate.getId())
+                || healthService.getSuccessRate(candidate.getId()) < SUCCESS_RATE_THRESHOLD)) {
+            return Optional.empty();
+        }
+        if (step.getMaxCostBps() != null && feeService.exceedsCeiling(candidate, context.amount(), step.getMaxCostBps())) {
+            log.debug("Policy step {} excluded: cost {} exceeds ceiling {}bps on amount {}",
+                    step.getId(), ConnectorFeeService.describe(candidate), step.getMaxCostBps(), context.amount());
+            return Optional.empty();
+        }
+        if (capabilityService != null
+                && !capabilityService.supportsOrUnspecified(context.merchantId(), candidate.getId(), context)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new RouteCandidate(candidate, parseOutcomeActions(step)));
+    }
+
+    private Map<String, String> parseOutcomeActions(RoutePolicyStep step) {
+        String raw = step.getOutcomeActionsJson();
+        if (raw == null || raw.isBlank() || "{}".equals(raw.trim())) {
+            return Map.of();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            Map<String, String> actions = new HashMap<>();
+            root.fields().forEachRemaining(entry -> actions.put(
+                    entry.getKey().trim().toUpperCase(Locale.ROOT),
+                    entry.getValue().asText().trim().toLowerCase(Locale.ROOT)));
+            return actions;
+        } catch (Exception e) {
+            log.warn("Ignoring invalid outcome actions for route step {}", step.getId());
+            return Map.of();
+        }
+    }
+
+    private boolean matchesPolicyRoute(RoutePolicyRoute route, RoutingContext context) {
+        String conditions = route.getConditionsJson();
+        if (conditions == null || conditions.isBlank() || "{}".equals(conditions.trim())) {
+            return route.isDefaultRoute();
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(conditions);
+            JsonNode all = root.get("all");
+            if (all != null && all.isArray()) {
+                for (JsonNode condition : all) {
+                    if (!matchesCondition(condition, context)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            if (root.has("field")) {
+                return matchesCondition(root, context);
+            }
+            return matchesSimpleConditions(root, context);
+        } catch (Exception e) {
+            log.warn("Ignoring invalid route conditions for route {}", route.getId());
+            return false;
+        }
+    }
+
+    private boolean matchesSimpleConditions(JsonNode root, RoutingContext context) {
+        Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            if (!matchesValue(field.getKey(), "eq", field.getValue(), context)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesCondition(JsonNode condition, RoutingContext context) {
+        String field = text(condition.get("field"));
+        String operator = text(condition.get("operator"));
+        JsonNode value = condition.get("value");
+        if (field == null || field.isBlank()) {
+            return false;
+        }
+        return matchesValue(field, operator == null ? "eq" : operator, value, context);
+    }
+
+    private boolean matchesValue(String field, String operator, JsonNode expected, RoutingContext context) {
+        Object actual = routingValue(field, context);
+        String op = normalize(operator);
+        if ("missing".equals(op)) {
+            return actual == null || actual.toString().isBlank();
+        }
+        if (actual == null || expected == null || expected.isNull()) {
+            return false;
+        }
+
+        if (actual instanceof Number number) {
+            return matchesNumber(number.longValue(), op, expected);
+        }
+
+        String actualText = actual.toString();
+        if ("in".equals(op) && expected.isArray()) {
+            for (JsonNode item : expected) {
+                if (sameText(actualText, item.asText())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if ("not_eq".equals(op) || "ne".equals(op)) {
+            return !sameText(actualText, expected.asText());
+        }
+        return sameText(actualText, expected.asText());
+    }
+
+    private boolean matchesNumber(long actual, String operator, JsonNode expected) {
+        return switch (operator) {
+            case "gt" -> actual > expected.asLong();
+            case "gte" -> actual >= expected.asLong();
+            case "lt" -> actual < expected.asLong();
+            case "lte" -> actual <= expected.asLong();
+            case "between" -> expected.isArray() && expected.size() == 2
+                    && actual >= expected.get(0).asLong() && actual <= expected.get(1).asLong();
+            case "not_eq", "ne" -> actual != expected.asLong();
+            default -> actual == expected.asLong();
+        };
+    }
+
+    private Object routingValue(String field, RoutingContext context) {
+        return switch (normalizeField(field)) {
+            case "amount" -> context.amount();
+            case "currency" -> context.currency();
+            case "country" -> context.country();
+            case "payment_method_type", "payment_method" -> context.paymentMethodType();
+            case "capture_method" -> context.captureMethod() != null ? context.captureMethod().name() : null;
+            case "customer_id" -> context.customerId();
+            case "order_id" -> context.orderId();
+            case "instrument_source" -> context.instrumentSource() != null ? context.instrumentSource().name() : null;
+            case "instrument_portability" -> context.instrumentPortability() != null
+                    ? context.instrumentPortability().name() : null;
+            case "card_brand" -> context.cardBrand();
+            case "bin_country" -> context.binCountry();
+            case "issuer_country" -> context.issuerCountry();
+            case "card_type" -> context.cardType();
+            case "wallet_type" -> context.walletType();
+            default -> metadataValue(field, context);
+        };
+    }
+
+    private String metadataValue(String field, RoutingContext context) {
+        if (context.metadata() == null) {
+            return null;
+        }
+        if (field.startsWith("metadata.")) {
+            return context.metadata().get(field.substring("metadata.".length()));
+        }
+        return null;
+    }
+
+    private String text(JsonNode node) {
+        return node == null || node.isNull() ? null : node.asText();
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeField(String value) {
+        return normalize(value).replace(".", "_");
+    }
+
+    private boolean sameText(String left, String right) {
+        return left != null && right != null && left.equalsIgnoreCase(right);
     }
 
     /**

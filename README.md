@@ -107,6 +107,7 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 
 - [Roadmap](docs/ROADMAP.md)
 - [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
+- [Payment orchestration, routing, retry, and instrument plan](docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md)
 - [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
 - [Development guide](docs/DEVELOPMENT_GUIDE.md)
 - [Server SDK](sdk/server/README.md)

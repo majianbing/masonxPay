@@ -197,8 +197,9 @@ class PaymentIntentServiceTest {
 
         when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
-        when(routingEngine.resolve(merchantId, pi.getAmount(), pi.getCurrency(), null, "card"))
-                .thenReturn(Optional.of(new RoutingEngine.RoutingResult(primary, fallback)));
+        when(routingEngine.resolvePlan(any()))
+                .thenReturn(Optional.of(new RoutePlan(List.of(
+                        new RouteCandidate(primary), new RouteCandidate(fallback)))));
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(retryOrchestrator.execute(eq(pi), eq("pm_123"), eq("card"), any(RoutePlan.class),
                 eq(PaymentRetryContext.sameAccountOnly())))
