@@ -5,6 +5,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.instrument.InstrumentPortability;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
+import com.masonx.paygateway.domain.instrument.PaymentInstrument;
+import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
@@ -56,6 +60,7 @@ public class PaymentIntentService {
     private final PaymentProviderDispatcher  dispatcher;
     private final ProviderAccountService     providerAccountService;
     private final ProviderAccountRepository  providerAccountRepository;
+    private final PaymentInstrumentRepository paymentInstrumentRepository;
     private final PaymentTokenService        paymentTokenService;
     private final PaymentRetryOrchestratorService retryOrchestrator;
     private final ObjectMapper               objectMapper;
@@ -72,6 +77,7 @@ public class PaymentIntentService {
                                 PaymentProviderDispatcher dispatcher,
                                 ProviderAccountService providerAccountService,
                                 ProviderAccountRepository providerAccountRepository,
+                                PaymentInstrumentRepository paymentInstrumentRepository,
                                 PaymentTokenService paymentTokenService,
                                 PaymentRetryOrchestratorService retryOrchestrator,
                                 ObjectMapper objectMapper,
@@ -87,6 +93,7 @@ public class PaymentIntentService {
         this.dispatcher               = dispatcher;
         this.providerAccountService   = providerAccountService;
         this.providerAccountRepository = providerAccountRepository;
+        this.paymentInstrumentRepository = paymentInstrumentRepository;
         this.paymentTokenService      = paymentTokenService;
         this.retryOrchestrator        = retryOrchestrator;
         this.objectMapper             = objectMapper;
@@ -208,7 +215,8 @@ public class PaymentIntentService {
         requireSecretKey(auth);
 
         // --- TX 1: validate, resolve routing, mark PROCESSING ---
-        record Setup(PaymentIntent intent, RoutePlan routePlan, String rawPmId, String pmType) {}
+        record Setup(PaymentIntent intent, RoutePlan routePlan, String rawPmId, String pmType,
+                     PaymentRetryContext retryContext) {}
 
         Setup setup = txTemplate.execute(ts -> {
             PaymentIntent intent = loadOwnedForUpdate(auth, intentId);
@@ -219,9 +227,10 @@ public class PaymentIntentService {
                         "PaymentIntent cannot be confirmed in status: " + intent.getStatus());
             }
 
-            final ProviderAccount firstAccount;
-            final String rawPmId;
-            final RoutePlan routePlan;
+            ProviderAccount firstAccount;
+            String rawPmId;
+            RoutePlan routePlan;
+            PaymentRetryContext retryContext;
 
             if (req.paymentMethodId().startsWith("gw_tok_")) {
                 PaymentToken token = paymentTokenService.consume(req.paymentMethodId());
@@ -234,34 +243,27 @@ public class PaymentIntentService {
                 if (firstAccount.getProvider() != tokenProvider) {
                     throw new IllegalStateException("Payment token provider does not match connector account");
                 }
-                rawPmId = token.getProviderPmId();
-                routePlan = RoutePlan.single(firstAccount);
+                PaymentInstrument instrument = loadInstrument(token).orElse(null);
+                if (instrument != null && instrument.getPortability() == InstrumentPortability.PORTABLE) {
+                    rawPmId = instrument.getTokenReference();
+                    routePlan = routingEngine.resolvePlan(routingContext(auth, intent, pmType(req), instrument))
+                            .orElse(RoutePlan.single(firstAccount));
+                    firstAccount = routePlan.first().account();
+                    retryContext = routePlan.candidates().size() > 1
+                            ? PaymentRetryContext.allowFallback()
+                            : PaymentRetryContext.sameAccountOnly();
+                } else {
+                    validateProviderScopedInstrument(token, firstAccount, instrument);
+                    rawPmId = token.getProviderPmId();
+                    routePlan = RoutePlan.single(firstAccount);
+                    retryContext = PaymentRetryContext.sameAccountOnly();
+                }
             } else {
-                String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
-                RoutingContext routingContext = new RoutingContext(
-                        auth.getMerchantId(),
-                        auth.getMode(),
-                        intent.getAmount(),
-                        intent.getCurrency(),
-                        null,
-                        pmType,
-                        intent.getCaptureMethod(),
-                        null,
-                        intent.getOrderId(),
-                        parseMetadata(intent.getMetadata()),
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null
-                );
-                routePlan = routingEngine.resolvePlan(routingContext)
+                routePlan = routingEngine.resolvePlan(routingContext(auth, intent, pmType(req), null))
                         .orElseThrow(() -> new IllegalStateException("No active payment connector configured"));
                 firstAccount = routePlan.first().account();
                 rawPmId = req.paymentMethodId();
+                retryContext = PaymentRetryContext.sameAccountOnly();
             }
 
             intent.setPaymentMethodType(req.paymentMethodType() != null ? req.paymentMethodType() : "card");
@@ -273,12 +275,12 @@ public class PaymentIntentService {
             paymentIntentRepository.save(intent);
 
             String pmType = req.paymentMethodType() != null ? req.paymentMethodType() : "card";
-            return new Setup(intent, routePlan, rawPmId, pmType);
+            return new Setup(intent, routePlan, rawPmId, pmType, retryContext);
         });
 
         PaymentRetryOrchestratorService.Result retryResult = retryOrchestrator.execute(
                 setup.intent(), setup.rawPmId(), setup.pmType(), setup.routePlan(),
-                PaymentRetryContext.sameAccountOnly());
+                setup.retryContext());
 
         // --- TX 3: finalize intent status + write outbox event atomically ---
         final ChargeResult finalResult = retryResult.lastResult();
@@ -455,6 +457,50 @@ public class PaymentIntentService {
         if (auth.getType() != ApiKeyType.SECRET) {
             throw new AccessDeniedException("A secret API key is required for this operation");
         }
+    }
+
+    private Optional<PaymentInstrument> loadInstrument(PaymentToken token) {
+        if (token.getInstrumentId() == null) return Optional.empty();
+        return Optional.of(paymentInstrumentRepository
+                .findByIdAndMerchantId(token.getInstrumentId(), token.getMerchantId())
+                .orElseThrow(() -> new IllegalStateException("Payment instrument not found")));
+    }
+
+    private void validateProviderScopedInstrument(PaymentToken token, ProviderAccount account,
+                                                  PaymentInstrument instrument) {
+        if (instrument == null) return;
+        if (instrument.getSource() == InstrumentSource.PROVIDER_TOKEN
+                && !account.getId().equals(instrument.getProviderAccountId())) {
+            throw new IllegalStateException("Provider-scoped instrument does not match connector account");
+        }
+    }
+
+    private RoutingContext routingContext(ApiKeyAuthentication auth, PaymentIntent intent, String pmType,
+                                          PaymentInstrument instrument) {
+        return new RoutingContext(
+                auth.getMerchantId(),
+                auth.getMode(),
+                intent.getAmount(),
+                intent.getCurrency(),
+                null,
+                pmType,
+                intent.getCaptureMethod(),
+                instrument != null ? instrument.getCustomerId() : null,
+                intent.getOrderId(),
+                parseMetadata(intent.getMetadata()),
+                instrument != null ? instrument.getId() : null,
+                instrument != null ? instrument.getSource() : null,
+                instrument != null ? instrument.getPortability() : null,
+                instrument != null ? instrument.getCardBrand() : null,
+                instrument != null ? instrument.getBinCountry() : null,
+                instrument != null ? instrument.getIssuerCountry() : null,
+                instrument != null ? instrument.getCardType() : null,
+                instrument != null ? instrument.getWalletType() : null
+        );
+    }
+
+    private String pmType(ConfirmPaymentIntentRequest req) {
+        return req.paymentMethodType() != null ? req.paymentMethodType() : "card";
     }
 
     private PaymentIntentResponse toResponse(PaymentIntent intent) {

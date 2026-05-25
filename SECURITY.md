@@ -129,7 +129,7 @@ BCrypt via Spring Security's `BCryptPasswordEncoder` (default cost factor 10).
 
 `ApiRequestLoggingFilter` stores API request and response bodies in `gateway_logs`. Before writing, a regex pass replaces the values of the following JSON fields with `"[REDACTED]"`:
 
-`password`, `passwordHash`, `secretKey`, `accessToken`, `privateKey`, `publicKey`, `refreshToken`, `mfaSecret`, `mfaBackupCodes`, `mfaSessionToken`, `code`, `btPrivateKey`, `btPublicKey`
+`password`, `passwordHash`, `secretKey`, `accessToken`, `privateKey`, `publicKey`, `refreshToken`, `mfaSecret`, `mfaBackupCodes`, `mfaSessionToken`, `code`, `btPrivateKey`, `btPublicKey`, `providerPmId`, `paymentMethodId`, `tokenReference`, `providerToken`
 
 `Authorization` and `X-Publishable-Key` request headers are also redacted.
 
@@ -139,25 +139,25 @@ BCrypt via Spring Security's `BCryptPasswordEncoder` (default cost factor 10).
 
 These are intentional design decisions with documented risk. Operators should include them in their risk register.
 
-### 1. Access tokens cannot be revoked before expiry
+### 1. Access-token revocation depends on database-backed token versions
 
-After logout, the refresh token is immediately revoked in the database. However, any issued access token remains valid until its 24-hour expiry, because there is no token blacklist (no Redis is used by design).
+After logout, the refresh token is revoked in the database and the user's `token_version` is incremented. Access tokens include that version in the `tv` claim, and `JwtAuthFilter` rejects tokens whose claim is older than the current database value.
 
-**Impact:** A stolen access token grants up to 24 hours of unauthorized access after the legitimate user logs out or discovers the compromise.
+**Impact:** Revocation requires the backend to load the current user record on authenticated requests. This avoids a Redis blacklist, but means access-token validation depends on database availability.
 
 **Mitigation options for operators:**
 - Reduce the access token TTL via `app.jwt.access-token-expiry-ms` (e.g., 15–60 minutes for higher-security deployments)
-- The codebase includes a `TODO` comment in `JwtService` describing a `token_version` column approach that would enable immediate invalidation with a single DB read per request — this can be implemented without Redis
+- Monitor database availability and authentication error rates, because dashboard access-token validation now intentionally performs a user lookup
 
-### 2. Webhook delivery is not atomic with the database write
+### 2. Webhook delivery is asynchronous after the database commit
 
-Payment state transitions are written to the database, and then a webhook event is published via Spring's `ApplicationEventPublisher`. These two operations are not wrapped in a single atomic transaction (no transactional outbox pattern).
+Payment state transitions and `outbox_events` rows are written in the same database transaction. A poller or Kafka consumer later fans out those committed outbox rows into webhook delivery records and external HTTP delivery attempts.
 
-**Impact:** If the JVM crashes between the database save and the event publish, the payment state is persisted but the webhook is silently lost.
+**Impact:** A committed payment state should not silently lose its outbox record, but external webhook delivery can still be delayed or fail after commit.
 
-**Accepted trade-off:** At the transaction volumes this system targets, the crash window is narrow and the operational cost of a full outbox table outweighs the risk. The `TODO` comment in `PaymentIntentService.publishEvent()` describes the outbox migration path.
+**Accepted trade-off:** Webhook delivery remains eventually consistent with payment state. Postgres remains the recovery source; Kafka and worker consumers are delivery acceleration paths, not financial-state authorities.
 
-**Mitigation for operators:** Monitor `webhook_deliveries` for records stuck in `PENDING` or `FAILED` state and set up alerting when all retries are exhausted.
+**Mitigation for operators:** Monitor `outbox_events`, `webhook_deliveries`, `payment.outbox.queue.depth`, and Kafka outbox metrics for backlog or exhausted retries.
 
 ### 3. Single symmetric encryption key — no envelope encryption
 
@@ -210,9 +210,21 @@ MasonXPay never handles raw card numbers, CVVs, or full track data. In all integ
 
 - The browser SDK communicates directly with the upstream provider (Stripe, Square, Braintree) to tokenize card data.
 - MasonXPay receives only provider tokens (`pm_xxx`, `nonce_xxx`, etc.).
-- The `gateway_logs` table stores API request and response bodies with sensitive field redaction, but these bodies never contain card numbers because the tokenization happens client-side.
+- The `gateway_logs` table stores API request and response bodies with sensitive field redaction, including provider payment-method token fields, but these bodies never contain card numbers because the tokenization happens client-side.
 
 This is a foundational constraint for understanding PCI scope.
+
+### Payment instruments and orchestration tokens
+
+The orchestration layer stores `PaymentInstrument` rows with safe metadata and opaque references only. `token_reference`, `providerPmId`, `paymentMethodId`, and gateway tokens such as `gw_tok_*` must be treated as sensitive payment references even though they are not PAN.
+
+Provider-owned tokens are provider-scoped by default. They must only be reused with the concrete provider account that created them. Cross-provider or cross-account card fallback requires one of:
+
+- A `PORTABLE` instrument backed by a future vault or network-token integration.
+- A new customer authorization that creates a fresh provider-scoped token for the selected route.
+- A non-card payment flow where the method handle is explicitly safe to recreate or reroute.
+
+The local Mason Simulator provider is intended for deterministic TEST-mode orchestration and retry tests without sending payment references or traffic to outside PSP services.
 
 ---
 
@@ -304,11 +316,12 @@ Quick reference for auditors, threat modelers, and security reviewers.
 | API secret key storage | SHA-256 hash; raw shown once | — |
 | Refresh token storage | SHA-256 hash, rotated on use, 7-day TTL | — |
 | Invite token storage | SHA-256 hash, single-use, 48-hour TTL | — |
-| JWT signing | HMAC-SHA256; 24h access / 5min MFA session | Access tokens not revocable before expiry |
+| JWT signing | HMAC-SHA256; 24h access / 5min MFA session; `tv` claim | Logout invalidation depends on DB-backed `token_version` checks |
 | Webhook signing | HMAC-SHA256, Stripe-compatible | Consumers must verify timestamp themselves |
-| Sensitive field redaction | Regex on 14 field names, request + response | New endpoints with new sensitive fields must extend `SENSITIVE_FIELDS` |
+| Transactional outbox | Payment state and outbox rows written in one DB transaction | External webhook delivery remains asynchronous and retry-based |
+| Sensitive field redaction | Regex on 17 field names, request + response | New endpoints with new sensitive fields must extend `SENSITIVE_FIELDS` |
 | Rate limiting | Alibaba Sentinel, in-process | Per-JVM; not shared across scaled instances |
-| Session management | Stateless JWT | No server-side session; no blacklist |
+| Session management | JWT plus DB user lookup for token version and roles | No Redis blacklist; depends on DB availability |
 | MFA | TOTP (RFC 6238); 8 single-use backup codes | Optional; must be enrolled by the user |
 | Tenant isolation | `merchant_id` filter on every DB query | Verified at the service layer; never inferred from JWT |
 | RBAC | 5 roles; DB-resolved per request | Roles not cached; immediate revocation on membership change |

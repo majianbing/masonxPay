@@ -254,6 +254,60 @@ class PaymentRetryOrchestratorServiceTest {
         verify(circuitBreaker).recordSuccess(square.getId());
     }
 
+    @Test
+    void execute_outcomeActionNext_skipsSameAccountRetryAndFallsBackImmediately() {
+        ProviderAccount stripe = account(PaymentProvider.STRIPE);
+        ProviderAccount square = account(PaymentProvider.SQUARE);
+
+        when(providerAccountService.loadCredentials(stripe.getId()))
+                .thenReturn(new StripeCredentials("sk", "pk"));
+        when(providerAccountService.loadCredentials(square.getId()))
+                .thenReturn(new SquareCredentials("token", "app", "loc", true));
+        when(dispatcher.charge(eq(PaymentProvider.STRIPE), any(), any()))
+                .thenReturn(failed("timeout"));
+        when(dispatcher.charge(eq(PaymentProvider.SQUARE), any(), any()))
+                .thenReturn(success("sq-pay"));
+        when(failoverPolicy.isRetryable("timeout")).thenReturn(true);
+
+        PaymentRetryOrchestratorService.Result result = orchestrator.execute(
+                intent(), "pm_123", "card", new RoutePlan(List.of(
+                        new RouteCandidate(stripe, Map.of("PROVIDER_TIMEOUT", "next")),
+                        new RouteCandidate(square))), PaymentRetryContext.allowFallback());
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.providerName()).isEqualTo("SQUARE");
+        assertThat(result.attemptCount()).isEqualTo(2);
+        verify(dispatcher).charge(eq(PaymentProvider.STRIPE), any(), any());
+        verify(dispatcher).charge(eq(PaymentProvider.SQUARE), any(), any());
+
+        List<PaymentRequest> savedAttempts = List.copyOf(attempts.values());
+        assertThat(savedAttempts.get(0).getAttemptType()).isEqualTo(PaymentAttemptType.PRIMARY);
+        assertThat(savedAttempts.get(1).getAttemptType()).isEqualTo(PaymentAttemptType.FALLBACK);
+    }
+
+    @Test
+    void execute_outcomeActionStop_stopsEvenWhenFailureIsRetryable() {
+        ProviderAccount stripe = account(PaymentProvider.STRIPE);
+        ProviderAccount square = account(PaymentProvider.SQUARE);
+
+        when(providerAccountService.loadCredentials(stripe.getId()))
+                .thenReturn(new StripeCredentials("sk", "pk"));
+        when(dispatcher.charge(eq(PaymentProvider.STRIPE), any(), any()))
+                .thenReturn(failed("timeout"));
+        when(failoverPolicy.isRetryable("timeout")).thenReturn(true);
+
+        PaymentRetryOrchestratorService.Result result = orchestrator.execute(
+                intent(), "pm_123", "card", new RoutePlan(List.of(
+                        new RouteCandidate(stripe, Map.of("PROVIDER_TIMEOUT", "stop")),
+                        new RouteCandidate(square))), PaymentRetryContext.allowFallback());
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.usedCandidate().accountId()).isEqualTo(stripe.getId());
+        assertThat(result.attemptCount()).isEqualTo(1);
+        verify(dispatcher).charge(eq(PaymentProvider.STRIPE), any(), any());
+        verify(dispatcher, never()).charge(eq(PaymentProvider.SQUARE), any(), any());
+    }
+
     private PaymentIntent intent() {
         PaymentIntent intent = new PaymentIntent();
         ReflectionTestUtils.setField(intent, "id", UUID.randomUUID());

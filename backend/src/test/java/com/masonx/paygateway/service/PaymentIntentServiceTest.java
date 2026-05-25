@@ -7,6 +7,7 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
@@ -45,6 +46,7 @@ class PaymentIntentServiceTest {
     @Mock PaymentProviderDispatcher dispatcher;
     @Mock ProviderAccountService providerAccountService;
     @Mock ProviderAccountRepository providerAccountRepository;
+    @Mock PaymentInstrumentRepository paymentInstrumentRepository;
     @Mock PaymentTokenService paymentTokenService;
     @Mock PaymentRetryOrchestratorService retryOrchestrator;
     @Mock OutboxEventRepository outboxEventRepository;
@@ -67,7 +69,7 @@ class PaymentIntentServiceTest {
         service = new PaymentIntentService(
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
-                providerAccountRepository, paymentTokenService, retryOrchestrator,
+                providerAccountRepository, paymentInstrumentRepository, paymentTokenService, retryOrchestrator,
                 objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter,
                 idempotencyCache, txManager, metrics);
         lenient().when(idempotencyCache.find(any(), anyString())).thenReturn(Optional.empty());

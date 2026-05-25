@@ -117,10 +117,10 @@ Core boundary: MasonXPay does not need raw PAN to build the next orchestration l
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| O1 | **Instrument and context foundation** | [ ] | Add `PaymentInstrument`, safe metadata, portability/source flags, and a normalized `RoutingContext` while keeping today's provider-token flow. |
-| O2 | **Provider capability matrix** | [ ] | Model provider support for methods, countries, currencies, capture/refund/3DS, wallets, local methods, vault tokens, and future network-token support. |
-| O3 | **Route policy v2** | [ ] | Add versioned route policies, ordered condition sets, route steps, draft/publish/audit workflow, and route simulation before publish. |
-| O4 | **Outcome-based fallback** | [ ] | Normalize provider outcomes and allow fallback only for safe categories such as timeouts/provider errors; hard declines and fraud/risk outcomes should stop. |
+| O1 | **Instrument and context foundation** | ✅ | Added `PaymentInstrument`, safe metadata, portability/source flags, `RoutingContext`, gateway-token instrument linking, provider-scoped confirm safety, and payment-method reference log redaction. Live confirm now permits route fallback only for portable instruments. |
+| O2 | **Provider capability matrix** | [~] | Added account-scoped capabilities, connector-scoped capability management APIs, default card capability seeds for newly created connector accounts, capability-aware route-step filtering, and dashboard UI for editing connector capabilities. Remaining: payment-link hosted-checkout end-to-end verification/fix with capabilities enabled. |
+| O3 | **Route policy v2** | [~] | Added route policy/route/step tables, draft create/replace, publish/archive/list/detail APIs, dry-run route simulation, active-policy routing before legacy rules, and simulator-backed local tests. Remaining: audit history, strict condition-schema validation, and dashboard UI. |
+| O4 | **Outcome-based fallback** | ✅ | Added route-step `outcome_actions_json`, conservative outcome categorization, retry/next/stop execution, and focused tests. Hard declines stop, simulator declines model hard declines, and live cross-route fallback is gated by instrument portability. |
 | O5 | **Scheduled retry orchestration** | [ ] | Separate technical retries, route fallback, and delayed recovery retries for capture/refund/subscription-style operations. |
 | O6 | **Optional portable card support** | [ ] | Add third-party vault or network-token integration only when cross-PSP card portability is a real requirement; keep raw PAN behind an isolated PCI boundary if ever introduced. |
 

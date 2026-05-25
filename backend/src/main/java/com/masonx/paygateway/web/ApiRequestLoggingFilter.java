@@ -37,7 +37,8 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
             "secretkey", "accesstoken", "privatekey", "publickey",
             "refreshtoken",
             "mfasecret", "mfabackupcodes", "mfasessiontoken", "code",
-            "btprivatekey", "btpublickey"
+            "btprivatekey", "btpublickey",
+            "providerpmid", "paymentmethodid", "tokenreference", "providertoken"
     );
 
     /**

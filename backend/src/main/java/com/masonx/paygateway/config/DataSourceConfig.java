@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.autoconfigure.flyway.FlywayDataSource;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -51,15 +52,18 @@ public class DataSourceConfig {
     @Bean
     @Primary
     @Lazy
-    public DataSource dataSource(@Qualifier("flywayDataSource") DataSource physicalDataSource) throws SQLException {
+    public DataSource dataSource(@Qualifier("flywayDataSource") DataSource physicalDataSource,
+                                 @Value("${spring.flyway.enabled:true}") boolean flywayEnabled) throws SQLException {
         // ShardingSphere snapshots table metadata when this datasource is created.
         // Running Flyway here is idempotent and protects fresh preview/prod-like databases
         // where the primary datasource can be initialized before Boot's Flyway runner.
-        Flyway.configure()
-                .dataSource(physicalDataSource)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
+        if (flywayEnabled) {
+            Flyway.configure()
+                    .dataSource(physicalDataSource)
+                    .locations("classpath:db/migration")
+                    .load()
+                    .migrate();
+        }
 
         Map<String, DataSource> dataSources = new LinkedHashMap<>();
         dataSources.put("ds_0", physicalDataSource);

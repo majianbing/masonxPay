@@ -319,73 +319,100 @@ Local payment methods and wallets can support strong orchestration without PAN:
 
 For local payment methods that create provider-specific instructions, fallback after instruction creation may require starting a new payment attempt and clearly communicating that to the customer.
 
-## Suggested Phases
+## Implementation Tracker
 
-### O1: Instrument And Context Foundation
+Status legend:
 
-- Add `PaymentInstrument` model and safe metadata fields.
-- Introduce `RoutingContext`.
-- Keep existing provider-token flow working.
-- Mark provider tokens as `PROVIDER_SCOPED`.
+- `[x]` Done and committed.
+- `[~]` Partially implemented; usable foundation exists, but listed remaining work is still open.
+- `[ ]` Not started.
 
-### O2: Capability-Aware Routing
+Last checkpoint commit: `d8dc6b8 Add capability UI and instrument safety fixes`.
+Committed checkpoint: provider-scoped instruments are created during hosted-checkout tokenization, linked to `payment_tokens`, live confirm uses instrument portability to decide whether route fallback is allowed, provider payment-method references are redacted from request logs, newly created connector accounts get default card capability rows, connector-scoped capability management APIs and dashboard UI are available, outcome-action retry/next/stop behavior has focused tests, Mockito tests are configured to avoid JDK self-attach, and `AGENTS.md` / `CLAUDE.md` / `SECURITY.md` now point future sessions at the Phase O boundary and status. Payment-link end-to-end validation is currently open because the capability-aware flow did not behave as expected during manual testing.
 
-- Add provider capability matrix.
-- Make route matching depend on method, country, currency, capture method, and provider support.
-- Add route simulation endpoint for dashboard previews.
+Active verification blocker:
 
-Current implementation checkpoint:
+- [ ] Reproduce and fix the payment-link end-to-end behavior with connector capabilities enabled, preferably using the TEST-mode Mason Simulator provider so the validation does not depend on outside PSP services.
 
-- `ProviderAccountCapability` stores account-scoped method/country/currency/capture/token support.
-- `RoutingEngine.resolvePlan` filters active route-policy steps by tenant, mode, account status, health, cost, and declared capabilities.
-- `POST /api/v1/merchants/{merchantId}/route-simulations` dry-runs route resolution without calling a PSP.
-- TEST-mode `SIMULATOR` connectors can be used for local connector preview and route-policy experiments without external services.
+### O1: Instrument And Context Foundation `[x]`
 
-### O3: Route Policy V2
+Done:
 
-- Add versioned route policies, ordered condition sets, and route steps.
-- Add draft/publish/audit workflow.
-- Keep one active published policy per merchant/mode.
+- [x] Added `PaymentInstrument` model, repository, safe card/wallet metadata fields, source, and portability flags.
+- [x] Added `RoutingContext`.
+- [x] Kept existing provider-token flow working.
+- [x] Marked the architecture boundary that provider-owned tokens are `PROVIDER_SCOPED`.
+- [x] Persisted `PaymentInstrument` rows from hosted checkout tokenization.
+- [x] Linked `PaymentToken` / `gw_tok_*` consumption to the persisted instrument.
+- [x] Confirm validates provider-scoped instruments remain pinned to the original connector account.
+- [x] Live confirm uses instrument portability to decide whether route fallback is allowed.
+- [x] Redact provider payment-method references such as `providerPmId`, `paymentMethodId`, `tokenReference`, and `providerToken` from stored API request/response logs.
 
-Current implementation checkpoint:
+### O2: Capability-Aware Routing `[~]`
 
-- Route policy, route, and step tables/entities/repositories exist.
-- Active policies are resolved before legacy `routing_rules`; legacy routing remains the fallback path.
-- Basic condition matching supports built-in fields, simple metadata equality, `in`, missing checks, and numeric comparisons.
-- Draft create/replace, publish, archive, list, and detail APIs exist under `/api/v1/merchants/{merchantId}/route-policies`.
-- Publish validates route shape and active provider-account ownership before activating a policy and archiving the previous active policy for the same merchant/mode.
-- Audit history and stronger publish-time condition-schema validation remain open.
+Done:
 
-### O4: Outcome-Based Fallback
+- [x] Added `ProviderAccountCapability` matrix for account-scoped method/country/currency/capture/token support.
+- [x] `RoutingEngine.resolvePlan` filters active route-policy steps by tenant, mode, account status, health, cost, and declared capabilities.
+- [x] Added `POST /api/v1/merchants/{merchantId}/route-simulations` dry-run route resolution without calling a PSP.
+- [x] TEST-mode `SIMULATOR` connectors can be used for local connector preview and route-policy experiments without external services.
+- [x] Newly created connector accounts seed a default `card` capability row so route policies have concrete capability data for simulator and common providers.
+- [x] Added connector-scoped capability management APIs: list and replace under `/api/v1/merchants/{merchantId}/connectors/{accountId}/capabilities`.
+- [x] Added dashboard UI for editing connector-scoped provider capabilities from the Connectors page.
 
-- Normalize provider decline/error outcomes.
-- Add route-step fallback rules.
-- Persist all provider attempts.
-- Enforce safe retry/fallback rules by outcome and instrument portability.
+Remaining:
 
-Current implementation checkpoint:
+- [ ] Verify payment-link hosted-checkout end-to-end behavior with capability-aware routing enabled.
 
-- Route steps carry `outcome_actions_json`; active policy resolution attaches those actions to route candidates.
-- `PaymentRetryOrchestratorService` maps provider failures into conservative outcome categories and supports `retry`, `next`/`fallback`, and `stop`/`fail` actions.
-- Existing default behavior is preserved when no outcome action is configured: retryable provider errors retry/fallback according to `PaymentRetryContext`; hard declines stop.
-- `simulator_declined` is treated as a hard decline so offline simulator tests do not accidentally model cross-connector recovery for a card decline.
-- Live confirm still uses `sameAccountOnly` until persisted instrument portability is wired into the payment flow.
+### O3: Route Policy V2 `[~]`
 
-### O5: Scheduled Retry Orchestration
+Done:
 
-- Add delayed retry jobs for capture/refund/recoverable operations.
-- Add retry schedule, max attempts, and status visibility.
-- Keep customer-facing card payment retries conservative.
+- [x] Added route policy, route, and step tables/entities/repositories.
+- [x] Active policies resolve before legacy `routing_rules`; legacy routing remains the fallback path.
+- [x] Basic condition matching supports built-in fields, simple metadata equality, `in`, missing checks, and numeric comparisons.
+- [x] Added draft create/replace, publish, archive, list, and detail APIs under `/api/v1/merchants/{merchantId}/route-policies`.
+- [x] Publish validates route shape and active provider-account ownership before activation and archives the previous active policy for the same merchant/mode.
 
-### O6: Optional Portable Card Support
+Remaining:
 
-- Integrate a third-party vault/tokenization provider if needed.
-- Add support for portable vault tokens behind `PaymentInstrument`.
-- Add network-token capability flags without assuming direct Visa/Mastercard access.
+- [ ] Add audit history for publish/archive changes.
+- [ ] Add strict publish-time condition-schema validation against registered routing attributes and built-in fields.
+- [ ] Add dashboard UI for policy editing and simulation.
 
-### AI Later: Advisory Control Plane
+### O4: Outcome-Based Fallback `[x]`
 
-- Analyze provider health, approval rate, latency, cost, and fallback outcomes.
-- Recommend route-policy changes.
-- Draft policy diffs.
-- Require deterministic validation and human approval before publication.
+Done:
+
+- [x] Route steps carry `outcome_actions_json`; active policy resolution attaches those actions to route candidates.
+- [x] `PaymentRetryOrchestratorService` maps provider failures into conservative outcome categories and supports `retry`, `next`/`fallback`, and `stop`/`fail` actions.
+- [x] Existing default behavior is preserved when no outcome action is configured: retryable provider errors retry/fallback according to `PaymentRetryContext`; hard declines stop.
+- [x] `simulator_declined` is treated as a hard decline so offline simulator tests do not accidentally model cross-connector recovery for a card decline.
+- [x] Wire persisted instrument portability into live confirm.
+- [x] Allow live route fallback only for portable instruments; provider-scoped gateway tokens remain single-connector.
+- [x] Added focused tests for route-step outcome actions including `next` and `stop`.
+
+### O5: Scheduled Retry Orchestration `[ ]`
+
+Remaining:
+
+- [ ] Add delayed retry jobs for capture/refund/recoverable operations.
+- [ ] Add retry schedule, max attempts, and status visibility.
+- [ ] Keep customer-facing card payment retries conservative.
+
+### O6: Optional Portable Card Support `[ ]`
+
+Remaining:
+
+- [ ] Integrate a third-party vault/tokenization provider if needed.
+- [ ] Add support for portable vault tokens behind `PaymentInstrument`.
+- [ ] Add network-token capability flags without assuming direct Visa/Mastercard access.
+
+### AI Later: Advisory Control Plane `[ ]`
+
+Remaining:
+
+- [ ] Analyze provider health, approval rate, latency, cost, and fallback outcomes.
+- [ ] Recommend route-policy changes.
+- [ ] Draft policy diffs.
+- [ ] Require deterministic validation and human approval before publication.

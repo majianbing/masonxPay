@@ -26,6 +26,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
 - High-throughput track H1-H5b and H7: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, and benchmark/simulator observability are done.
 - Next high-throughput work: H6 dashboard search/read projections.
+- Advanced orchestration Phase O: O1 and O4 are done; O2 has capability APIs/UI but payment-link hosted-checkout end-to-end validation is open; O3 has backend foundations in progress. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, dry-run route simulation, simulator-backed local testing, and outcome-action retry/fallback. Track exact progress in `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`.
 - AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands

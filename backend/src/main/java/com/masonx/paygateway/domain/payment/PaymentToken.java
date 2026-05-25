@@ -25,6 +25,9 @@ public class PaymentToken {
     @Column(name = "provider_pm_id", nullable = false, columnDefinition = "TEXT")
     private String providerPmId;
 
+    @Column(name = "instrument_id")
+    private UUID instrumentId;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
@@ -43,6 +46,8 @@ public class PaymentToken {
     public void setAccountId(UUID accountId) { this.accountId = accountId; }
     public String getProviderPmId() { return providerPmId; }
     public void setProviderPmId(String providerPmId) { this.providerPmId = providerPmId; }
+    public UUID getInstrumentId() { return instrumentId; }
+    public void setInstrumentId(UUID instrumentId) { this.instrumentId = instrumentId; }
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public Instant getUsedAt() { return usedAt; }

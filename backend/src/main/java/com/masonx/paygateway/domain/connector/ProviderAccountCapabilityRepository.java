@@ -7,4 +7,7 @@ import java.util.UUID;
 public interface ProviderAccountCapabilityRepository extends JpaRepository<ProviderAccountCapability, UUID> {
     List<ProviderAccountCapability> findAllByMerchantIdAndProviderAccountIdAndEnabledTrue(
             UUID merchantId, UUID providerAccountId);
+
+    List<ProviderAccountCapability> findAllByMerchantIdAndProviderAccountIdOrderByCreatedAtAsc(
+            UUID merchantId, UUID providerAccountId);
 }

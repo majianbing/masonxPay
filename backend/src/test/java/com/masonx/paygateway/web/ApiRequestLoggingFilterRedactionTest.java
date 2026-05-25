@@ -69,7 +69,8 @@ class ApiRequestLoggingFilterRedactionTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "accessToken", "privateKey", "publicKey", "btPrivateKey", "btPublicKey",
-            "mfaSecret", "mfaSessionToken", "passwordHash"
+            "mfaSecret", "mfaSessionToken", "passwordHash", "providerPmId",
+            "paymentMethodId", "tokenReference", "providerToken"
     })
     void sensitiveFieldNames_areAllRedacted(String field) {
         String body = "{\"" + field + "\":\"sensitive-value\"}";

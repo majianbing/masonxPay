@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Trash2, Star, PlayCircle, GripVertical, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Star, PlayCircle, GripVertical, ArrowLeft, CheckCircle2, SlidersHorizontal, Save, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // ─── Provider catalogue ───────────────────────────────────────────────────────
 
@@ -49,9 +50,41 @@ interface ProviderAccount {
   createdAt: string;
 }
 
+interface ProviderCapability {
+  id?: string;
+  paymentMethodType: string;
+  country: string | null;
+  currency: string | null;
+  minAmount: number | null;
+  maxAmount: number | null;
+  supportsManualCapture: boolean;
+  supportsRefund: boolean;
+  supportsPartialRefund: boolean;
+  supports3ds: boolean;
+  supportsRedirect: boolean;
+  supportsProviderToken: boolean;
+  supportsVaultToken: boolean;
+  supportsNetworkToken: boolean;
+  supportsInstallments: boolean;
+  enabled: boolean;
+}
+
 const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'SIMULATOR'] as const;
 type Provider = typeof PROVIDERS[number];
 const SIMULATOR_PROVIDER_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER === 'true';
+const PAYMENT_METHOD_OPTIONS = [
+  { value: 'card', label: 'Card', detail: 'Standard card payments from hosted checkout or PSP SDKs.' },
+  { value: 'apple_pay', label: 'Apple Pay', detail: 'Wallet payment through Apple Pay.' },
+  { value: 'google_pay', label: 'Google Pay', detail: 'Wallet payment through Google Pay.' },
+  { value: 'cash_app', label: 'Cash App', detail: 'Cash App Pay through Square.' },
+  { value: 'paypal', label: 'PayPal', detail: 'PayPal wallet or Braintree PayPal flow.' },
+  { value: 'ideal', label: 'iDEAL', detail: 'Dutch bank redirect payment method.' },
+  { value: 'bancontact', label: 'Bancontact', detail: 'Belgian bank/card redirect payment method.' },
+  { value: 'klarna', label: 'Klarna', detail: 'Buy-now-pay-later or invoice flow.' },
+  { value: 'sofort', label: 'Sofort', detail: 'European bank redirect payment method.' },
+  { value: 'link', label: 'Link', detail: 'Stripe Link wallet checkout.' },
+  { value: 'local_method', label: 'Local method', detail: 'Generic local/redirect method when a provider-specific method is not listed.' },
+] as const;
 
 const PROVIDER_META: Record<Provider, {
   label: string;
@@ -145,6 +178,46 @@ const createSchema = z.object({
 });
 type CreateForm = z.infer<typeof createSchema>;
 
+function defaultCapability(): ProviderCapability {
+  return {
+    paymentMethodType: 'card',
+    country: null,
+    currency: null,
+    minAmount: null,
+    maxAmount: null,
+    supportsManualCapture: true,
+    supportsRefund: true,
+    supportsPartialRefund: true,
+    supports3ds: false,
+    supportsRedirect: false,
+    supportsProviderToken: true,
+    supportsVaultToken: false,
+    supportsNetworkToken: false,
+    supportsInstallments: false,
+    enabled: true,
+  };
+}
+
+function capabilityPayload(rows: ProviderCapability[]) {
+  return rows.map((row) => ({
+    paymentMethodType: row.paymentMethodType.trim().toLowerCase(),
+    country: row.country?.trim() ? row.country.trim().toUpperCase() : null,
+    currency: row.currency?.trim() ? row.currency.trim().toUpperCase() : null,
+    minAmount: row.minAmount ?? null,
+    maxAmount: row.maxAmount ?? null,
+    supportsManualCapture: row.supportsManualCapture,
+    supportsRefund: row.supportsRefund,
+    supportsPartialRefund: row.supportsPartialRefund,
+    supports3ds: row.supports3ds,
+    supportsRedirect: row.supportsRedirect,
+    supportsProviderToken: row.supportsProviderToken,
+    supportsVaultToken: row.supportsVaultToken,
+    supportsNetworkToken: row.supportsNetworkToken,
+    supportsInstallments: row.supportsInstallments,
+    enabled: row.enabled,
+  }));
+}
+
 // ─── Provider picker card ─────────────────────────────────────────────────────
 
 function ProviderPickerCard({
@@ -213,12 +286,14 @@ function SortableProviderCard({
   onSetPrimary,
   onDelete,
   onPreview,
+  onCapabilities,
 }: {
   provider: Provider;
   connectors: ProviderAccount[];
   onSetPrimary: (id: string) => void;
   onDelete: (account: ProviderAccount) => void;
   onPreview: (id: string) => void;
+  onCapabilities: (account: ProviderAccount) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: provider });
   const brand = PROVIDER_BRAND[provider];
@@ -289,6 +364,9 @@ function SortableProviderCard({
                       <Button variant="ghost" size="icon" title="Preview cashier" onClick={() => onPreview(c.id)}>
                         <PlayCircle className="size-4 text-muted-foreground hover:text-primary" />
                       </Button>
+                      <Button variant="ghost" size="icon" title="Capabilities" onClick={() => onCapabilities(c)}>
+                        <SlidersHorizontal className="size-4 text-muted-foreground hover:text-primary" />
+                      </Button>
                       {!c.primary && (
                         <Button variant="ghost" size="icon" title="Set as primary" onClick={() => onSetPrimary(c.id)}>
                           <Star className="size-4 text-muted-foreground" />
@@ -312,6 +390,200 @@ function SortableProviderCard({
   );
 }
 
+function CapabilityDialog({
+  account,
+  open,
+  rows,
+  isLoading,
+  isSaving,
+  onOpenChange,
+  onRowsChange,
+  onSave,
+}: {
+  account: ProviderAccount | null;
+  open: boolean;
+  rows: ProviderCapability[];
+  isLoading: boolean;
+  isSaving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRowsChange: (rows: ProviderCapability[]) => void;
+  onSave: () => void;
+}) {
+  function updateRow(index: number, patch: Partial<ProviderCapability>) {
+    onRowsChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function toggleFlag(index: number, key: keyof ProviderCapability) {
+    updateRow(index, { [key]: !rows[index][key] } as Partial<ProviderCapability>);
+  }
+
+  function amount(value: string) {
+    return value === '' ? null : Number(value);
+  }
+
+  function methodSelectValue(value: string) {
+    return PAYMENT_METHOD_OPTIONS.some((option) => option.value === value) ? value : '_custom';
+  }
+
+  const displayRows = rows.length > 0 ? rows : [defaultCapability()];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="h-[80vh] !w-[80vw] !max-w-[80vw] sm:!max-w-[80vw] grid-rows-[auto_minmax(0,1fr)_auto]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <SlidersHorizontal className="size-4" />
+            {account ? `${account.label} capabilities` : 'Capabilities'}
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Route policies use these rows to decide whether this connector can handle a payment.
+          </p>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">Loading capabilities...</div>
+        ) : (
+          <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+            {displayRows.map((row, index) => (
+              <div key={row.id ?? index} className="rounded-lg border bg-white p-3 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                  <div className="space-y-1 md:col-span-2">
+                    <Label>Method</Label>
+                    <Select
+                      value={methodSelectValue(row.paymentMethodType)}
+                      onValueChange={(value) => {
+                        if (value && value !== '_custom') {
+                          updateRow(index, { paymentMethodType: value });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select method" />
+                      </SelectTrigger>
+                      <SelectContent className="min-w-72">
+                        {PAYMENT_METHOD_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            <span className="flex flex-col items-start gap-0.5">
+                              <span>{option.label}</span>
+                              <span className="text-xs text-muted-foreground">{option.detail}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="_custom">Other / custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {methodSelectValue(row.paymentMethodType) === '_custom' && (
+                      <Input
+                        value={row.paymentMethodType}
+                        onChange={(e) => updateRow(index, { paymentMethodType: e.target.value })}
+                        placeholder="e.g. eps, giropay, wechat_pay"
+                      />
+                    )}
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      The checkout payment method this connector can process. Route policies compare this value before selecting a provider account.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Country</Label>
+                    <Input
+                      value={row.country ?? ''}
+                      onChange={(e) => updateRow(index, { country: e.target.value })}
+                      placeholder="US"
+                      maxLength={2}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Currency</Label>
+                    <Input
+                      value={row.currency ?? ''}
+                      onChange={(e) => updateRow(index, { currency: e.target.value })}
+                      placeholder="USD"
+                      maxLength={10}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Min</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={row.minAmount ?? ''}
+                      onChange={(e) => updateRow(index, { minAmount: amount(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Max</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={row.maxAmount ?? ''}
+                      onChange={(e) => updateRow(index, { maxAmount: amount(e.target.value) })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-10 gap-2 text-sm">
+                  {[
+                    ['enabled', 'Enabled'],
+                    ['supportsProviderToken', 'Provider token'],
+                    ['supportsVaultToken', 'Vault token'],
+                    ['supportsNetworkToken', 'Network token'],
+                    ['supportsManualCapture', 'Manual capture'],
+                    ['supportsRefund', 'Refund'],
+                    ['supportsPartialRefund', 'Partial refund'],
+                    ['supports3ds', '3DS'],
+                    ['supportsRedirect', 'Redirect'],
+                    ['supportsInstallments', 'Installments'],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 rounded-md border px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(row[key as keyof ProviderCapability])}
+                        onChange={() => toggleFlag(index, key as keyof ProviderCapability)}
+                        className="size-4 rounded"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={displayRows.length === 1}
+                    onClick={() => onRowsChange(rows.filter((_, i) => i !== index))}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <X className="size-3.5" /> Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <DialogFooter className="items-center justify-between sm:justify-between">
+          <Button
+            variant="outline"
+            type="button"
+            onClick={() => onRowsChange([...displayRows, defaultCapability()])}
+          >
+            <Plus className="size-4" /> Add row
+          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="button" disabled={isSaving || isLoading} onClick={onSave}>
+              <Save className="size-4" />
+              {isSaving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ConnectorsPage() {
@@ -324,6 +596,8 @@ export default function ConnectorsPage() {
   const [dialogStep, setDialogStep] = useState<'select' | 'configure'>('select');
   const [selectedProvider, setSelectedProvider] = useState<Provider>('STRIPE');
   const [confirmDelete, setConfirmDelete] = useState<ProviderAccount | null>(null);
+  const [capabilityAccount, setCapabilityAccount] = useState<ProviderAccount | null>(null);
+  const [capabilityRows, setCapabilityRows] = useState<ProviderCapability[]>([]);
 
   const { data: connectors = [], isLoading } = useQuery<ProviderAccount[]>({
     queryKey: ['connectors', activeMerchantId, mode],
@@ -349,6 +623,20 @@ export default function ConnectorsPage() {
       simulatorSuccessRatePercent: 100,
     },
   });
+
+  const { data: capabilities = [], isLoading: capabilitiesLoading } = useQuery<ProviderCapability[]>({
+    queryKey: ['connector-capabilities', activeMerchantId, capabilityAccount?.id],
+    queryFn: () =>
+      apiFetch<ProviderCapability[]>(
+        `/api/v1/merchants/${activeMerchantId}/connectors/${capabilityAccount!.id}/capabilities`,
+      ),
+    enabled: !!activeMerchantId && !!capabilityAccount,
+  });
+
+  useEffect(() => {
+    if (!capabilityAccount) return;
+    setCapabilityRows(capabilities.length > 0 ? capabilities : [defaultCapability()]);
+  }, [capabilities, capabilityAccount]);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateForm) =>
@@ -393,6 +681,26 @@ export default function ConnectorsPage() {
         body: JSON.stringify({ items }),
       }),
     onError: () => toast.error('Failed to save order'),
+  });
+
+  const saveCapabilitiesMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<ProviderCapability[]>(
+        `/api/v1/merchants/${activeMerchantId}/connectors/${capabilityAccount!.id}/capabilities`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(capabilityPayload(capabilityRows)),
+        },
+      ),
+    onSuccess: (saved) => {
+      setCapabilityRows(saved.length > 0 ? saved : [defaultCapability()]);
+      qc.invalidateQueries({ queryKey: ['connector-capabilities', activeMerchantId, capabilityAccount?.id] });
+      toast.success('Capabilities saved');
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string };
+      toast.error(e.detail ?? 'Failed to save capabilities');
+    },
   });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -471,11 +779,28 @@ export default function ConnectorsPage() {
                 onSetPrimary={(id) => setPrimaryMutation.mutate(id)}
                 onDelete={(account) => setConfirmDelete(account)}
                 onPreview={(id) => router.push(`/connectors/${id}/preview`)}
+                onCapabilities={(account) => setCapabilityAccount(account)}
               />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+
+      <CapabilityDialog
+        account={capabilityAccount}
+        open={!!capabilityAccount}
+        rows={capabilityRows}
+        isLoading={capabilitiesLoading}
+        isSaving={saveCapabilitiesMutation.isPending}
+        onRowsChange={setCapabilityRows}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCapabilityAccount(null);
+            setCapabilityRows([]);
+          }
+        }}
+        onSave={() => saveCapabilitiesMutation.mutate()}
+      />
 
       {/* ── Delete confirmation ────────────────────────────────────────────── */}
       <Dialog open={!!confirmDelete} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
@@ -504,7 +829,7 @@ export default function ConnectorsPage() {
 
         {/* ── Step 1: Provider picker ── */}
         {dialogStep === 'select' && (
-          <DialogContent className="max-w-4xl">
+          <DialogContent className="h-[80vh] !w-[80vw] !max-w-[80vw] sm:!max-w-[80vw] grid-rows-[auto_minmax(0,1fr)_auto]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-lg">
                 Choose a payment provider
@@ -539,7 +864,7 @@ export default function ConnectorsPage() {
 
         {/* ── Step 2: Credential form ── */}
         {dialogStep === 'configure' && (
-          <DialogContent className="max-w-md">
+          <DialogContent className="h-[80vh] !w-[80vw] !max-w-[80vw] sm:!max-w-[80vw] grid-rows-[auto_minmax(0,1fr)_auto]">
             <DialogHeader>
               {/* Back button + provider identity */}
               <button

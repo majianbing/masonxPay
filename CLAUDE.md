@@ -8,6 +8,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `AGENTS.md`: repository rules and agent operating constraints.
 - `docs/ROADMAP.md`: product phases and future tracks.
 - `docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`: sharding, Kafka, Redis, projections, and preview design.
+- `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
 - `docs/AI_CONTROL_PLANE_PLAN.md`: AI-assisted payment operations control-plane design.
 - `docs/DEVELOPMENT_GUIDE.md`: detailed implementation guide and connector/SDK rules.
 - `docs/payment-gateway-full-prompt.md`: historical full project prompt/reference.
@@ -29,11 +30,12 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - Async propagation: transactional outbox in Postgres, Kafka publisher/consumers for high-throughput worker fan-out.
 - Search/read views: projection tables now; OpenSearch planned for dashboard/support search, not state authority.
 - Runtime routing: deterministic rules and service logic.
+- Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md` is the durable status tracker.
 - AI control plane: planned advisory layer only. AI may investigate and propose; validators and humans approve; deterministic workers execute.
 
 ## Current Track
 
-High-throughput H1-H5b is complete:
+High-throughput H1-H5b and H7 are complete:
 
 - H1: logical payment sharding.
 - H2: financial state/idempotency hardening.
@@ -46,7 +48,8 @@ High-throughput H1-H5b is complete:
 Next likely work:
 
 - H6: dashboard search/read projections.
-- Phase AI: model-agnostic AI-assisted operations control plane.
+- Phase O: continue advanced payment orchestration. O1 and O4 are done; O2 has capability APIs/UI but payment-link hosted-checkout end-to-end validation is open; O3 has usable backend foundations with remaining route-policy audit history, strict validation, and dashboard editing/simulation UI.
+- Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.
 
 ## Key Commands
 
@@ -64,6 +67,7 @@ cd dashboard && npm run build
 - Do not weaken payment security, webhook verification, auth, CORS, CSP, or MFA.
 - Keep provider calls outside DB transactions.
 - Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.
+- Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.
 - Keep external AI model calls outside the sensitive data boundary; use redacted, aggregated evidence only, and support a no-external-AI mode.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Use `docs/DEVELOPMENT_GUIDE.md` for detailed connector, SDK, MFA, and implementation rules.

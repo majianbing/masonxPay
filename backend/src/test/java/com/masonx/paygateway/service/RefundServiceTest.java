@@ -407,7 +407,7 @@ class RefundServiceTest {
 
     private static final class FakeProviderAccountService extends ProviderAccountService {
         private FakeProviderAccountService() {
-            super(null, null, new com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties());
+            super(null, null, null, new com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties());
         }
 
         @Override
