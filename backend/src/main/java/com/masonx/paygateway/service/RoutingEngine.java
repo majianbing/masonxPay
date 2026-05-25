@@ -426,6 +426,29 @@ public class RoutingEngine {
         List<ProviderAccount> candidates = providerAccountRepository
                 .findAllByMerchantIdAndProviderAndModeAndStatus(merchantId, provider, mode, ProviderAccountStatus.ACTIVE);
 
+        return selectAvailableProviderAccount(candidates, provider);
+    }
+
+    public Optional<ProviderAccount> resolveAccountForProvider(UUID merchantId, PaymentProvider provider,
+                                                               ApiKeyMode mode, RoutingContext context) {
+        List<ProviderAccount> candidates = providerAccountRepository
+                .findAllByMerchantIdAndProviderAndModeAndStatus(merchantId, provider, mode, ProviderAccountStatus.ACTIVE)
+                .stream()
+                .filter(account -> supportsCapabilities(account, context))
+                .toList();
+
+        return selectAvailableProviderAccount(candidates, provider);
+    }
+
+    public boolean supportsCapabilities(ProviderAccount account, RoutingContext context) {
+        return account != null
+                && (context == null
+                || capabilityService == null
+                || capabilityService.supportsOrUnspecified(context.merchantId(), account.getId(), context));
+    }
+
+    private Optional<ProviderAccount> selectAvailableProviderAccount(List<ProviderAccount> candidates,
+                                                                     PaymentProvider provider) {
         if (candidates.isEmpty()) return Optional.empty();
         if (candidates.size() == 1) return Optional.of(candidates.get(0));
 

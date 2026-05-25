@@ -14,6 +14,8 @@ import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.service.RoutingEngine;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import com.masonx.paygateway.web.dto.CheckoutSessionResponse;
 import com.masonx.paygateway.web.dto.TokenizeRequest;
 import com.masonx.paygateway.web.dto.TokenizeResponse;
@@ -124,12 +126,14 @@ public class PublicCheckoutController {
                             account.getProvider().name(), clientKey, credentialsCodec.clientConfigFor(account)))
                     : List.of();
         } else {
+            RoutingContext context = linkContext(resolvedMerchantId, resolvedMode, amount, currency);
             // Fetch all active accounts sorted by displayOrder, then deduplicate by provider brand
             // (first account per brand wins — brand position = its lowest displayOrder account).
             options = providerAccountRepository
                     .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
                             resolvedMerchantId, resolvedMode, ProviderAccountStatus.ACTIVE)
                     .stream()
+                    .filter(account -> context == null || routingEngine.supportsCapabilities(account, context))
                     .filter(a -> a.getEncryptedPublishableKey() != null || a.getProviderConfig() != null)
                     .collect(java.util.stream.Collectors.toMap(
                             ProviderAccount::getProvider, a -> a,
@@ -168,6 +172,8 @@ public class PublicCheckoutController {
             }
             merchantId = link.getMerchantId();
             mode = link.getMode();
+            RoutingContext context = linkContext(link.getMerchantId(), link.getMode(),
+                    link.getAmount(), link.getCurrency());
 
             // Preview link: bypass routing engine, pin to the specific connector account
             if (link.getPinnedConnectorId() != null) {
@@ -176,6 +182,9 @@ public class PublicCheckoutController {
                         merchantId, link.getPinnedConnectorId(), provider, mode, req.providerPmId());
                 return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
             }
+            PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
+            String gatewayToken = paymentTokenService.create(merchantId, provider, mode, req.providerPmId(), context);
+            return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
         } else {
             ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
             if (apiKeyAuth != null) {
@@ -254,5 +263,30 @@ public class PublicCheckoutController {
     private ApiKeyAuthentication resolveApiKeyAuth() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return auth instanceof ApiKeyAuthentication a ? a : null;
+    }
+
+    private RoutingContext linkContext(UUID merchantId, ApiKeyMode mode, Long amount, String currency) {
+        if (amount == null || currency == null) {
+            return null;
+        }
+        return new RoutingContext(
+                merchantId,
+                mode,
+                amount,
+                currency,
+                null,
+                "card",
+                CaptureMethod.AUTOMATIC,
+                null,
+                null,
+                Map.of(),
+                null,
+                InstrumentSource.PROVIDER_TOKEN,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
     }
 }

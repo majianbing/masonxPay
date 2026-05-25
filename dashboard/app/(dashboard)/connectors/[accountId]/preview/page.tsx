@@ -65,6 +65,11 @@ const TEST_3DS_CARDS: Record<string, { label: string; value: string; note: strin
   ],
 };
 
+const SIMULATOR_NOTE = {
+  title: 'One-click simulator payment',
+  body: 'No card number or external PSP sandbox is needed. The SDK submits a synthetic card token through the same hosted-checkout APIs used by payment links.',
+};
+
 // ─── Result overlay ───────────────────────────────────────────────────────────
 
 function ResultOverlay({
@@ -152,6 +157,7 @@ export default function PreviewPage() {
     enabled: !!activeMerchantId,
   });
   const connector = connectors.find((c) => c.id === params.accountId);
+  const isSimulator = connector?.provider === 'SIMULATOR';
   const testCards = connector ? (TEST_CARDS[connector.provider] ?? []) : [];
   const test3dsCards = connector ? (TEST_3DS_CARDS[connector.provider] ?? []) : [];
 
@@ -267,6 +273,18 @@ export default function PreviewPage() {
             </div>
           </div>
 
+          {isSimulator && (
+            <div className="space-y-2">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                Mason Simulator
+              </h2>
+              <div className="bg-white border rounded-lg p-3 text-sm space-y-1.5">
+                <p className="font-medium">{SIMULATOR_NOTE.title}</p>
+                <p className="text-xs leading-5 text-muted-foreground">{SIMULATOR_NOTE.body}</p>
+              </div>
+            </div>
+          )}
+
           {testCards.length > 0 && (
             <div className="space-y-2">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
@@ -317,7 +335,7 @@ export default function PreviewPage() {
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700">
             <strong>Test mode only.</strong> No real charge is made. Results reflect your
-            connector&apos;s actual {connector?.provider ?? 'provider'} test credentials.
+            {isSimulator ? ' simulator success-rate settings.' : ` connector's actual ${connector?.provider ?? 'provider'} test credentials.`}
           </div>
         </div>
 

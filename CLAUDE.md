@@ -61,6 +61,25 @@ cd backend && mvn test
 cd dashboard && npm run build
 ```
 
+## Testing Strategy
+
+Follow the test pyramid for feature work:
+
+- Unit tests are the primary correctness layer for deterministic business logic: routing, capability matching, retry decisions, validators, state transitions, security helpers, and mapping edge cases.
+- Integration tests cover module boundaries: repositories, migrations, controllers, auth/tenant scope, transaction behavior, outbox writes, and simulator-backed provider flows.
+- E2E/smoke tests are limited to critical merchant/customer journeys: hosted checkout, payment links, connector preview, dashboard capability/routing configuration, and webhook delivery.
+- Prefer Mason Simulator for payment-flow tests that do not specifically need Stripe, Square, Braintree, or Mollie behavior.
+- Do not mark a feature complete only because an E2E path works; business rules still need unit or integration coverage.
+- Do not claim test success unless the command actually ran.
+
+Keep tests modular:
+
+- Put tests in the package that owns the behavior: `service/routing` for routing/capability logic, `provider` for provider adapters, `web` for controllers, Kafka/Redis/projection packages for infrastructure behavior.
+- Keep each test class focused on one behavior owner.
+- Use local builders/helpers first; add shared fixtures only when they reduce real duplication without hiding important setup.
+- Name tests by behavior and expected result.
+- Keep E2E tests separate from fast test suites and run them with an explicit command/profile.
+
 ## Hard Boundaries
 
 - Keep tenant isolation on every table and query.

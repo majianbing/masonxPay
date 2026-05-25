@@ -11,6 +11,7 @@ import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.PaymentToken;
 import com.masonx.paygateway.domain.payment.PaymentTokenRepository;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,9 +51,16 @@ public class PaymentTokenService {
      * @return opaque gateway token string ("gw_tok_" + UUID hex)
      */
     public String create(UUID merchantId, PaymentProvider provider, ApiKeyMode mode, String providerPmId) {
-        ProviderAccount account = routingEngine.resolveAccountForProvider(merchantId, provider, mode)
+        return create(merchantId, provider, mode, providerPmId, null);
+    }
+
+    public String create(UUID merchantId, PaymentProvider provider, ApiKeyMode mode,
+                         String providerPmId, RoutingContext context) {
+        ProviderAccount account = (context != null
+                ? routingEngine.resolveAccountForProvider(merchantId, provider, mode, context)
+                : routingEngine.resolveAccountForProvider(merchantId, provider, mode))
                 .orElseThrow(() -> new IllegalStateException(
-                        "No active connector found for provider " + provider + " in " + mode + " mode"));
+                        "No eligible connector found for provider " + provider + " in " + mode + " mode"));
 
         PaymentToken token = new PaymentToken();
         token.setMerchantId(merchantId);

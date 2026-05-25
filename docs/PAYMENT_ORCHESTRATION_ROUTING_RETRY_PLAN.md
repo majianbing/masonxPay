@@ -327,12 +327,14 @@ Status legend:
 - `[~]` Partially implemented; usable foundation exists, but listed remaining work is still open.
 - `[ ]` Not started.
 
-Last checkpoint commit: `d8dc6b8 Add capability UI and instrument safety fixes`.
+Last checkpoint commit: `f0b05bf Add capability UI and instrument safety fixes`.
 Committed checkpoint: provider-scoped instruments are created during hosted-checkout tokenization, linked to `payment_tokens`, live confirm uses instrument portability to decide whether route fallback is allowed, provider payment-method references are redacted from request logs, newly created connector accounts get default card capability rows, connector-scoped capability management APIs and dashboard UI are available, outcome-action retry/next/stop behavior has focused tests, Mockito tests are configured to avoid JDK self-attach, and `AGENTS.md` / `CLAUDE.md` / `SECURITY.md` now point future sessions at the Phase O boundary and status. Payment-link end-to-end validation is currently open because the capability-aware flow did not behave as expected during manual testing.
 
 Active verification blocker:
 
-- [ ] Reproduce and fix the payment-link end-to-end behavior with connector capabilities enabled, preferably using the TEST-mode Mason Simulator provider so the validation does not depend on outside PSP services.
+- [~] Reproduce and fix the payment-link end-to-end behavior with connector capabilities enabled, preferably using the TEST-mode Mason Simulator provider so the validation does not depend on outside PSP services.
+
+  Implemented local fix pending Docker/manual confirmation: hosted checkout provider listing and tokenization now use payment-link capability context, public checkout validates capabilities before charging, and the browser SDK can render/submit the TEST-mode Mason Simulator provider.
 
 ### O1: Instrument And Context Foundation `[x]`
 
@@ -359,10 +361,11 @@ Done:
 - [x] Newly created connector accounts seed a default `card` capability row so route policies have concrete capability data for simulator and common providers.
 - [x] Added connector-scoped capability management APIs: list and replace under `/api/v1/merchants/{merchantId}/connectors/{accountId}/capabilities`.
 - [x] Added dashboard UI for editing connector-scoped provider capabilities from the Connectors page.
+- [x] Added hosted checkout support for simulator payment-link testing and capability-aware account selection during payment-link tokenization.
 
 Remaining:
 
-- [ ] Verify payment-link hosted-checkout end-to-end behavior with capability-aware routing enabled.
+- [ ] Verify payment-link hosted-checkout end-to-end behavior in Docker with capability-aware routing enabled.
 
 ### O3: Route Policy V2 `[~]`
 
