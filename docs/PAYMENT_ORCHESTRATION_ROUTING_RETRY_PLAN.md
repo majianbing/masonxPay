@@ -423,14 +423,11 @@ Follow-up hardening:
 - [ ] Add an explicit approval workflow before enabling any refund retry that can move funds.
 - [ ] Extend the same scheduled-recovery pattern to subscription/recurring operations when that product module exists.
 
-### O5b: Subscription/Recurring Retry Planning `[ ]`
+### Subscription and Recurring Billing
 
-Remaining:
+Subscription and recurring billing has moved to standalone Phase S because it requires its own customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries before recurring retry can exist.
 
-- [ ] Define subscription, invoice, and billing schedule domain models.
-- [ ] Define saved-payment-method requirements and portability limits for recurring charges.
-- [ ] Decide retry schedule semantics for failed off-session charges, including merchant controls, dunning state, and customer notification hooks.
-- [ ] Keep recurring charge retries separate from customer-present checkout retry/fallback and from capture/refund recovery.
+See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN.md).
 
 ### O6: Optional Portable Card Support `[ ]`
 

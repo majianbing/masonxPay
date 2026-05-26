@@ -2,6 +2,12 @@ package com.masonx.paygateway.web;
 
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.Environment;
+import com.masonx.paygateway.domain.billing.Subscription;
+import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLink;
+import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkRepository;
+import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkStatus;
+import com.masonx.paygateway.domain.billing.SubscriptionItemRepository;
+import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
@@ -47,19 +53,28 @@ public class PublicCheckoutController {
     private final CredentialsCodec credentialsCodec;
     private final RoutingEngine routingEngine;
     private final PaymentTokenService paymentTokenService;
+    private final SubscriptionCheckoutLinkRepository subscriptionCheckoutLinkRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionItemRepository subscriptionItemRepository;
 
     public PublicCheckoutController(PaymentLinkRepository paymentLinkRepository,
                                     MerchantRepository merchantRepository,
                                     ProviderAccountRepository providerAccountRepository,
                                     CredentialsCodec credentialsCodec,
                                     RoutingEngine routingEngine,
-                                    PaymentTokenService paymentTokenService) {
+                                    PaymentTokenService paymentTokenService,
+                                    SubscriptionCheckoutLinkRepository subscriptionCheckoutLinkRepository,
+                                    SubscriptionRepository subscriptionRepository,
+                                    SubscriptionItemRepository subscriptionItemRepository) {
         this.paymentLinkRepository = paymentLinkRepository;
         this.merchantRepository = merchantRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
         this.routingEngine = routingEngine;
         this.paymentTokenService = paymentTokenService;
+        this.subscriptionCheckoutLinkRepository = subscriptionCheckoutLinkRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.subscriptionItemRepository = subscriptionItemRepository;
     }
 
     /**
@@ -185,6 +200,25 @@ public class PublicCheckoutController {
             PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
             String gatewayToken = paymentTokenService.create(merchantId, provider, mode, req.providerPmId(), context);
             return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
+        } else if (req.subscriptionToken() != null) {
+            SubscriptionCheckoutLink link = subscriptionCheckoutLinkRepository.findByToken(req.subscriptionToken())
+                    .orElseThrow(() -> new IllegalArgumentException("Subscription checkout link not found"));
+            if (link.getStatus() != SubscriptionCheckoutLinkStatus.ACTIVE
+                    || (link.getExpiresAt() != null && !link.getExpiresAt().isAfter(java.time.Instant.now()))) {
+                throw new IllegalStateException("This subscription checkout link is no longer active");
+            }
+            Subscription subscription = subscriptionRepository
+                    .findByIdAndMerchantId(link.getSubscriptionId(), link.getMerchantId())
+                    .orElseThrow(() -> new IllegalArgumentException("Subscription not found"));
+            merchantId = subscription.getMerchantId();
+            mode = subscription.getMode();
+            PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());
+            long amount = subscriptionAmount(subscription);
+            RoutingContext context = amount > 0
+                    ? linkContext(merchantId, mode, amount, subscription.getCurrency())
+                    : null;
+            String gatewayToken = paymentTokenService.create(merchantId, provider, mode, req.providerPmId(), context);
+            return ResponseEntity.ok(new TokenizeResponse(gatewayToken));
         } else {
             ApiKeyAuthentication apiKeyAuth = resolveApiKeyAuth();
             if (apiKeyAuth != null) {
@@ -288,5 +322,13 @@ public class PublicCheckoutController {
                 null,
                 null,
                 null);
+    }
+
+    private long subscriptionAmount(Subscription subscription) {
+        return subscriptionItemRepository
+                .findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(subscription.getMerchantId(), subscription.getId())
+                .stream()
+                .mapToLong(item -> item.getAmount() * item.getQuantity())
+                .sum();
     }
 }

@@ -113,6 +113,8 @@ public class DataSourceConfig {
                 "ds_0.gateway_logs_2026_h1",
                 "ds_0.gateway_logs_2026_h2",
                 "ds_0.gateway_logs_legacy",
+                "ds_0.customer_payment_methods",
+                "ds_0.customers",
                 "ds_0.invite_tokens",
                 "ds_0.merchant_users",
                 "ds_0.merchants",
@@ -136,6 +138,9 @@ public class DataSourceConfig {
                 "ds_0.routing_attributes",
                 "ds_0.routing_rules",
                 "ds_0.scheduled_retry_jobs",
+                "ds_0.subscription_checkout_links",
+                "ds_0.subscription_items",
+                "ds_0.subscriptions",
                 "ds_0.users",
                 "ds_0.webhook_deliveries",
                 "ds_0.webhook_endpoints"

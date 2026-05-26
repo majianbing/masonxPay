@@ -16,6 +16,9 @@ public record TokenizeRequest(
         // Payment-link flow: derive merchant + mode from the link
         String linkToken,
 
+        // Subscription checkout flow: derive merchant + mode from the subscription link
+        String subscriptionToken,
+
         // Merchant-SDK flow: explicit merchant context
         String merchantId,
         String mode                        // TEST | LIVE
