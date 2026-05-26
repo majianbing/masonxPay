@@ -397,13 +397,40 @@ Done:
 - [x] Allow live route fallback only for portable instruments; provider-scoped gateway tokens remain single-connector.
 - [x] Added focused tests for route-step outcome actions including `next` and `stop`.
 
-### O5: Scheduled Retry Orchestration `[ ]`
+### O5: Scheduled Retry Orchestration `[x]`
+
+Boundary:
+
+- This phase covers delayed recovery for safe asynchronous operations: manual capture and refund.
+- It is not a payment-success optimization feature for customer-present checkout failures, lower-cost reattempts, or cross-provider card retries.
+- MasonXPay does not currently support subscription/recurring billing. Scheduled retry support for recurring operations is a future phase that depends on a subscription domain and saved/portable payment instruments.
+- Funds-safety boundary: MasonXPay must not deduct merchant funds through automatic background retries without explicit approval. Failed refunds are marked for review by default; automatic refund retry is disabled unless a future provider-specific, idempotency-safe, merchant-approved policy enables it.
+
+Done:
+
+- [x] Added `scheduled_retry_jobs` with merchant scope, operation type, schedule, max attempts, status, lock/completion metadata, and capture/refund target references.
+- [x] Added backend entity/repository/service support for scheduling, listing, canceling, and finding due delayed recovery retries.
+- [x] Added merchant-scoped status visibility API under `/api/v1/merchants/{merchantId}/scheduled-retries`.
+- [x] Added scheduled due-job worker that claims jobs, performs capture/refund recovery outside DB transactions, records success/final failure atomically with payment/refund state and outbox events, and reschedules retryable failures with bounded attempts.
+- [x] Failed manual capture attempts now keep the payment in `REQUIRES_CAPTURE` and schedule delayed recovery instead of marking the payment terminal immediately.
+- [x] Failed refund attempts now keep the refund `PENDING` for review by default. Automatic refund retry is feature-flagged off because duplicate refund retries can cause merchant fund loss.
+- [x] Added dashboard scheduled-retry visibility and cancellation under `/scheduled-retries`; by default this is automatic for capture recovery, not refund money movement.
+- [x] Kept scheduled recovery separate from immediate provider technical retries and route fallback; no customer-present card confirm retries are automatically scheduled in this increment.
+
+Follow-up hardening:
+
+- [ ] Add provider-specific retryability codes for capture/refund outcomes when providers expose enough detail.
+- [ ] Add an explicit approval workflow before enabling any refund retry that can move funds.
+- [ ] Extend the same scheduled-recovery pattern to subscription/recurring operations when that product module exists.
+
+### O5b: Subscription/Recurring Retry Planning `[ ]`
 
 Remaining:
 
-- [ ] Add delayed retry jobs for capture/refund/recoverable operations.
-- [ ] Add retry schedule, max attempts, and status visibility.
-- [ ] Keep customer-facing card payment retries conservative.
+- [ ] Define subscription, invoice, and billing schedule domain models.
+- [ ] Define saved-payment-method requirements and portability limits for recurring charges.
+- [ ] Decide retry schedule semantics for failed off-session charges, including merchant controls, dunning state, and customer notification hooks.
+- [ ] Keep recurring charge retries separate from customer-present checkout retry/fallback and from capture/refund recovery.
 
 ### O6: Optional Portable Card Support `[ ]`
 

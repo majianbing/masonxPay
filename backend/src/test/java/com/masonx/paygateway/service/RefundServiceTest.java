@@ -21,6 +21,7 @@ import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
+import com.masonx.paygateway.service.retry.ScheduledRetryService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class RefundServiceTest {
 
@@ -156,7 +158,7 @@ class RefundServiceTest {
     }
 
     @Test
-    void createRefund_providerFails_writesRefundFailedOutboxEvent() {
+    void createRefund_providerFails_keepsRefundPendingForScheduledRecovery() {
         PaymentIntent intent = succeededIntent(10_000L);
         LockingPaymentIntentRepository paymentIntents = new LockingPaymentIntentRepository(intent);
         InMemoryRefundRepository refunds = new InMemoryRefundRepository();
@@ -168,14 +170,9 @@ class RefundServiceTest {
         var response = service.createRefund(
                 MERCHANT_ID, INTENT_ID, new CreateRefundRequest(4_000L, "requested_by_customer"));
 
-        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(response.status()).isEqualTo("PENDING");
         assertThat(response.failureReason()).isEqualTo("provider declined refund");
-        assertThat(outbox.saved).hasSize(1);
-        OutboxEvent event = outbox.saved.get(0);
-        assertThat(event.getMerchantId()).isEqualTo(MERCHANT_ID);
-        assertThat(event.getEventType()).isEqualTo("refund.failed");
-        assertThat(event.getResourceId()).isEqualTo(response.id());
-        assertThat(event.getPayload()).contains("\"failureReason\":\"provider declined refund\"");
+        assertThat(outbox.saved).isEmpty();
     }
 
     private RefundService service(LockingPaymentIntentRepository paymentIntents,
@@ -189,7 +186,8 @@ class RefundServiceTest {
                 new InMemoryOutboxEventRepository().proxy(),
                 new ObjectMapper().findAndRegisterModules(),
                 new LockingTransactionManager(paymentIntents),
-                new PaymentMetrics(new SimpleMeterRegistry()));
+                new PaymentMetrics(new SimpleMeterRegistry()),
+                mock(ScheduledRetryService.class));
     }
 
     private RefundService service(LockingPaymentIntentRepository paymentIntents,
@@ -204,7 +202,8 @@ class RefundServiceTest {
                 outbox.proxy(),
                 new ObjectMapper().findAndRegisterModules(),
                 new LockingTransactionManager(paymentIntents),
-                new PaymentMetrics(new SimpleMeterRegistry()));
+                new PaymentMetrics(new SimpleMeterRegistry()),
+                mock(ScheduledRetryService.class));
     }
 
     private static PaymentIntent succeededIntent(long amount) {

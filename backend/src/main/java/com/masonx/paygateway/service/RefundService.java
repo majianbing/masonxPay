@@ -5,19 +5,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.domain.retry.ScheduledRetryOperation;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+import com.masonx.paygateway.service.retry.ScheduledRetryRequest;
+import com.masonx.paygateway.service.retry.ScheduledRetryService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.RefundResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -33,6 +38,16 @@ public class RefundService {
     private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
     private final PaymentMetrics metrics;
+    private final ScheduledRetryService scheduledRetryService;
+
+    @Value("${app.scheduled-retry.refund-delay-seconds:900}")
+    private long refundRetryDelaySeconds;
+
+    @Value("${app.scheduled-retry.refund-max-attempts:3}")
+    private int refundRetryMaxAttempts;
+
+    @Value("${app.scheduled-retry.refund-auto-retry-enabled:false}")
+    private boolean refundAutoRetryEnabled;
 
     public RefundService(PaymentIntentRepository paymentIntentRepository,
                          RefundRepository refundRepository,
@@ -41,7 +56,8 @@ public class RefundService {
                          OutboxEventRepository outboxEventRepository,
                          ObjectMapper objectMapper,
                          PlatformTransactionManager txManager,
-                         PaymentMetrics metrics) {
+                         PaymentMetrics metrics,
+                         ScheduledRetryService scheduledRetryService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
@@ -50,6 +66,7 @@ public class RefundService {
         this.objectMapper = objectMapper;
         this.txTemplate = new TransactionTemplate(txManager);
         this.metrics = metrics;
+        this.scheduledRetryService = scheduledRetryService;
     }
 
     /**
@@ -125,17 +142,33 @@ public class RefundService {
         final RefundResult r = result;
         return txTemplate.execute(ts -> {
             Refund refund = refundRepository.findById(setup.refund().getId()).orElseThrow();
-            refund.setStatus(r.success() ? RefundStatus.SUCCEEDED : RefundStatus.FAILED);
+            refund.setStatus(r.success() ? RefundStatus.SUCCEEDED : RefundStatus.PENDING);
             refund.setProviderRefundId(r.providerRefundId());
             refund.setFailureReason(r.failureReason());
             refund = refundRepository.save(refund);
             RefundResponse response = RefundResponse.from(refund);
-            writeOutboxEvent(refund.getMerchantId(),
-                    r.success() ? "refund.succeeded" : "refund.failed",
-                    refund.getId(),
-                    response);
+            if (r.success()) {
+                writeOutboxEvent(refund.getMerchantId(), "refund.succeeded", refund.getId(), response);
+            } else if (refundAutoRetryEnabled) {
+                scheduleRefundRecovery(refund);
+            }
             return response;
         });
+    }
+
+    private void scheduleRefundRecovery(Refund refund) {
+        scheduledRetryService.schedule(new ScheduledRetryRequest(
+                refund.getMerchantId(),
+                ScheduledRetryOperation.REFUND,
+                refund.getPaymentIntentId(),
+                refund.getId(),
+                null,
+                refundRetryMaxAttempts,
+                Instant.now().plusSeconds(Math.max(1, refundRetryDelaySeconds)),
+                "Refund failed; scheduled delayed recovery retry",
+                "refund_failed",
+                refund.getFailureReason(),
+                null));
     }
 
     private void writeOutboxEvent(UUID merchantId, String eventType, UUID resourceId,

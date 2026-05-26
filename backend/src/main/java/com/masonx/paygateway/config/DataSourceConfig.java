@@ -135,6 +135,7 @@ public class DataSourceConfig {
                 "ds_0.route_policy_steps",
                 "ds_0.routing_attributes",
                 "ds_0.routing_rules",
+                "ds_0.scheduled_retry_jobs",
                 "ds_0.users",
                 "ds_0.webhook_deliveries",
                 "ds_0.webhook_endpoints"

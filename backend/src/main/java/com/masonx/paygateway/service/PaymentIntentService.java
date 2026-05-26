@@ -13,6 +13,7 @@ import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
+import com.masonx.paygateway.domain.retry.ScheduledRetryOperation;
 import com.masonx.paygateway.web.TraceIdFilter;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
@@ -21,6 +22,8 @@ import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.redis.PaymentIdempotencyCache;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.service.routing.RoutingContext;
+import com.masonx.paygateway.service.retry.ScheduledRetryRequest;
+import com.masonx.paygateway.service.retry.ScheduledRetryService;
 import com.masonx.paygateway.sharding.IdempotencyReservationStatus;
 import com.masonx.paygateway.sharding.PaymentIdempotencyRoute;
 import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
@@ -41,6 +44,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,6 +74,13 @@ public class PaymentIntentService {
     private final PaymentIdempotencyCache    idempotencyCache;
     private final TransactionTemplate        txTemplate;
     private final PaymentMetrics             metrics;
+    private final ScheduledRetryService      scheduledRetryService;
+
+    @Value("${app.scheduled-retry.capture-delay-seconds:900}")
+    private long captureRetryDelaySeconds;
+
+    @Value("${app.scheduled-retry.capture-max-attempts:3}")
+    private int captureRetryMaxAttempts;
 
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
@@ -86,7 +97,8 @@ public class PaymentIntentService {
                                 PaymentShardRouter shardRouter,
                                 PaymentIdempotencyCache idempotencyCache,
                                 PlatformTransactionManager txManager,
-                                PaymentMetrics metrics) {
+                                PaymentMetrics metrics,
+                                ScheduledRetryService scheduledRetryService) {
         this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine            = routingEngine;
@@ -103,6 +115,7 @@ public class PaymentIntentService {
         this.idempotencyCache         = idempotencyCache;
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
+        this.scheduledRetryService    = scheduledRetryService;
     }
 
     @Transactional
@@ -367,12 +380,15 @@ public class PaymentIntentService {
             PaymentIntent intent = paymentIntentRepository.findByIdForUpdate(setup.intent().getId()).orElseThrow();
             // Race guard: only update if still waiting for capture
             if (intent.getStatus() == PaymentIntentStatus.REQUIRES_CAPTURE) {
-                intent.setStatus(captured ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
+                intent.setStatus(captured ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.REQUIRES_CAPTURE);
                 intent = paymentIntentRepository.save(intent);
-                String eventType = captured ? "payment_intent.succeeded" : "payment_intent.failed";
                 List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
                 PaymentIntentResponse response = PaymentIntentResponse.from(intent, attempts, objectMapper, null);
-                writeOutboxEvent(intent.getMerchantId(), eventType, intent.getId(), response);
+                if (captured) {
+                    writeOutboxEvent(intent.getMerchantId(), "payment_intent.succeeded", intent.getId(), response);
+                } else {
+                    scheduleCaptureRecovery(intent);
+                }
                 metrics.recordCaptureAttempted(
                         setup.intent().getResolvedProvider() != null
                                 ? setup.intent().getResolvedProvider().name() : null,
@@ -382,6 +398,21 @@ public class PaymentIntentService {
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
             return PaymentIntentResponse.from(intent, attempts, objectMapper, null);
         });
+    }
+
+    private void scheduleCaptureRecovery(PaymentIntent intent) {
+        scheduledRetryService.schedule(new ScheduledRetryRequest(
+                intent.getMerchantId(),
+                ScheduledRetryOperation.PAYMENT_CAPTURE,
+                intent.getId(),
+                null,
+                intent.getConnectorAccountId(),
+                captureRetryMaxAttempts,
+                Instant.now().plusSeconds(Math.max(1, captureRetryDelaySeconds)),
+                "Manual capture failed; scheduled delayed recovery retry",
+                "capture_failed",
+                "Provider capture call failed",
+                null));
     }
 
     /**
