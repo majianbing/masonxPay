@@ -122,7 +122,8 @@ Core boundary: MasonXPay does not need raw PAN to build the next orchestration l
 | O3 | **Route policy v2** | ✅ | Added route policy/route/step tables, draft create/replace, publish/archive/list/detail/audit APIs, strict condition-schema validation, dry-run route simulation, dashboard policy list/create/edit/simulation UI, active-policy routing before legacy rules, and simulator-backed local tests. |
 | O3b | **Routing UI consolidation** | ✅ | Exposed one Routing navigation entry backed by route policies, moved policies into list and dedicated create/edit pages, and kept legacy rules APIs/runtime fallback as compatibility only. |
 | O4 | **Outcome-based fallback** | ✅ | Added route-step `outcome_actions_json`, conservative outcome categorization, retry/next/stop execution, and focused tests. Hard declines stop, simulator declines model hard declines, and live cross-route fallback is gated by instrument portability. |
-| O5 | **Scheduled retry orchestration** | [ ] | Separate technical retries, route fallback, and delayed recovery retries for capture/refund/subscription-style operations. |
+| O5 | **Scheduled retry orchestration** | ✅ | Added merchant-scoped scheduled retry job storage, list/cancel APIs, due-job worker execution, automatic capture recovery scheduling, and dashboard visibility. Refund auto-retry is disabled by default because background money movement must not risk merchant fund loss without explicit approval. |
+| O5b | **Subscription/recurring retry planning** | [ ] | MasonXPay does not yet support subscription/recurring billing. Plan the subscription, invoice, saved-payment-method, dunning, and off-session retry model before adding recurring retry execution. |
 | O6 | **Optional portable card support** | [ ] | Add third-party vault or network-token integration only when cross-PSP card portability is a real requirement; keep raw PAN behind an isolated PCI boundary if ever introduced. |
 
 ---

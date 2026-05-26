@@ -6,6 +6,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -36,9 +37,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(7);
-        if (!jwtService.isValid(token) || jwtService.isMfaSessionToken(token)) {
-            // MFA session tokens are only valid at /auth/mfa/verify, not as bearer access tokens
+        if (token.startsWith("sk_") || token.startsWith("pk_")) {
             filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (!jwtService.isValid(token) || jwtService.isMfaSessionToken(token)) {
+            // MFA session tokens are only valid at /auth/mfa/verify, not as bearer access tokens.
+            writeUnauthorized(response);
             return;
         }
 
@@ -52,9 +58,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         userDetails, null, userDetails.getAuthorities());
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(auth);
+            } else {
+                writeUnauthorized(response);
+                return;
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void writeUnauthorized(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.getWriter().write("""
+                {"title":"Authentication failed","detail":"Session expired","status":401}
+                """);
     }
 }

@@ -5,16 +5,23 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 
 public interface RefundRepository extends JpaRepository<Refund, UUID>, JpaSpecificationExecutor<Refund> {
     List<Refund> findByPaymentIntentId(UUID paymentIntentId);
     List<Refund> findByMerchantId(UUID merchantId);
     Page<Refund> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM Refund r WHERE r.id = :id AND r.merchantId = :merchantId")
+    Optional<Refund> findByIdAndMerchantIdForUpdate(@Param("id") UUID id, @Param("merchantId") UUID merchantId);
 
     /** Sum of PENDING + SUCCEEDED refunds for this intent — used to prevent over-refunding. */
     @Query("SELECT COALESCE(SUM(r.amount), 0) FROM Refund r " +

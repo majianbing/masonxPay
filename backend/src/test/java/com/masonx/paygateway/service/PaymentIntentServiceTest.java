@@ -15,6 +15,7 @@ import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.redis.PaymentIdempotencyCache;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
+import com.masonx.paygateway.service.retry.ScheduledRetryService;
 import com.masonx.paygateway.sharding.PaymentShardRegistryRepository;
 import com.masonx.paygateway.sharding.PaymentShardRouter;
 import com.masonx.paygateway.web.dto.ConfirmPaymentIntentRequest;
@@ -55,6 +56,7 @@ class PaymentIntentServiceTest {
     @Mock PaymentIdempotencyCache idempotencyCache;
     @Mock PlatformTransactionManager txManager;
     @Mock PaymentMetrics metrics;
+    @Mock ScheduledRetryService scheduledRetryService;
 
     private PaymentIntentService service;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -71,7 +73,7 @@ class PaymentIntentServiceTest {
                 routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentInstrumentRepository, paymentTokenService, retryOrchestrator,
                 objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter,
-                idempotencyCache, txManager, metrics);
+                idempotencyCache, txManager, metrics, scheduledRetryService);
         lenient().when(idempotencyCache.find(any(), anyString())).thenReturn(Optional.empty());
     }
 

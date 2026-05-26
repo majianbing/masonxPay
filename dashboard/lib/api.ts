@@ -61,6 +61,16 @@ async function tryRefresh(): Promise<boolean> {
   }
 }
 
+function isAuthRejected(status: number) {
+  return status === 401;
+}
+
+function rejectAuthSession(status: number): never {
+  clearTokens();
+  onTokenRefreshFailed?.();
+  throw new ApiError(status, 'Session expired');
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { skipAuth?: boolean } = {},
@@ -81,18 +91,20 @@ export async function apiFetch<T>(
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 
-  if (res.status === 401 && !skipAuth) {
+  if (isAuthRejected(res.status) && !skipAuth) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers['Authorization'] = `Bearer ${accessToken}`;
       const retry = await fetch(`${API_BASE}${path}`, { ...init, headers });
-      if (!retry.ok) throw new ApiError(retry.status, 'Unauthorized');
+      if (isAuthRejected(retry.status)) rejectAuthSession(retry.status);
+      if (!retry.ok) {
+        const retryJson = await retry.json().catch(() => null);
+        throw new ApiError(retry.status, retryJson?.title ?? retry.statusText, retryJson?.detail);
+      }
       if (retry.status === 204) return undefined as T;
       return retry.json();
     }
-    clearTokens();
-    onTokenRefreshFailed?.();
-    throw new ApiError(401, 'Session expired');
+    rejectAuthSession(res.status);
   }
 
   if (res.status === 204) return undefined as T;
