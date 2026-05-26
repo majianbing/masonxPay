@@ -8,6 +8,9 @@ import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.routing.RoutingRule;
 import com.masonx.paygateway.domain.routing.RoutingRuleRepository;
 import com.masonx.paygateway.health.ConnectorHealthService;
+import com.masonx.paygateway.domain.payment.CaptureMethod;
+import com.masonx.paygateway.service.routing.ProviderAccountCapabilityService;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,6 +32,7 @@ class RoutingEngineTest {
     @Mock ProviderAccountRepository  providerAccountRepository;
     @Mock ConnectorCircuitBreaker    circuitBreaker;
     @Mock ConnectorHealthService     healthService;
+    @Mock ProviderAccountCapabilityService capabilityService;
 
     private RoutingEngine engine;
     private final UUID merchantId = UUID.randomUUID();
@@ -57,11 +61,18 @@ class RoutingEngineTest {
     private ProviderAccount account(UUID id, boolean primary) {
         ProviderAccount acc = new ProviderAccount();
         ReflectionTestUtils.setField(acc, "id", id);
+        ReflectionTestUtils.setField(acc, "merchantId", merchantId);
         ReflectionTestUtils.setField(acc, "status", ProviderAccountStatus.ACTIVE);
         ReflectionTestUtils.setField(acc, "primary", primary);
         ReflectionTestUtils.setField(acc, "provider", PaymentProvider.STRIPE);
         ReflectionTestUtils.setField(acc, "weight", 1);
         return acc;
+    }
+
+    private RoutingContext context(String method, String currency) {
+        return new RoutingContext(merchantId, ApiKeyMode.TEST, 1000, currency, null, method,
+                CaptureMethod.AUTOMATIC, null, null, java.util.Map.of(), null, null, null,
+                null, null, null, null, null);
     }
 
     // ── basic routing (unchanged behaviour) ──────────────────────────────────
@@ -179,6 +190,37 @@ class RoutingEngineTest {
                 .thenReturn(List.of());
 
         assertThat(engine.resolveAnyAccount(merchantId, ApiKeyMode.TEST)).isEmpty();
+    }
+
+    @Test
+    void resolveAccountForProvider_withContext_filtersByCapabilities() {
+        RoutingEngine capabilityAware = new RoutingEngine(
+                routingRuleRepository,
+                providerAccountRepository,
+                circuitBreaker,
+                healthService,
+                new ConnectorFeeService(),
+                null,
+                null,
+                null,
+                capabilityService,
+                null);
+
+        ProviderAccount unsupported = account(UUID.randomUUID(), true);
+        ProviderAccount supported = account(UUID.randomUUID(), false);
+
+        when(providerAccountRepository.findAllByMerchantIdAndProviderAndModeAndStatus(
+                merchantId, PaymentProvider.STRIPE, ApiKeyMode.TEST, ProviderAccountStatus.ACTIVE))
+                .thenReturn(List.of(unsupported, supported));
+        when(capabilityService.supportsOrUnspecified(merchantId, unsupported.getId(), context("card", "USD")))
+                .thenReturn(false);
+        when(capabilityService.supportsOrUnspecified(merchantId, supported.getId(), context("card", "USD")))
+                .thenReturn(true);
+
+        Optional<ProviderAccount> result = capabilityAware.resolveAccountForProvider(
+                merchantId, PaymentProvider.STRIPE, ApiKeyMode.TEST, context("card", "USD"));
+
+        assertThat(result).contains(supported);
     }
 
     // ── Phase 3.2: circuit breaker ────────────────────────────────────────────

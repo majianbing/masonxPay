@@ -342,6 +342,7 @@ export class GatewayEmbedded {
       else if (provider === 'SQUARE') await this.buildSquareForm(opt, slot);
       else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot);
       else if (provider === 'MOLLIE') this.buildMollieForm(slot);
+      else if (provider === 'SIMULATOR') this.buildSimulatorForm(slot);
     } catch (e) {
       slot.remove();
       this.clearSkeleton();
@@ -520,6 +521,7 @@ export class GatewayEmbedded {
       else if (this.selectedProvider === 'SQUARE') await this.submitSquare();
       else if (this.selectedProvider === 'BRAINTREE') await this.submitBraintree();
       else if (this.selectedProvider === 'MOLLIE') await this.submitMollie();
+      else if (this.selectedProvider === 'SIMULATOR') await this.submitSimulator();
     } catch (e) {
       const msg = (e as Error).message ?? 'Payment error';
       this.showError(msg);
@@ -609,6 +611,28 @@ export class GatewayEmbedded {
   private async submitMollie(): Promise<void> {
     // Tokenize with empty providerPmId — Mollie doesn't use a client-side token
     await this.tokenizeAndSubmit('MOLLIE', '');
+  }
+
+  // ── Mason Simulator ────────────────────────────────────────────────────────
+
+  private buildSimulatorForm(container: HTMLElement): void {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 0;text-align:center;">
+        <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="6" fill="#312e81"/>
+          <path d="M7 19V9h3l4 6 4-6h3v10h-2.5v-6l-3.5 5h-2l-3.5-5v6H7Z" fill="#fff"/>
+        </svg>
+        <p style="font-size:14px;color:#374151;font-weight:500;margin:0;">Mason Simulator</p>
+        <p style="font-size:12px;color:#6b7280;margin:0;max-width:280px;line-height:1.5;">
+          TEST-only provider. It charges a synthetic card token so routing, capability, retry,
+          and hosted-checkout flows can be verified without an external PSP.
+        </p>
+      </div>`;
+    if (this.submitBtn) this.submitBtn.disabled = false;
+  }
+
+  private async submitSimulator(): Promise<void> {
+    await this.tokenizeAndSubmit('SIMULATOR', `sim_pm_${Date.now()}`);
   }
 
   private async tokenizeAndSubmit(provider: string, providerPmId: string): Promise<void> {

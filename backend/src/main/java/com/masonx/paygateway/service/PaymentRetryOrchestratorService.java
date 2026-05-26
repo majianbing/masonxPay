@@ -16,6 +16,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -118,8 +119,12 @@ public class PaymentRetryOrchestratorService {
 
                 boolean retryable = failoverPolicy.isRetryable(result.failureCode());
                 circuitBreaker.recordFailure(candidate.accountId(), retryable);
-                if (!retryable) {
+                OutcomeAction action = outcomeAction(candidate, result, retryable);
+                if (action == OutcomeAction.STOP) {
                     return new Result(lastResult, usedCandidate, attempts);
+                }
+                if (action == OutcomeAction.NEXT) {
+                    break;
                 }
             }
             previousCandidate = candidate;
@@ -143,6 +148,53 @@ public class PaymentRetryOrchestratorService {
     private ChargeResult failedAttempt(String failureCode, String message) {
         return new ChargeResult(false, null, null, failureCode, message,
                 true, false, null, null, null);
+    }
+
+    private OutcomeAction outcomeAction(RouteCandidate candidate, ChargeResult result, boolean retryable) {
+        String configured = candidate.outcomeActions().get(outcomeCategory(result, retryable));
+        if (configured == null && result.failureCode() != null) {
+            configured = candidate.outcomeActions().get(result.failureCode().trim().toUpperCase(Locale.ROOT));
+        }
+        if (configured == null) {
+            configured = candidate.outcomeActions().get("DEFAULT");
+        }
+        if (configured != null) {
+            return switch (configured.toLowerCase(Locale.ROOT)) {
+                case "next", "fallback" -> OutcomeAction.NEXT;
+                case "retry" -> OutcomeAction.RETRY;
+                case "stop", "fail" -> OutcomeAction.STOP;
+                default -> retryable ? OutcomeAction.RETRY : OutcomeAction.STOP;
+            };
+        }
+        return retryable ? OutcomeAction.RETRY : OutcomeAction.STOP;
+    }
+
+    private String outcomeCategory(ChargeResult result, boolean retryable) {
+        if (result.success()) return "APPROVED";
+        if (result.requiresAction()) return "REQUIRES_ACTION";
+        String code = result.failureCode() != null
+                ? result.failureCode().toLowerCase(Locale.ROOT)
+                : "";
+        if (code.contains("timeout")) return "PROVIDER_TIMEOUT";
+        if (code.contains("unavailable") || code.contains("connection") || code.contains("rate_limit")) {
+            return "PROVIDER_UNAVAILABLE";
+        }
+        if (code.contains("insufficient_funds")) return "INSUFFICIENT_FUNDS";
+        if (code.contains("authentication")) return "AUTHENTICATION_REQUIRED";
+        if (code.contains("fraud") || code.contains("risk") || code.contains("stolen") || code.contains("lost")) {
+            return "RISK_DECLINE";
+        }
+        if (code.contains("invalid") || code.contains("incorrect") || code.contains("expired")) {
+            return "INVALID_PAYMENT_METHOD";
+        }
+        if (!retryable) return "HARD_DECLINE";
+        return code.isBlank() ? "UNKNOWN_FAILURE" : "PROVIDER_ERROR";
+    }
+
+    private enum OutcomeAction {
+        RETRY,
+        NEXT,
+        STOP
     }
 
     private UUID createAttempt(PaymentIntent intent, String paymentMethodType, UUID accountId,

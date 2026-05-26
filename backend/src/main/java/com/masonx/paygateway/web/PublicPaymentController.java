@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
-import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
@@ -16,6 +16,8 @@ import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
+import com.masonx.paygateway.service.RoutingEngine;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import com.masonx.paygateway.web.dto.PublicCheckoutRequest;
 import com.masonx.paygateway.web.dto.PublicCheckoutResponse;
@@ -47,6 +49,7 @@ public class PublicPaymentController {
     private final PaymentIntentRepository      paymentIntentRepository;
     private final PaymentRequestRepository     paymentRequestRepository;
     private final PaymentTokenService          paymentTokenService;
+    private final RoutingEngine                routingEngine;
     private final OutboxEventRepository        outboxEventRepository;
     private final ObjectMapper                 objectMapper;
     private final PaymentMetrics               metrics;
@@ -61,6 +64,7 @@ public class PublicPaymentController {
                                    PaymentIntentRepository paymentIntentRepository,
                                    PaymentRequestRepository paymentRequestRepository,
                                    PaymentTokenService paymentTokenService,
+                                   RoutingEngine routingEngine,
                                    OutboxEventRepository outboxEventRepository,
                                    ObjectMapper objectMapper,
                                    PaymentMetrics metrics) {
@@ -71,6 +75,7 @@ public class PublicPaymentController {
         this.paymentIntentRepository   = paymentIntentRepository;
         this.paymentRequestRepository  = paymentRequestRepository;
         this.paymentTokenService       = paymentTokenService;
+        this.routingEngine             = routingEngine;
         this.outboxEventRepository     = outboxEventRepository;
         this.objectMapper              = objectMapper;
         this.metrics                   = metrics;
@@ -104,6 +109,10 @@ public class PublicPaymentController {
 
         ProviderAccount account = providerAccountRepository.findById(paymentToken.getAccountId())
                 .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+        if (!routingEngine.supportsCapabilities(account, linkContext(link))) {
+            paymentLinkRepository.releaseLink(token);
+            throw new IllegalStateException("Selected connector does not support this payment link");
+        }
 
         ProviderCredentials creds = credentialsCodec.decode(account);
         PaymentProvider provider = PaymentProvider.valueOf(paymentToken.getProvider());
@@ -117,6 +126,7 @@ public class PublicPaymentController {
         intent.setIdempotencyKey(idempotencyKey);
         intent.setResolvedProvider(provider);
         intent.setConnectorAccountId(account.getId());
+        intent.setPaymentMethodType("card");
         intent.setStatus(PaymentIntentStatus.PROCESSING);
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
@@ -271,14 +281,7 @@ public class PublicPaymentController {
     public ResponseEntity<Map<String, String>> prepareStripe(@PathVariable String token) {
         PaymentLink link = findActiveLink(token);
 
-        ProviderAccount account = (link.getPinnedConnectorId() != null)
-                ? providerAccountRepository.findById(link.getPinnedConnectorId())
-                        .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
-                : providerAccountRepository
-                        .findAllByMerchantIdAndProviderAndModeAndStatus(
-                                link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
-                        .stream().findFirst()
-                        .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
+        ProviderAccount account = stripeAccountForLink(link);
 
         if (!(credentialsCodec.decode(account) instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             throw new IllegalStateException("Stripe connector is missing a secret key");
@@ -329,14 +332,7 @@ public class PublicPaymentController {
                     ok ? link.getRedirectUrl() : null, null));
         }
 
-        ProviderAccount account = (link.getPinnedConnectorId() != null)
-                ? providerAccountRepository.findById(link.getPinnedConnectorId())
-                        .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
-                : providerAccountRepository
-                        .findAllByMerchantIdAndProviderAndModeAndStatus(
-                                link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), ProviderAccountStatus.ACTIVE)
-                        .stream().findFirst()
-                        .orElseThrow(() -> new IllegalStateException("No active Stripe connector configured"));
+        ProviderAccount account = stripeAccountForLink(link);
 
         if (!(credentialsCodec.decode(account) instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
             throw new IllegalStateException("Stripe connector is missing a secret key");
@@ -433,5 +429,43 @@ public class PublicPaymentController {
             throw new IllegalStateException("This payment link is no longer active");
         }
         return link;
+    }
+
+    private ProviderAccount stripeAccountForLink(PaymentLink link) {
+        ProviderAccount account = (link.getPinnedConnectorId() != null)
+                ? providerAccountRepository.findById(link.getPinnedConnectorId())
+                        .orElseThrow(() -> new IllegalStateException("Pinned connector not found"))
+                : routingEngine.resolveAccountForProvider(
+                                link.getMerchantId(), PaymentProvider.STRIPE, link.getMode(), linkContext(link))
+                        .orElseThrow(() -> new IllegalStateException("No eligible Stripe connector configured"));
+        if (account.getProvider() != PaymentProvider.STRIPE) {
+            throw new IllegalStateException("Selected connector is not a Stripe account");
+        }
+        if (!routingEngine.supportsCapabilities(account, linkContext(link))) {
+            throw new IllegalStateException("Stripe connector does not support this payment link");
+        }
+        return account;
+    }
+
+    private RoutingContext linkContext(PaymentLink link) {
+        return new RoutingContext(
+                link.getMerchantId(),
+                link.getMode(),
+                link.getAmount(),
+                link.getCurrency(),
+                null,
+                "card",
+                CaptureMethod.AUTOMATIC,
+                null,
+                null,
+                Map.of(),
+                null,
+                InstrumentSource.PROVIDER_TOKEN,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
     }
 }

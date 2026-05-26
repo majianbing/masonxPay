@@ -2,6 +2,8 @@ package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.connector.ProviderAccountCapability;
+import com.masonx.paygateway.domain.connector.ProviderAccountCapabilityRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
@@ -23,13 +25,16 @@ import java.util.UUID;
 public class ProviderAccountService {
 
     private final ProviderAccountRepository repo;
+    private final ProviderAccountCapabilityRepository capabilityRepository;
     private final CredentialsCodec codec;
     private final ProviderSimulatorProperties simulatorProperties;
 
     public ProviderAccountService(ProviderAccountRepository repo,
+                                  ProviderAccountCapabilityRepository capabilityRepository,
                                   CredentialsCodec codec,
                                   ProviderSimulatorProperties simulatorProperties) {
         this.repo = repo;
+        this.capabilityRepository = capabilityRepository;
         this.codec = codec;
         this.simulatorProperties = simulatorProperties;
     }
@@ -64,7 +69,9 @@ public class ProviderAccountService {
         ProviderCredentials creds = codec.fromRequest(provider, req, mode);
         codec.encode(creds, account);
 
-        return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
+        ProviderAccount saved = repo.save(account);
+        seedDefaultCapabilities(saved);
+        return ProviderAccountResponse.from(saved, codec.clientKeyFor(saved));
     }
 
     public ProviderAccountResponse update(UUID merchantId, UUID accountId, UpdateProviderAccountRequest req) {
@@ -146,5 +153,22 @@ public class ProviderAccountService {
         if (mode != ApiKeyMode.TEST) {
             throw new IllegalArgumentException("Mason Simulator provider is only available in TEST mode");
         }
+    }
+
+    private void seedDefaultCapabilities(ProviderAccount account) {
+        ProviderAccountCapability card = new ProviderAccountCapability();
+        card.setMerchantId(account.getMerchantId());
+        card.setProviderAccountId(account.getId());
+        card.setPaymentMethodType("card");
+        card.setSupportsProviderToken(true);
+        card.setSupportsVaultToken(false);
+        card.setSupportsNetworkToken(false);
+        card.setSupportsManualCapture(account.getProvider() != PaymentProvider.MOLLIE);
+        card.setSupportsRedirect(account.getProvider() == PaymentProvider.MOLLIE);
+        card.setSupports3ds(account.getProvider() == PaymentProvider.STRIPE
+                || account.getProvider() == PaymentProvider.MOLLIE
+                || account.getProvider() == PaymentProvider.SIMULATOR);
+        card.setEnabled(true);
+        capabilityRepository.save(card);
     }
 }

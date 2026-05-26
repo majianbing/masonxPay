@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "e2e": "playwright test --project=chromium",
+    "e2e:auth": "playwright test e2e/auth.setup.ts --headed --project=auth",
+    "e2e:headed": "playwright test --project=chromium --headed"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",
@@ -36,6 +39,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -100,7 +100,7 @@ public class ConnectorController {
 
     /**
      * Fire a test charge against the connector's own provider key.
-     * Uses Stripe's built-in test payment method tokens (pm_card_visa, etc.).
+     * Stripe uses built-in test payment method tokens; SIMULATOR runs fully in process.
      * Persisted as a TEST-mode PaymentIntent so it appears in the dashboard under TEST data.
      */
     @PostMapping("/{accountId}/preview")
@@ -120,12 +120,12 @@ public class ConnectorController {
             throw new IllegalStateException("Preview is only available for TEST mode connectors");
         }
 
-        if (account.getProvider() != PaymentProvider.STRIPE) {
+        if (account.getProvider() != PaymentProvider.STRIPE && account.getProvider() != PaymentProvider.SIMULATOR) {
             return ResponseEntity.ok(new PreviewPaymentResponse(
                     false, "UNSUPPORTED", account.getProvider().name(), account.getLabel(),
                     req.amount(), req.currency(), null,
                     "preview_unsupported",
-                    "Preview test cards are currently only supported for Stripe connectors."));
+                    "Preview test payments are currently supported for Stripe and Mason Simulator connectors."));
         }
 
         ProviderCredentials creds = credentialsCodec.decode(account);
@@ -163,6 +163,7 @@ public class ConnectorController {
         paymentRequest.setAmount(req.amount());
         paymentRequest.setCurrency(req.currency().toLowerCase());
         paymentRequest.setPaymentMethodType("card");
+        paymentRequest.setConnectorAccountId(account.getId());
         paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
         paymentRequest.setProviderRequestId(result.providerPaymentId());
         paymentRequest.setFailureCode(result.failureCode());

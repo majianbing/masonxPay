@@ -39,7 +39,9 @@ public class FailoverPolicy {
             "card_velocity_exceeded",
             // Internal sentinel codes — not worth retrying
             "connector_not_configured",
-            "preview_unsupported"
+            "preview_unsupported",
+            // Mason Simulator
+            "simulator_declined"
     );
 
     /**

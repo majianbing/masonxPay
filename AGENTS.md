@@ -26,6 +26,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
 - High-throughput track H1-H5b and H7: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, and benchmark/simulator observability are done.
 - Next high-throughput work: H6 dashboard search/read projections.
+- Advanced orchestration Phase O: O1-O4 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, and outcome-action retry/fallback. Track exact progress in `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`.
 - AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
@@ -63,6 +64,24 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Avoid broad `catch (Exception)` blocks unless there is a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
 - Do not claim tests passed unless they actually ran.
+
+## Testing Strategy
+
+Use the test pyramid for feature work. Do not rely on expensive E2E tests as the main correctness layer.
+
+- Unit tests: cover deterministic business logic, validators, routing/capability matching, retry decisions, payment/refund state transitions, security helpers, and serialization/mapping edge cases. These should be fast, focused, and numerous.
+- Integration tests: cover behavior crossing module boundaries, persistence, migrations, repositories, API controllers, auth/tenant scope, transaction behavior, outbox writes, and simulator-backed provider flows.
+- E2E/smoke tests: cover only critical merchant/customer workflows such as hosted checkout, payment links, connector preview, dashboard capability/routing configuration, and webhook delivery. Prefer Mason Simulator over external PSP sandboxes unless the external provider behavior itself is under test.
+- Do not mark a phase or feature complete until the relevant layer of the pyramid has passing coverage, or the remaining verification gap is explicitly documented in the phase tracker.
+
+Keep tests modular and easy to navigate:
+
+- Place backend unit tests next to the owning service/package: routing tests under `service` or `service/routing`, provider tests under `provider`, web/controller tests under `web`, Redis/Kafka/projection tests under their module packages.
+- Keep test classes focused on one behavior owner. Avoid catch-all test classes that mix routing, provider calls, dashboard API behavior, and persistence setup.
+- Use small builders or local helper methods inside tests before introducing shared fixtures. Add shared fixtures only when duplication is real and the fixture does not hide important setup.
+- Name tests by behavior and expected result, for example `resolveAccountForProvider_withContext_filtersByCapabilities`.
+- Keep simulator-backed tests deterministic by configuring success/failure rates explicitly.
+- E2E tests should be grouped separately from fast unit/integration tests and run through an explicit command or Docker/preview profile.
 
 ## Before Final Response
 

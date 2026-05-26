@@ -7,6 +7,7 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.apikey.ApiKeyType;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
@@ -45,6 +46,7 @@ class PaymentIntentServiceTest {
     @Mock PaymentProviderDispatcher dispatcher;
     @Mock ProviderAccountService providerAccountService;
     @Mock ProviderAccountRepository providerAccountRepository;
+    @Mock PaymentInstrumentRepository paymentInstrumentRepository;
     @Mock PaymentTokenService paymentTokenService;
     @Mock PaymentRetryOrchestratorService retryOrchestrator;
     @Mock OutboxEventRepository outboxEventRepository;
@@ -67,7 +69,7 @@ class PaymentIntentServiceTest {
         service = new PaymentIntentService(
                 paymentIntentRepository, paymentRequestRepository,
                 routingEngine, dispatcher, providerAccountService,
-                providerAccountRepository, paymentTokenService, retryOrchestrator,
+                providerAccountRepository, paymentInstrumentRepository, paymentTokenService, retryOrchestrator,
                 objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter,
                 idempotencyCache, txManager, metrics);
         lenient().when(idempotencyCache.find(any(), anyString())).thenReturn(Optional.empty());
@@ -197,8 +199,9 @@ class PaymentIntentServiceTest {
 
         when(paymentIntentRepository.findByIdAndMerchantIdForUpdate(intentId, merchantId))
                 .thenReturn(Optional.of(pi));
-        when(routingEngine.resolve(merchantId, pi.getAmount(), pi.getCurrency(), null, "card"))
-                .thenReturn(Optional.of(new RoutingEngine.RoutingResult(primary, fallback)));
+        when(routingEngine.resolvePlan(any()))
+                .thenReturn(Optional.of(new RoutePlan(List.of(
+                        new RouteCandidate(primary), new RouteCandidate(fallback)))));
         when(paymentIntentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(retryOrchestrator.execute(eq(pi), eq("pm_123"), eq("card"), any(RoutePlan.class),
                 eq(PaymentRetryContext.sameAccountOnly())))

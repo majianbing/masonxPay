@@ -2,9 +2,16 @@ package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
+import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.instrument.InstrumentPortability;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
+import com.masonx.paygateway.domain.instrument.InstrumentType;
+import com.masonx.paygateway.domain.instrument.PaymentInstrument;
+import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.PaymentToken;
 import com.masonx.paygateway.domain.payment.PaymentTokenRepository;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,10 +26,17 @@ public class PaymentTokenService {
     private static final int TOKEN_TTL_MINUTES = 15;
 
     private final PaymentTokenRepository repo;
+    private final PaymentInstrumentRepository instrumentRepository;
+    private final ProviderAccountRepository providerAccountRepository;
     private final RoutingEngine routingEngine;
 
-    public PaymentTokenService(PaymentTokenRepository repo, RoutingEngine routingEngine) {
+    public PaymentTokenService(PaymentTokenRepository repo,
+                               PaymentInstrumentRepository instrumentRepository,
+                               ProviderAccountRepository providerAccountRepository,
+                               RoutingEngine routingEngine) {
         this.repo = repo;
+        this.instrumentRepository = instrumentRepository;
+        this.providerAccountRepository = providerAccountRepository;
         this.routingEngine = routingEngine;
     }
 
@@ -37,15 +51,23 @@ public class PaymentTokenService {
      * @return opaque gateway token string ("gw_tok_" + UUID hex)
      */
     public String create(UUID merchantId, PaymentProvider provider, ApiKeyMode mode, String providerPmId) {
-        ProviderAccount account = routingEngine.resolveAccountForProvider(merchantId, provider, mode)
+        return create(merchantId, provider, mode, providerPmId, null);
+    }
+
+    public String create(UUID merchantId, PaymentProvider provider, ApiKeyMode mode,
+                         String providerPmId, RoutingContext context) {
+        ProviderAccount account = (context != null
+                ? routingEngine.resolveAccountForProvider(merchantId, provider, mode, context)
+                : routingEngine.resolveAccountForProvider(merchantId, provider, mode))
                 .orElseThrow(() -> new IllegalStateException(
-                        "No active connector found for provider " + provider + " in " + mode + " mode"));
+                        "No eligible connector found for provider " + provider + " in " + mode + " mode"));
 
         PaymentToken token = new PaymentToken();
         token.setMerchantId(merchantId);
         token.setProvider(provider.name());
         token.setAccountId(account.getId());
         token.setProviderPmId(providerPmId);
+        token.setInstrumentId(createProviderScopedInstrument(merchantId, account, providerPmId).getId());
         token.setExpiresAt(Instant.now().plus(TOKEN_TTL_MINUTES, ChronoUnit.MINUTES));
 
         PaymentToken saved = repo.save(token);
@@ -58,11 +80,18 @@ public class PaymentTokenService {
      */
     public String createForAccount(UUID merchantId, UUID accountId, PaymentProvider provider,
                                    ApiKeyMode mode, String providerPmId) {
+        ProviderAccount account = providerAccountRepository.findByIdAndMerchantId(accountId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Connector account not found"));
+        if (account.getProvider() != provider || account.getMode() != mode) {
+            throw new IllegalArgumentException("Connector account does not match provider or mode");
+        }
+
         PaymentToken token = new PaymentToken();
         token.setMerchantId(merchantId);
         token.setProvider(provider.name());
         token.setAccountId(accountId);
         token.setProviderPmId(providerPmId);
+        token.setInstrumentId(createProviderScopedInstrument(merchantId, account, providerPmId).getId());
         token.setExpiresAt(Instant.now().plus(TOKEN_TTL_MINUTES, ChronoUnit.MINUTES));
         PaymentToken saved = repo.save(token);
         return "gw_tok_" + saved.getId().toString().replace("-", "");
@@ -87,6 +116,20 @@ public class PaymentTokenService {
 
         token.setUsedAt(Instant.now());
         return repo.save(token);
+    }
+
+    private PaymentInstrument createProviderScopedInstrument(UUID merchantId, ProviderAccount account, String providerPmId) {
+        PaymentInstrument instrument = new PaymentInstrument();
+        instrument.setMerchantId(merchantId);
+        instrument.setType(InstrumentType.CARD);
+        instrument.setSource(InstrumentSource.PROVIDER_TOKEN);
+        instrument.setPortability(InstrumentPortability.PROVIDER_SCOPED);
+        instrument.setProvider(account.getProvider());
+        instrument.setProviderAccountId(account.getId());
+        instrument.setTokenReference(providerPmId != null && !providerPmId.isBlank()
+                ? providerPmId
+                : "provider_pending_" + UUID.randomUUID());
+        return instrumentRepository.save(instrument);
     }
 
     /** Peeks at a token without consuming it — for checkout-session info lookups. */

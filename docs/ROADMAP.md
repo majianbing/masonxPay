@@ -89,7 +89,7 @@ What merchants need to run their business, not just process payments.
 
 ## Phase H — High-throughput payment core
 
-This is a new scale profile that intentionally evolves beyond the MVP constraints of a single Postgres-backed gateway. The design keeps Postgres shards as the financial source of truth, uses `payment_id` / `order_id` sharding to avoid hot merchants, adds Redis only for hot-path optimization, adds Kafka for async event fan-out, and reserves OpenSearch/Elasticsearch for dashboard/search projections rather than authoritative state checks.
+This is a new scale profile that intentionally evolves beyond the MVP constraints of a single Postgres-backed gateway. The design keeps Postgres shards as the financial source of truth, uses `payment_id` / `order_id` sharding to avoid hot merchants, adds Redis only for hot-path optimization, and adds Kafka for async event fan-out. H6 should continue with Postgres-backed dashboard read models; OpenSearch remains an optional future search index only if read-model search outgrows Postgres. Elasticsearch is intentionally out of scope for now.
 
 See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md).
 
@@ -102,14 +102,34 @@ See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
 | H4 | **Async workers** | ✅ | Webhook fan-out and payment read-model projection run from independent Kafka consumer groups in Docker and the local Maven profile. Projection has controlled backfill, dashboard list/search cutover, DB idempotency/failure ledger, metrics, and alerts. Reconciliation worker split and notifications are deferred until there is a concrete production requirement. |
 | H5 | **Redis hot path** | ✅ | Added Redis local/Docker service, Redisson-backed merchant/API rate limiting, payment-create idempotency route cache, provider health cache, and fail-open outage fallback metrics. Postgres remains authoritative for payment state and idempotency. |
 | H5b | **Preview runtime hardening** | ✅ | Added `application-preview.yml`, `.env.preview`, and `docker-compose.preview.yml` for a production-like local stack before H6: Kafka workers and Redis hot path enabled, webhook DB poller off, projection backfill opt-in, health details hidden, and preview consumer groups. |
-| H6 | **Dashboard search/read projections** | [ ] | Use OpenSearch/Elasticsearch for merchant dashboard search and views, not payment state authority. |
+| H6 | **Dashboard search/read projections** | [ ] | Use Postgres-backed `payment_read_models` for merchant dashboard search and views. Keep OpenSearch as an optional future adapter if dashboard/support search outgrows Postgres; keep Elasticsearch out of scope. |
 | H7 | **Benchmarks and failure-mode docs** | ✅ | k6 now compares Postgres-only vs optional Kafka/Redis infra, covers create/confirm/refund/get/list/idempotency flows, creates a TEST-only Mason Simulator connector through the normal provider path, supports configurable simulator PSP success rates, and feeds Prometheus/Grafana bench/payment dashboards. Fresh numeric baselines and deeper failure-mode playbooks remain follow-up hardening, not H7 blockers. |
+
+---
+
+## Phase O — Advanced Payment Orchestration
+
+MasonXPay should prioritize Yuno-like deterministic orchestration before the AI control plane: richer routing context, payment-instrument abstraction, provider capability checks, route policy versioning, outcome-based fallback, and controlled retry orchestration.
+
+See [PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md](PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md).
+
+Core boundary: MasonXPay does not need raw PAN to build the next orchestration layer. The near-term system should route on safe context and opaque instrument references. Future vault, network-token, or PCI-scoped card handling must plug into a separate instrument domain instead of leaking PAN/CVV into payment intents, logs, Kafka events, or read models.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| O1 | **Instrument and context foundation** | ✅ | Added `PaymentInstrument`, safe metadata, portability/source flags, `RoutingContext`, gateway-token instrument linking, provider-scoped confirm safety, and payment-method reference log redaction. Live confirm now permits route fallback only for portable instruments. |
+| O2 | **Provider capability matrix** | ✅ | Added account-scoped capabilities, connector-scoped capability management APIs, default card capability seeds for newly created connector accounts, capability-aware route-step filtering, dashboard UI, simulator hosted-checkout support, capability-aware payment-link tokenization, and Docker/manual payment-link verification with capabilities enabled. |
+| O3 | **Route policy v2** | ✅ | Added route policy/route/step tables, draft create/replace, publish/archive/list/detail/audit APIs, strict condition-schema validation, dry-run route simulation, dashboard policy list/create/edit/simulation UI, active-policy routing before legacy rules, and simulator-backed local tests. |
+| O3b | **Routing UI consolidation** | ✅ | Exposed one Routing navigation entry backed by route policies, moved policies into list and dedicated create/edit pages, and kept legacy rules APIs/runtime fallback as compatibility only. |
+| O4 | **Outcome-based fallback** | ✅ | Added route-step `outcome_actions_json`, conservative outcome categorization, retry/next/stop execution, and focused tests. Hard declines stop, simulator declines model hard declines, and live cross-route fallback is gated by instrument portability. |
+| O5 | **Scheduled retry orchestration** | [ ] | Separate technical retries, route fallback, and delayed recovery retries for capture/refund/subscription-style operations. |
+| O6 | **Optional portable card support** | [ ] | Add third-party vault or network-token integration only when cross-PSP card portability is a real requirement; keep raw PAN behind an isolated PCI boundary if ever introduced. |
 
 ---
 
 ## Phase AI — Assisted Payment Operations Control Plane
 
-MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted control plane.
+MasonXPay should eventually add an AI-assisted control plane, but this phase is lower priority than the deterministic orchestration engine. The AI layer should analyze, explain, and draft policy changes after routing, retry, telemetry, and instrument boundaries are mature.
 
 See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
 
@@ -180,5 +200,6 @@ Phase 0 (done)
             ├── Phase 3 (orchestration — connector breadth + intelligence)
             ├── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
             └── Phase H (high-throughput core — sharding, Redis, Kafka, read projections)
-                    └── Phase AI (assisted ops control plane — advisory agent + validator + approval)
+                    ├── Phase O (advanced orchestration — instruments, route policies, fallback, retries)
+                    └── Phase AI (later advisory ops control plane — recommendations, validator, approval)
 ```
