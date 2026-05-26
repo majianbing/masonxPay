@@ -12,7 +12,9 @@ Next.js 15 merchant portal for the MasonXPay payment gateway.
 | `/refunds` | Refunds list with search and date filters |
 | `/connectors` | Add/manage payment provider accounts (Stripe, Square, Braintree) |
 | `/connectors/[id]/preview` | Live TEST checkout preview for a single connector |
-| `/routing/rules` | Weighted routing rules per provider |
+| `/routing/policies` | Versioned route-policy list, publish/archive actions |
+| `/routing/policies/new` | Create a route-policy draft |
+| `/routing/policies/[id]` | View/edit a route policy, audit history, dry-run simulation |
 | `/payment-links` | Create and share hosted payment links |
 | `/developers/api-keys` | Create/revoke API key pairs |
 | `/developers/webhooks` | Webhook endpoints + delivery logs |
@@ -29,7 +31,18 @@ npm install
 npm run dev    # http://localhost:3000
 ```
 
-Requires the backend running on port 8012 (or set `NEXT_PUBLIC_API_URL`).
+Requires the backend running on port 8080 (or set `NEXT_PUBLIC_API_URL`).
+
+## E2E tests
+
+Playwright tests target the Docker/local dashboard at `http://localhost:3000` by default.
+
+```bash
+npm run e2e:auth   # headed browser; log in once with a dashboard test account
+npm run e2e        # reuses e2e/.auth/user.json
+```
+
+Set `E2E_BASE_URL` to test another dashboard URL. The saved auth state is ignored by git.
 
 ## Environment variables
 

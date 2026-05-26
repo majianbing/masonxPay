@@ -4,6 +4,10 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.routing.RoutePolicy;
 import com.masonx.paygateway.domain.routing.RoutePolicyRoute;
 import com.masonx.paygateway.domain.routing.RoutePolicyStep;
+import com.masonx.paygateway.domain.routing.RoutingAttribute;
+import com.masonx.paygateway.domain.routing.RoutingAttributePiiClassification;
+import com.masonx.paygateway.domain.routing.RoutingAttributeSource;
+import com.masonx.paygateway.domain.routing.RoutingAttributeType;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -65,6 +69,86 @@ class RoutePolicyValidationServiceTest {
                 .contains("step.account_inactive");
     }
 
+    @Test
+    void rejectsUnknownBuiltInConditionField() {
+        UUID merchantId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        UUID routeId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        RoutePolicyRoute route = route(merchantId, policyId, routeId, false);
+        route.setConditionsJson("{\"field\":\"unknown_field\",\"operator\":\"eq\",\"value\":\"x\"}");
+
+        List<RoutePolicyValidationIssue> issues = service.validate(
+                policy(merchantId, policyId),
+                List.of(route, route(merchantId, policyId, UUID.randomUUID(), true)),
+                List.of(step(merchantId, policyId, routeId, accountId)),
+                Set.of(accountId),
+                List.of());
+
+        assertThat(issues).extracting(RoutePolicyValidationIssue::code)
+                .contains("condition.field_unknown");
+    }
+
+    @Test
+    void rejectsUnregisteredMetadataConditionField() {
+        UUID merchantId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        UUID routeId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        RoutePolicyRoute route = route(merchantId, policyId, routeId, false);
+        route.setConditionsJson("{\"field\":\"metadata.vip_tier\",\"operator\":\"eq\",\"value\":\"gold\"}");
+
+        List<RoutePolicyValidationIssue> issues = service.validate(
+                policy(merchantId, policyId),
+                List.of(route, route(merchantId, policyId, UUID.randomUUID(), true)),
+                List.of(step(merchantId, policyId, routeId, accountId)),
+                Set.of(accountId),
+                List.of());
+
+        assertThat(issues).extracting(RoutePolicyValidationIssue::code)
+                .contains("condition.attribute_unregistered");
+    }
+
+    @Test
+    void acceptsRegisteredMetadataEnumCondition() {
+        UUID merchantId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        UUID routeId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        RoutePolicyRoute route = route(merchantId, policyId, routeId, false);
+        route.setConditionsJson("{\"field\":\"metadata.vip_tier\",\"operator\":\"in\",\"value\":[\"gold\",\"platinum\"]}");
+
+        List<RoutePolicyValidationIssue> issues = service.validate(
+                policy(merchantId, policyId),
+                List.of(route, route(merchantId, policyId, UUID.randomUUID(), true)),
+                List.of(step(merchantId, policyId, routeId, accountId)),
+                Set.of(accountId),
+                List.of(attribute(merchantId, "vip_tier", RoutingAttributeType.ENUM, "eq,in", "gold,platinum")));
+
+        assertThat(issues).extracting(RoutePolicyValidationIssue::code)
+                .doesNotContain("condition.attribute_unregistered", "condition.operator_unsupported", "condition.value_enum_invalid");
+    }
+
+    @Test
+    void rejectsUnsupportedOperatorForBuiltInField() {
+        UUID merchantId = UUID.randomUUID();
+        UUID policyId = UUID.randomUUID();
+        UUID routeId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        RoutePolicyRoute route = route(merchantId, policyId, routeId, false);
+        route.setConditionsJson("{\"field\":\"currency\",\"operator\":\"gt\",\"value\":\"USD\"}");
+
+        List<RoutePolicyValidationIssue> issues = service.validate(
+                policy(merchantId, policyId),
+                List.of(route, route(merchantId, policyId, UUID.randomUUID(), true)),
+                List.of(step(merchantId, policyId, routeId, accountId)),
+                Set.of(accountId),
+                List.of());
+
+        assertThat(issues).extracting(RoutePolicyValidationIssue::code)
+                .contains("condition.operator_unsupported");
+    }
+
     private RoutePolicy policy(UUID merchantId, UUID policyId) {
         RoutePolicy policy = new RoutePolicy();
         ReflectionTestUtils.setField(policy, "id", policyId);
@@ -97,5 +181,23 @@ class RoutePolicyValidationServiceTest {
         step.setTrafficWeight(100);
         step.setOutcomeActionsJson("{\"APPROVED\":\"finish\",\"PROVIDER_TIMEOUT\":\"next\"}");
         return step;
+    }
+
+    private RoutingAttribute attribute(UUID merchantId,
+                                       String key,
+                                       RoutingAttributeType type,
+                                       String operators,
+                                       String enumValues) {
+        RoutingAttribute attribute = new RoutingAttribute();
+        attribute.setMerchantId(merchantId);
+        attribute.setKey(key);
+        attribute.setLabel(key);
+        attribute.setType(type);
+        attribute.setSource(RoutingAttributeSource.PAYMENT_METADATA);
+        attribute.setAllowedOperators(operators);
+        attribute.setEnumValues(enumValues);
+        attribute.setPiiClassification(RoutingAttributePiiClassification.NONE);
+        attribute.setEnabled(true);
+        return attribute;
     }
 }

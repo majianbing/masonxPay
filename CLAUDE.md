@@ -48,7 +48,7 @@ High-throughput H1-H5b and H7 are complete:
 Next likely work:
 
 - H6: dashboard search/read projections.
-- Phase O: continue advanced payment orchestration. O1 and O4 are done; O2 has capability APIs/UI but payment-link hosted-checkout end-to-end validation is open; O3 has usable backend foundations with remaining route-policy audit history, strict validation, and dashboard editing/simulation UI.
+- Phase O: continue advanced payment orchestration. O1-O4 and O3b routing UI consolidation are done; next work starts at O5 scheduled retry orchestration unless defects are found in the route-policy dashboard/audit/validation surface.
 - Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.
 
 ## Key Commands

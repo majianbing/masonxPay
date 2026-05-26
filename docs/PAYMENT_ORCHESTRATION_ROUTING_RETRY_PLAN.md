@@ -327,14 +327,12 @@ Status legend:
 - `[~]` Partially implemented; usable foundation exists, but listed remaining work is still open.
 - `[ ]` Not started.
 
-Last checkpoint commit: `f0b05bf Add capability UI and instrument safety fixes`.
-Committed checkpoint: provider-scoped instruments are created during hosted-checkout tokenization, linked to `payment_tokens`, live confirm uses instrument portability to decide whether route fallback is allowed, provider payment-method references are redacted from request logs, newly created connector accounts get default card capability rows, connector-scoped capability management APIs and dashboard UI are available, outcome-action retry/next/stop behavior has focused tests, Mockito tests are configured to avoid JDK self-attach, and `AGENTS.md` / `CLAUDE.md` / `SECURITY.md` now point future sessions at the Phase O boundary and status. Payment-link end-to-end validation is currently open because the capability-aware flow did not behave as expected during manual testing.
+Last checkpoint commit: `a71e89b Fix simulator payment link checkout flow`.
+Committed checkpoint: provider-scoped instruments are created during hosted-checkout tokenization, linked to `payment_tokens`, live confirm uses instrument portability to decide whether route fallback is allowed, provider payment-method references are redacted from request logs, newly created connector accounts get default card capability rows, connector-scoped capability management APIs and dashboard UI are available, outcome-action retry/next/stop behavior has focused tests, Mockito tests are configured to avoid JDK self-attach, and `AGENTS.md` / `CLAUDE.md` / `SECURITY.md` now point future sessions at the Phase O boundary and status. Payment-link hosted-checkout behavior with capabilities enabled was verified manually in Docker using the TEST-mode Mason Simulator flow.
 
-Active verification blocker:
+Verification:
 
-- [~] Reproduce and fix the payment-link end-to-end behavior with connector capabilities enabled, preferably using the TEST-mode Mason Simulator provider so the validation does not depend on outside PSP services.
-
-  Implemented local fix pending Docker/manual confirmation: hosted checkout provider listing and tokenization now use payment-link capability context, public checkout validates capabilities before charging, and the browser SDK can render/submit the TEST-mode Mason Simulator provider.
+- [x] Payment-link hosted-checkout behavior with connector capabilities enabled was verified in Docker using the TEST-mode Mason Simulator provider, so validation does not depend on outside PSP services.
 
 ### O1: Instrument And Context Foundation `[x]`
 
@@ -350,7 +348,7 @@ Done:
 - [x] Live confirm uses instrument portability to decide whether route fallback is allowed.
 - [x] Redact provider payment-method references such as `providerPmId`, `paymentMethodId`, `tokenReference`, and `providerToken` from stored API request/response logs.
 
-### O2: Capability-Aware Routing `[~]`
+### O2: Capability-Aware Routing `[x]`
 
 Done:
 
@@ -362,12 +360,9 @@ Done:
 - [x] Added connector-scoped capability management APIs: list and replace under `/api/v1/merchants/{merchantId}/connectors/{accountId}/capabilities`.
 - [x] Added dashboard UI for editing connector-scoped provider capabilities from the Connectors page.
 - [x] Added hosted checkout support for simulator payment-link testing and capability-aware account selection during payment-link tokenization.
+- [x] Verified payment-link hosted-checkout end-to-end behavior in Docker with capability-aware routing enabled.
 
-Remaining:
-
-- [ ] Verify payment-link hosted-checkout end-to-end behavior in Docker with capability-aware routing enabled.
-
-### O3: Route Policy V2 `[~]`
+### O3: Route Policy V2 `[x]`
 
 Done:
 
@@ -376,12 +371,19 @@ Done:
 - [x] Basic condition matching supports built-in fields, simple metadata equality, `in`, missing checks, and numeric comparisons.
 - [x] Added draft create/replace, publish, archive, list, and detail APIs under `/api/v1/merchants/{merchantId}/route-policies`.
 - [x] Publish validates route shape and active provider-account ownership before activation and archives the previous active policy for the same merchant/mode.
+- [x] Added audit history for publish/archive changes under `/api/v1/merchants/{merchantId}/route-policies/{policyId}/audit-logs`.
+- [x] Added strict publish-time condition-schema validation against registered `metadata.*` routing attributes and supported built-in fields.
+- [x] Added dashboard UI for policy list, dedicated create/edit pages, publish/archive, audit review, and dry-run route simulation under `/routing/policies`.
 
-Remaining:
+### O3b: Routing UI Consolidation `[x]`
 
-- [ ] Add audit history for publish/archive changes.
-- [ ] Add strict publish-time condition-schema validation against registered routing attributes and built-in fields.
-- [ ] Add dashboard UI for policy editing and simulation.
+Done:
+
+- [x] Dashboard navigation now exposes one Routing entry backed by route policies; the legacy routing rules page is no longer in normal navigation.
+- [x] `/routing/policies` is now a policy list with mode/status filtering and publish/archive actions.
+- [x] `/routing/policies/new` is a dedicated create page.
+- [x] `/routing/policies/{policyId}` is a dedicated view/edit page with audit history and dry-run simulation.
+- [x] Legacy backend APIs and runtime fallback remain for compatibility, but no old-rule migration path is required for this phase.
 
 ### O4: Outcome-Based Fallback `[x]`
 

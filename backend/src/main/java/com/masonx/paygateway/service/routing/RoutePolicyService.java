@@ -5,6 +5,7 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.routing.*;
+import com.masonx.paygateway.web.dto.RoutePolicyAuditLogResponse;
 import com.masonx.paygateway.web.dto.RoutePolicyResponse;
 import com.masonx.paygateway.web.dto.RoutePolicyUpsertRequest;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,8 @@ public class RoutePolicyService {
     private final RoutePolicyRepository policyRepository;
     private final RoutePolicyRouteRepository routeRepository;
     private final RoutePolicyStepRepository stepRepository;
+    private final RoutePolicyAuditLogRepository auditLogRepository;
+    private final RoutingAttributeRepository routingAttributeRepository;
     private final ProviderAccountRepository providerAccountRepository;
     private final RoutePolicyValidationService validationService;
     private final ObjectMapper objectMapper;
@@ -30,12 +33,16 @@ public class RoutePolicyService {
     public RoutePolicyService(RoutePolicyRepository policyRepository,
                               RoutePolicyRouteRepository routeRepository,
                               RoutePolicyStepRepository stepRepository,
+                              RoutePolicyAuditLogRepository auditLogRepository,
+                              RoutingAttributeRepository routingAttributeRepository,
                               ProviderAccountRepository providerAccountRepository,
                               RoutePolicyValidationService validationService,
                               ObjectMapper objectMapper) {
         this.policyRepository = policyRepository;
         this.routeRepository = routeRepository;
         this.stepRepository = stepRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.routingAttributeRepository = routingAttributeRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.validationService = validationService;
         this.objectMapper = objectMapper;
@@ -88,24 +95,44 @@ public class RoutePolicyService {
         policyRepository.findByMerchantIdAndModeAndStatus(merchantId, policy.getMode(), RoutePolicyStatus.ACTIVE)
                 .filter(active -> !active.getId().equals(policy.getId()))
                 .ifPresent(active -> {
+                    RoutePolicyStatus beforeStatus = active.getStatus();
+                    String beforeState = auditState(active);
                     active.setStatus(RoutePolicyStatus.ARCHIVED);
-                    policyRepository.save(active);
+                    RoutePolicy saved = policyRepository.save(active);
+                    audit(saved, "AUTO_ARCHIVE_PREVIOUS", beforeStatus, saved.getStatus(), beforeState, auditState(saved));
                 });
 
+        RoutePolicyStatus beforeStatus = policy.getStatus();
+        String beforeState = auditState(policy);
         policy.setStatus(RoutePolicyStatus.ACTIVE);
         policy.setPublishedAt(Instant.now());
-        return response(policyRepository.save(policy), List.of());
+        RoutePolicy saved = policyRepository.save(policy);
+        audit(saved, "PUBLISH", beforeStatus, saved.getStatus(), beforeState, auditState(saved));
+        return response(saved, List.of());
     }
 
     public RoutePolicyResponse archive(UUID merchantId, UUID policyId) {
         RoutePolicy policy = loadOwned(merchantId, policyId);
+        RoutePolicyStatus beforeStatus = policy.getStatus();
+        String beforeState = auditState(policy);
         policy.setStatus(RoutePolicyStatus.ARCHIVED);
-        return response(policyRepository.save(policy), List.of());
+        RoutePolicy saved = policyRepository.save(policy);
+        audit(saved, "ARCHIVE", beforeStatus, saved.getStatus(), beforeState, auditState(saved));
+        return response(saved, List.of());
     }
 
     @Transactional(readOnly = true)
     public RoutePolicyResponse get(UUID merchantId, UUID policyId) {
         return validateAndRespond(loadOwned(merchantId, policyId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<RoutePolicyAuditLogResponse> auditLogs(UUID merchantId, UUID policyId) {
+        loadOwned(merchantId, policyId);
+        return auditLogRepository.findAllByMerchantIdAndPolicyIdOrderByCreatedAtDesc(merchantId, policyId)
+                .stream()
+                .map(RoutePolicyAuditLogResponse::from)
+                .toList();
     }
 
     private void replaceRoutes(UUID merchantId, RoutePolicy policy, List<RoutePolicyUpsertRequest.RouteRequest> routes) {
@@ -146,7 +173,8 @@ public class RoutePolicyService {
                 policy,
                 routeRepository.findAllByMerchantIdAndPolicyIdOrderByRouteOrderAsc(policy.getMerchantId(), policy.getId()),
                 stepRepository.findAllByMerchantIdAndPolicyIdOrderByRouteIdAscStepOrderAsc(policy.getMerchantId(), policy.getId()),
-                activeProviderAccountIds(policy.getMerchantId(), policy.getMode()));
+                activeProviderAccountIds(policy.getMerchantId(), policy.getMode()),
+                routingAttributeRepository.findAllByMerchantIdAndEnabledTrueOrderByKeyAsc(policy.getMerchantId()));
     }
 
     private RoutePolicyResponse response(RoutePolicy policy, List<RoutePolicyValidationIssue> issues) {
@@ -184,5 +212,44 @@ public class RoutePolicyService {
         } catch (Exception e) {
             throw new IllegalArgumentException(field + " must be valid JSON");
         }
+    }
+
+    private void audit(RoutePolicy policy,
+                       String action,
+                       RoutePolicyStatus beforeStatus,
+                       RoutePolicyStatus afterStatus,
+                       String beforeState,
+                       String afterState) {
+        RoutePolicyAuditLog log = new RoutePolicyAuditLog();
+        log.setMerchantId(policy.getMerchantId());
+        log.setPolicyId(policy.getId());
+        log.setAction(action);
+        log.setBeforeStatus(beforeStatus != null ? beforeStatus.name() : null);
+        log.setAfterStatus(afterStatus != null ? afterStatus.name() : null);
+        log.setBeforeState(beforeState);
+        log.setAfterState(afterState);
+        auditLogRepository.save(log);
+    }
+
+    private String auditState(RoutePolicy policy) {
+        try {
+            return objectMapper.writeValueAsString(new AuditPolicyState(
+                    policy.getId(),
+                    policy.getName(),
+                    policy.getMode() != null ? policy.getMode().name() : null,
+                    policy.getStatus() != null ? policy.getStatus().name() : null,
+                    policy.getPolicyVersion(),
+                    policy.getPublishedAt()));
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    private record AuditPolicyState(UUID policyId,
+                                    String name,
+                                    String mode,
+                                    String status,
+                                    int policyVersion,
+                                    Instant publishedAt) {
     }
 }

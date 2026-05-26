@@ -433,10 +433,10 @@ function CapabilityDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <SlidersHorizontal className="size-4" />
-            {account ? `${account.label} capabilities` : 'Capabilities'}
+            {account ? `${account.label} accepted payment capabilities` : 'Accepted payment capabilities'}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Route policies use these rows to decide whether this connector can handle a payment.
+            These rows describe what this connector can process. Routing policies choose preferred connector order, then use these capabilities to skip connector steps that cannot handle the payment.
           </p>
         </DialogHeader>
 
@@ -480,7 +480,7 @@ function CapabilityDialog({
                       />
                     )}
                     <p className="text-xs leading-5 text-muted-foreground">
-                      The checkout payment method this connector can process. Route policies compare this value before selecting a provider account.
+                      The checkout payment method this connector can process. Routing policies can prefer this connector, but capabilities decide whether the step is executable for the payment.
                     </p>
                   </div>
                   <div className="space-y-1">

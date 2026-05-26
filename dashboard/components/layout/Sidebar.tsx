@@ -14,7 +14,7 @@ const nav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/payments', label: 'Payments', icon: CreditCard },
   { href: '/refunds', label: 'Refunds', icon: RotateCcw },
-  { href: '/routing/rules', label: 'Routing Rules', icon: GitBranch },
+  { href: '/routing/policies', label: 'Routing', icon: GitBranch },
   { href: '/connectors', label: 'Connectors', icon: Plug },
   { href: '/payment-links', label: 'Payment Links', icon: Link2 },
   {

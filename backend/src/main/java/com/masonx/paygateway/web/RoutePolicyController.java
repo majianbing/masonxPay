@@ -1,6 +1,7 @@
 package com.masonx.paygateway.web;
 
 import com.masonx.paygateway.service.routing.RoutePolicyService;
+import com.masonx.paygateway.web.dto.RoutePolicyAuditLogResponse;
 import com.masonx.paygateway.web.dto.RoutePolicyResponse;
 import com.masonx.paygateway.web.dto.RoutePolicyUpsertRequest;
 import jakarta.validation.Valid;
@@ -33,6 +34,13 @@ public class RoutePolicyController {
     public ResponseEntity<RoutePolicyResponse> get(@PathVariable UUID merchantId,
                                                    @PathVariable UUID policyId) {
         return ResponseEntity.ok(service.get(merchantId, policyId));
+    }
+
+    @GetMapping("/{policyId}/audit-logs")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'ROUTING_RULE', 'READ')")
+    public ResponseEntity<List<RoutePolicyAuditLogResponse>> auditLogs(@PathVariable UUID merchantId,
+                                                                       @PathVariable UUID policyId) {
+        return ResponseEntity.ok(service.auditLogs(merchantId, policyId));
     }
 
     @PostMapping

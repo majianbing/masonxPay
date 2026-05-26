@@ -129,6 +129,7 @@ public class DataSourceConfig {
                 "ds_0.provider_accounts",
                 "ds_0.refresh_tokens",
                 "ds_0.refunds",
+                "ds_0.route_policy_audit_logs",
                 "ds_0.route_policies",
                 "ds_0.route_policy_routes",
                 "ds_0.route_policy_steps",
