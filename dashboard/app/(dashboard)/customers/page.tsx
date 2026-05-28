@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 interface BillingCustomer {
   id: string;
   merchantId: string;
+  mode: 'TEST' | 'LIVE';
   email: string | null;
   name: string | null;
   metadata: Record<string, string>;
@@ -50,6 +51,7 @@ const emptyForm: CustomerFormState = { name: '', email: '', metadata: '' };
 
 export default function CustomersPage() {
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
+  const mode = useAuthStore((s) => s.mode);
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BillingCustomer | null>(null);
@@ -57,22 +59,22 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<BillingCustomer | null>(null);
   const [instrumentId, setInstrumentId] = useState('');
 
-  const customersKey = useMemo(() => ['customers', activeMerchantId], [activeMerchantId]);
+  const customersKey = useMemo(() => ['customers', activeMerchantId, mode], [activeMerchantId, mode]);
   const paymentMethodsKey = useMemo(
-    () => ['customer-payment-methods', activeMerchantId, selectedCustomer?.id],
-    [activeMerchantId, selectedCustomer?.id],
+    () => ['customer-payment-methods', activeMerchantId, mode, selectedCustomer?.id],
+    [activeMerchantId, mode, selectedCustomer?.id],
   );
 
   const { data: customers, isLoading } = useQuery<BillingCustomer[]>({
     queryKey: customersKey,
-    queryFn: () => apiFetch<BillingCustomer[]>(`/api/v1/merchants/${activeMerchantId}/customers`),
+    queryFn: () => apiFetch<BillingCustomer[]>(`/api/v1/merchants/${activeMerchantId}/customers?mode=${mode}`),
     enabled: !!activeMerchantId,
   });
 
   const { data: paymentMethods, isLoading: paymentMethodsLoading } = useQuery<CustomerPaymentMethod[]>({
     queryKey: paymentMethodsKey,
     queryFn: () => apiFetch<CustomerPaymentMethod[]>(
-      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods`,
+      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods?mode=${mode}`,
     ),
     enabled: !!activeMerchantId && !!selectedCustomer,
   });
@@ -86,12 +88,12 @@ export default function CustomersPage() {
       });
       if (editing) {
         return apiFetch<BillingCustomer>(
-          `/api/v1/merchants/${activeMerchantId}/customers/${editing.id}`,
+          `/api/v1/merchants/${activeMerchantId}/customers/${editing.id}?mode=${mode}`,
           { method: 'PATCH', body },
         );
       }
       return apiFetch<BillingCustomer>(
-        `/api/v1/merchants/${activeMerchantId}/customers`,
+        `/api/v1/merchants/${activeMerchantId}/customers?mode=${mode}`,
         { method: 'POST', body },
       );
     },
@@ -111,7 +113,7 @@ export default function CustomersPage() {
 
   const attachMutation = useMutation({
     mutationFn: () => apiFetch<CustomerPaymentMethod>(
-      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods`,
+      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods?mode=${mode}`,
       {
         method: 'POST',
         body: JSON.stringify({ paymentInstrumentId: instrumentId.trim(), defaultMethod: true }),

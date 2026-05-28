@@ -17,12 +17,25 @@ Existing systems that this phase can reuse:
 
 Systems that do not exist yet:
 
+- reusable PSP payment-method setup/mandate flows for real providers
+- recurring invoice payment attempts
+- dunning and customer notification workflows
+
+Systems that now have a foundation but are not complete:
+
 - customer records
 - customer default payment methods
 - subscription plans/items
-- invoices
-- recurring invoice payment attempts
-- dunning and customer notification workflows
+- public subscription checkout links
+- invoices and invoice payment-attempt storage
+
+Current E2E checkpoints:
+
+- [x] Non-trial subscription first payment activates through Mason Simulator and appears in Payments.
+- [ ] Trial subscription activation stores a default method without creating a payment.
+- [ ] Checkout link reuse is rejected and does not create duplicate payments or methods.
+- [ ] Failed first payment does not activate the subscription and does not leave unsafe default-method state.
+- [ ] Current-period invoice generation is idempotent through the dashboard/API flow.
 
 ## Billing Ownership Decision
 
@@ -36,7 +49,8 @@ BILLING_OWNER = MASONXPAY
 
 Provider responsibilities:
 
-- tokenize or reference reusable payment credentials where supported
+- run customer-present setup or first-payment flows that create reusable payment credentials where supported
+- return safe reusable PSP references such as provider customer IDs, payment method IDs, card-on-file IDs, vaulted tokens, or mandate IDs
 - execute off-session payment attempts
 - return payment, refund, capture, cancel, and sync outcomes
 - emit provider webhooks that MasonXPay reconciles into its own state
@@ -57,6 +71,31 @@ BILLING_OWNER = PROVIDER
 ```
 
 That mode should be explicit because it limits MasonXPay routing, fallback, invoice lifecycle control, and cross-provider portability.
+
+## Current PSP Reusable Method Gap
+
+The current S1/S2 foundation proves the subscription/customer model and a TEST-mode Mason Simulator activation path, but it is not production-ready for real recurring billing yet.
+
+Real providers still need a reusable payment-method boundary before monthly deductions can run safely:
+
+```text
+customer opens subscription checkout
+  -> MasonXPay creates a provider setup or first-payment session
+  -> SDK/UI collects customer-present authorization
+  -> PSP confirms a reusable method, vault token, card-on-file ID, or mandate
+  -> MasonXPay stores only the safe provider reference on PaymentInstrument
+  -> later invoices charge that saved reference off-session
+```
+
+Provider examples:
+
+- Stripe: `Customer` + `PaymentMethod` via `SetupIntent` or `PaymentIntent.setup_future_usage`.
+- Square: `Customer` + card-on-file ID via Cards API.
+- Braintree: vaulted payment method token.
+- Mollie: customer mandate from a `sequenceType=first` payment, then `sequenceType=recurring` charges.
+- Mason Simulator: fake reusable reference for local integration and E2E tests.
+
+This should be implemented later as an explicit provider capability, not by changing `PaymentProviderService.brand()`. The likely boundary is a reusable-payment-method provider interface or an expanded payment request model with setup/off-session semantics.
 
 ## Non-Negotiable Boundaries
 
@@ -199,9 +238,13 @@ Current progress:
 - [x] Added focused service tests that verify trial activation stores a default payment method without provider charge execution.
 - [x] Added controller integration coverage for public subscription checkout lookup.
 - [x] Verified the minimum local stack with `docker compose up --build` after the Flyway V53/V54 migration fix.
+- [x] Added invoice and invoice-payment-attempt storage.
+- [x] Added merchant-scoped APIs to list invoices and idempotently generate the current-period invoice.
+- [x] Added focused service tests for current-period invoice generation and invalid subscription state guards.
+- [x] Added customer TEST/LIVE mode isolation so subscription customer selectors and customer APIs do not mix environments.
 - [ ] Add reusable promotion/coupon entities after the free-trial foundation is validated.
 - [x] Add public `/subscribe/{token}` checkout APIs/pages and first-payment activation foundation.
-- [ ] Add invoices, invoice statuses, period generation, and idempotent invoice creation.
+- [ ] Add automated period advancement and recurring invoice generation worker.
 
 Tables:
 
@@ -322,7 +365,7 @@ Tests:
 - [x] Trial checkout activation stores default payment method without charging the provider.
 - [x] Docker Compose build/start validates migrations and service health.
 - [ ] Create subscription with valid customer and default payment method.
-- [ ] Generate one invoice per subscription period idempotently.
+- [x] Generate one invoice per subscription period idempotently.
 - [ ] State transition guards reject invalid changes.
 
 ## Stage S3: Off-Session Invoice Payment Execution `[ ]`
@@ -346,10 +389,13 @@ Rules:
 - Off-session execution must not call provider adapters directly.
 - Use Mason Simulator for local integration tests.
 - Reuse routing capability checks.
+- Require a valid reusable PSP reference before any real off-session charge.
+- Customer-present setup or first-payment authorization must happen before recurring monthly deductions.
 - Do not cross-provider fallback for provider-scoped instruments unless the instrument is portable.
 
 Tests:
 
+- [ ] Provider setup/first-payment flow stores a safe reusable payment reference.
 - [ ] Invoice payment succeeds through simulator and marks invoice paid.
 - [ ] Failed payment marks subscription past due.
 - [ ] Provider-scoped instrument stays on its owning connector account.

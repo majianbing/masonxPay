@@ -178,6 +178,8 @@ The preview feature (`/connectors/[accountId]/preview`) works automatically for 
 
 Every new table must include a `merchant_id` column and all queries must be scoped to it. This is a multi-tenant system — data isolation between merchants is a hard requirement, not an afterthought. Before writing a migration or a repository method, verify that the tenant boundary is enforced at every read and write path.
 
+TEST/LIVE mode isolation is a second boundary, not a replacement for tenant isolation. Resources that can exist independently in both environments — connectors, customers, payment links, subscriptions, invoices, retries, payment instruments, and dashboard list/detail queries — must carry and enforce mode scope alongside `merchant_id`. API routes, service methods, repository queries, dashboard cache keys, and tests should make this explicit so TEST data cannot appear in LIVE workflows or vice versa.
+
 ## SDK Architecture Rule
 
 **The browser SDK (`sdk/browser/src/index.ts`) is the single source of truth for all client-side payment UI.**

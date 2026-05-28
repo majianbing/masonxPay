@@ -1,9 +1,11 @@
 package com.masonx.paygateway.web;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
+import com.masonx.paygateway.service.billing.SubscriptionInvoiceService;
 import com.masonx.paygateway.service.billing.SubscriptionService;
 import com.masonx.paygateway.web.dto.CreateSubscriptionCheckoutLinkRequest;
 import com.masonx.paygateway.web.dto.CreateSubscriptionRequest;
+import com.masonx.paygateway.web.dto.InvoiceResponse;
 import com.masonx.paygateway.web.dto.SubscriptionCheckoutLinkResponse;
 import com.masonx.paygateway.web.dto.SubscriptionResponse;
 import jakarta.validation.Valid;
@@ -26,9 +28,12 @@ import java.util.UUID;
 public class SubscriptionController {
 
     private final SubscriptionService service;
+    private final SubscriptionInvoiceService invoiceService;
 
-    public SubscriptionController(SubscriptionService service) {
+    public SubscriptionController(SubscriptionService service,
+                                  SubscriptionInvoiceService invoiceService) {
         this.service = service;
+        this.invoiceService = invoiceService;
     }
 
     @GetMapping
@@ -70,5 +75,22 @@ public class SubscriptionController {
             @PathVariable UUID subscriptionId,
             @RequestBody(required = false) CreateSubscriptionCheckoutLinkRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.createCheckoutLink(merchantId, subscriptionId, request));
+    }
+
+    @GetMapping("/{subscriptionId}/invoices")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'READ')")
+    public ResponseEntity<List<InvoiceResponse>> listInvoices(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID subscriptionId) {
+        return ResponseEntity.ok(invoiceService.list(merchantId, subscriptionId));
+    }
+
+    @PostMapping("/{subscriptionId}/invoices/current-period")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'CREATE')")
+    public ResponseEntity<InvoiceResponse> generateCurrentPeriodInvoice(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID subscriptionId) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(invoiceService.generateCurrentPeriodInvoice(merchantId, subscriptionId));
     }
 }

@@ -107,6 +107,10 @@ public class SubscriptionCheckoutPaymentService {
         long amount = subscriptionAmount(subscription);
         ProviderAccount account = providerAccountRepository.findById(paymentToken.getAccountId())
                 .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+        if (account.getMode() != subscription.getMode()) {
+            checkoutLinkRepository.releaseLink(token);
+            throw new IllegalStateException("Payment token does not belong to this subscription mode");
+        }
         ProviderCredentials credentials = credentialsCodec.decode(account);
         PaymentProvider provider = PaymentProvider.valueOf(paymentToken.getProvider());
         String idempotencyKey = "sub-" + subscription.getId() + "-" + UUID.randomUUID();

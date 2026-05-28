@@ -43,6 +43,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 ## Non-Negotiable Architecture Rules
 
 - Every new table must include `merchant_id`; every read/write path must enforce tenant scope.
+- TEST/LIVE mode is a separate isolation layer from tenant scope. Mode-scoped data such as connectors, customers, payment links, subscriptions, invoices, retries, payment instruments, and dashboard queries must filter by both `merchant_id` and mode whenever the resource can exist in TEST and LIVE.
 - Merchant portal users and platform admin users stay separate.
 - Provider webhooks are unauthenticated at the HTTP edge, so signature verification is mandatory.
 - Never log secrets, tokens, PAN/card data, CVV, private keys, raw provider payloads, or signature headers.

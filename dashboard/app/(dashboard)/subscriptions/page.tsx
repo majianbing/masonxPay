@@ -97,7 +97,7 @@ export default function SubscriptionsPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
 
   const subscriptionsKey = useMemo(() => ['subscriptions', activeMerchantId, mode], [activeMerchantId, mode]);
-  const customersKey = useMemo(() => ['customers', activeMerchantId], [activeMerchantId]);
+  const customersKey = useMemo(() => ['customers', activeMerchantId, mode], [activeMerchantId, mode]);
   const checkoutLinksKey = useMemo(
     () => ['subscription-checkout-links', activeMerchantId, selectedSubscription?.id],
     [activeMerchantId, selectedSubscription?.id],
@@ -105,7 +105,7 @@ export default function SubscriptionsPage() {
 
   const { data: customers } = useQuery<BillingCustomer[]>({
     queryKey: customersKey,
-    queryFn: () => apiFetch<BillingCustomer[]>(`/api/v1/merchants/${activeMerchantId}/customers`),
+    queryFn: () => apiFetch<BillingCustomer[]>(`/api/v1/merchants/${activeMerchantId}/customers?mode=${mode}`),
     enabled: !!activeMerchantId,
   });
 
@@ -457,8 +457,15 @@ export default function SubscriptionsPage() {
 }
 
 function StatusBadge({ status }: { status: Subscription['status'] }) {
-  const variant = status === 'ACTIVE' || status === 'TRIALING' ? 'secondary' : status === 'PAST_DUE' || status === 'UNPAID' ? 'destructive' : 'outline';
-  return <Badge variant={variant}>{status}</Badge>;
+  const statusClass: Record<Subscription['status'], string> = {
+    ACTIVE: 'border-green-200 bg-green-50 text-green-700',
+    TRIALING: 'border-blue-200 bg-blue-50 text-blue-700',
+    INCOMPLETE: 'border-amber-200 bg-amber-50 text-amber-700',
+    PAST_DUE: 'border-red-200 bg-red-50 text-red-700',
+    UNPAID: 'border-red-200 bg-red-50 text-red-700',
+    CANCELED: 'border-gray-200 bg-gray-50 text-gray-600',
+  };
+  return <Badge variant="outline" className={statusClass[status]}>{status}</Badge>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

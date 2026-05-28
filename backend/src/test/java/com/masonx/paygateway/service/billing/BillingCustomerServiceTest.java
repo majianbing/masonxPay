@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service.billing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.BillingCustomer;
 import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethod;
@@ -58,7 +59,7 @@ class BillingCustomerServiceTest {
             return customer;
         });
 
-        var response = service.create(merchantId, new BillingCustomerRequest(
+        var response = service.create(merchantId, ApiKeyMode.TEST, new BillingCustomerRequest(
                 " customer@example.com ",
                 " Jane Customer ",
                 Map.of("tier", "gold")));
@@ -67,10 +68,19 @@ class BillingCustomerServiceTest {
         verify(customerRepository).save(captor.capture());
         BillingCustomer saved = captor.getValue();
         assertThat(saved.getMerchantId()).isEqualTo(merchantId);
+        assertThat(saved.getMode()).isEqualTo(ApiKeyMode.TEST);
         assertThat(saved.getEmail()).isEqualTo("customer@example.com");
         assertThat(saved.getName()).isEqualTo("Jane Customer");
         assertThat(saved.getMetadataJson()).contains("\"tier\":\"gold\"");
         assertThat(response.metadata()).containsEntry("tier", "gold");
+    }
+
+    @Test
+    void listFiltersByMode() {
+        UUID merchantId = UUID.randomUUID();
+        service.list(merchantId, ApiKeyMode.LIVE);
+
+        verify(customerRepository).findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, ApiKeyMode.LIVE);
     }
 
     @Test
@@ -79,7 +89,7 @@ class BillingCustomerServiceTest {
         UUID customerId = UUID.randomUUID();
         UUID otherCustomerId = UUID.randomUUID();
         UUID instrumentId = UUID.randomUUID();
-        when(customerRepository.findByIdAndMerchantId(customerId, merchantId))
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
                 .thenReturn(Optional.of(customer(merchantId, customerId)));
         PaymentInstrument instrument = instrument(merchantId, instrumentId);
         instrument.setCustomerId(otherCustomerId);
@@ -87,7 +97,7 @@ class BillingCustomerServiceTest {
                 .thenReturn(Optional.of(instrument));
 
         assertThatThrownBy(() -> service.attachPaymentMethod(
-                merchantId, customerId, new AttachCustomerPaymentMethodRequest(instrumentId, true)))
+                merchantId, ApiKeyMode.TEST, customerId, new AttachCustomerPaymentMethodRequest(instrumentId, true)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("belongs to another customer");
 
@@ -99,7 +109,7 @@ class BillingCustomerServiceTest {
         UUID merchantId = UUID.randomUUID();
         UUID customerId = UUID.randomUUID();
         UUID instrumentId = UUID.randomUUID();
-        when(customerRepository.findByIdAndMerchantId(customerId, merchantId))
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
                 .thenReturn(Optional.of(customer(merchantId, customerId)));
         PaymentInstrument instrument = instrument(merchantId, instrumentId);
         when(paymentInstrumentRepository.findByIdAndMerchantId(instrumentId, merchantId))
@@ -113,7 +123,7 @@ class BillingCustomerServiceTest {
         });
 
         var response = service.attachPaymentMethod(
-                merchantId, customerId, new AttachCustomerPaymentMethodRequest(instrumentId, true));
+                merchantId, ApiKeyMode.TEST, customerId, new AttachCustomerPaymentMethodRequest(instrumentId, true));
 
         verify(paymentMethodRepository).clearDefault(merchantId, customerId);
         verify(paymentInstrumentRepository).save(instrument);
@@ -128,6 +138,7 @@ class BillingCustomerServiceTest {
         BillingCustomer customer = new BillingCustomer();
         ReflectionTestUtils.setField(customer, "id", customerId);
         customer.setMerchantId(merchantId);
+        customer.setMode(ApiKeyMode.TEST);
         customer.setEmail("customer@example.com");
         return customer;
     }

@@ -83,6 +83,7 @@ Keep tests modular:
 ## Hard Boundaries
 
 - Keep tenant isolation on every table and query.
+- Keep TEST/LIVE mode isolation as a separate boundary from tenant isolation. Any resource that can exist in both environments must be scoped by both merchant and mode in tables, repositories, services, APIs, dashboard query keys, and tests.
 - Do not weaken payment security, webhook verification, auth, CORS, CSP, or MFA.
 - Keep provider calls outside DB transactions.
 - Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.

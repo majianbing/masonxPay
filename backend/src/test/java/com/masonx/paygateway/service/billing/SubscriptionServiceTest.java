@@ -59,7 +59,7 @@ class SubscriptionServiceTest {
         UUID merchantId = UUID.randomUUID();
         UUID customerId = UUID.randomUUID();
         UUID subscriptionId = UUID.randomUUID();
-        when(customerRepository.findByIdAndMerchantId(customerId, merchantId))
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
                 .thenReturn(Optional.of(customer(merchantId, customerId)));
         when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(invocation -> {
             Subscription subscription = invocation.getArgument(0);
@@ -91,7 +91,7 @@ class SubscriptionServiceTest {
     void createRejectsUnknownCustomer() {
         UUID merchantId = UUID.randomUUID();
         UUID customerId = UUID.randomUUID();
-        when(customerRepository.findByIdAndMerchantId(customerId, merchantId)).thenReturn(Optional.empty());
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.create(merchantId, ApiKeyMode.TEST, new CreateSubscriptionRequest(
                 customerId,
@@ -134,6 +134,7 @@ class SubscriptionServiceTest {
         BillingCustomer customer = new BillingCustomer();
         ReflectionTestUtils.setField(customer, "id", customerId);
         customer.setMerchantId(merchantId);
+        customer.setMode(ApiKeyMode.TEST);
         return customer;
     }
 

@@ -3,6 +3,7 @@ package com.masonx.paygateway.service.billing;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.BillingCustomer;
 import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethod;
@@ -40,35 +41,36 @@ public class BillingCustomerService {
     }
 
     @Transactional(readOnly = true)
-    public List<BillingCustomerResponse> list(UUID merchantId) {
-        return customerRepository.findByMerchantIdOrderByCreatedAtDesc(merchantId).stream()
+    public List<BillingCustomerResponse> list(UUID merchantId, ApiKeyMode mode) {
+        return customerRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode).stream()
                 .map(this::response)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public BillingCustomerResponse get(UUID merchantId, UUID customerId) {
-        return response(loadOwnedCustomer(merchantId, customerId));
+    public BillingCustomerResponse get(UUID merchantId, ApiKeyMode mode, UUID customerId) {
+        return response(loadOwnedCustomer(merchantId, mode, customerId));
     }
 
     @Transactional
-    public BillingCustomerResponse create(UUID merchantId, BillingCustomerRequest request) {
+    public BillingCustomerResponse create(UUID merchantId, ApiKeyMode mode, BillingCustomerRequest request) {
         BillingCustomer customer = new BillingCustomer();
         customer.setMerchantId(merchantId);
+        customer.setMode(mode);
         apply(customer, request);
         return response(customerRepository.save(customer));
     }
 
     @Transactional
-    public BillingCustomerResponse update(UUID merchantId, UUID customerId, BillingCustomerRequest request) {
-        BillingCustomer customer = loadOwnedCustomer(merchantId, customerId);
+    public BillingCustomerResponse update(UUID merchantId, ApiKeyMode mode, UUID customerId, BillingCustomerRequest request) {
+        BillingCustomer customer = loadOwnedCustomer(merchantId, mode, customerId);
         apply(customer, request);
         return response(customerRepository.save(customer));
     }
 
     @Transactional(readOnly = true)
-    public List<CustomerPaymentMethodResponse> listPaymentMethods(UUID merchantId, UUID customerId) {
-        loadOwnedCustomer(merchantId, customerId);
+    public List<CustomerPaymentMethodResponse> listPaymentMethods(UUID merchantId, ApiKeyMode mode, UUID customerId) {
+        loadOwnedCustomer(merchantId, mode, customerId);
         return paymentMethodRepository.findByMerchantIdAndCustomerIdOrderByCreatedAtDesc(merchantId, customerId)
                 .stream()
                 .map(CustomerPaymentMethodResponse::from)
@@ -76,9 +78,9 @@ public class BillingCustomerService {
     }
 
     @Transactional
-    public CustomerPaymentMethodResponse attachPaymentMethod(UUID merchantId, UUID customerId,
+    public CustomerPaymentMethodResponse attachPaymentMethod(UUID merchantId, ApiKeyMode mode, UUID customerId,
                                                             AttachCustomerPaymentMethodRequest request) {
-        loadOwnedCustomer(merchantId, customerId);
+        loadOwnedCustomer(merchantId, mode, customerId);
         PaymentInstrument instrument = paymentInstrumentRepository
                 .findByIdAndMerchantId(request.paymentInstrumentId(), merchantId)
                 .orElseThrow(() -> new IllegalArgumentException("Payment instrument not found"));
@@ -108,7 +110,8 @@ public class BillingCustomerService {
     }
 
     @Transactional
-    public CustomerPaymentMethodResponse detachPaymentMethod(UUID merchantId, UUID customerId, UUID methodId) {
+    public CustomerPaymentMethodResponse detachPaymentMethod(UUID merchantId, ApiKeyMode mode, UUID customerId, UUID methodId) {
+        loadOwnedCustomer(merchantId, mode, customerId);
         CustomerPaymentMethod method = paymentMethodRepository
                 .findByIdAndMerchantIdAndCustomerId(methodId, merchantId, customerId)
                 .orElseThrow(() -> new IllegalArgumentException("Customer payment method not found"));
@@ -117,8 +120,8 @@ public class BillingCustomerService {
         return CustomerPaymentMethodResponse.from(paymentMethodRepository.save(method));
     }
 
-    private BillingCustomer loadOwnedCustomer(UUID merchantId, UUID customerId) {
-        return customerRepository.findByIdAndMerchantId(customerId, merchantId)
+    private BillingCustomer loadOwnedCustomer(UUID merchantId, ApiKeyMode mode, UUID customerId) {
+        return customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, mode)
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
     }
 

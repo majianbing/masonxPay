@@ -69,7 +69,7 @@ public class SubscriptionService {
 
     @Transactional
     public SubscriptionResponse create(UUID merchantId, ApiKeyMode mode, CreateSubscriptionRequest request) {
-        customerRepository.findByIdAndMerchantId(request.customerId(), merchantId)
+        customerRepository.findByIdAndMerchantIdAndMode(request.customerId(), merchantId, mode)
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
         if (request.currency() == null || request.currency().isBlank()) {
             throw new IllegalArgumentException("Currency is required");

@@ -2,6 +2,7 @@ package com.masonx.paygateway.web;
 
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.Environment;
+import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
 import com.masonx.paygateway.domain.billing.Subscription;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLink;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkRepository;
@@ -56,6 +57,7 @@ public class PublicCheckoutController {
     private final SubscriptionCheckoutLinkRepository subscriptionCheckoutLinkRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionItemRepository subscriptionItemRepository;
+    private final BillingCustomerRepository billingCustomerRepository;
 
     public PublicCheckoutController(PaymentLinkRepository paymentLinkRepository,
                                     MerchantRepository merchantRepository,
@@ -65,7 +67,8 @@ public class PublicCheckoutController {
                                     PaymentTokenService paymentTokenService,
                                     SubscriptionCheckoutLinkRepository subscriptionCheckoutLinkRepository,
                                     SubscriptionRepository subscriptionRepository,
-                                    SubscriptionItemRepository subscriptionItemRepository) {
+                                    SubscriptionItemRepository subscriptionItemRepository,
+                                    BillingCustomerRepository billingCustomerRepository) {
         this.paymentLinkRepository = paymentLinkRepository;
         this.merchantRepository = merchantRepository;
         this.providerAccountRepository = providerAccountRepository;
@@ -75,6 +78,7 @@ public class PublicCheckoutController {
         this.subscriptionCheckoutLinkRepository = subscriptionCheckoutLinkRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionItemRepository = subscriptionItemRepository;
+        this.billingCustomerRepository = billingCustomerRepository;
     }
 
     /**
@@ -210,6 +214,9 @@ public class PublicCheckoutController {
             Subscription subscription = subscriptionRepository
                     .findByIdAndMerchantId(link.getSubscriptionId(), link.getMerchantId())
                     .orElseThrow(() -> new IllegalArgumentException("Subscription not found"));
+            billingCustomerRepository
+                    .findByIdAndMerchantIdAndMode(link.getCustomerId(), link.getMerchantId(), subscription.getMode())
+                    .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
             merchantId = subscription.getMerchantId();
             mode = subscription.getMode();
             PaymentProvider provider = PaymentProvider.valueOf(req.provider().toUpperCase());

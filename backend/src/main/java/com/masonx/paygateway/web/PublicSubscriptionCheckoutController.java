@@ -59,7 +59,7 @@ public class PublicSubscriptionCheckoutController {
                 .findByIdAndMerchantId(link.getSubscriptionId(), link.getMerchantId())
                 .orElseThrow(() -> new IllegalArgumentException("Subscription not found"));
         BillingCustomer customer = customerRepository
-                .findByIdAndMerchantId(link.getCustomerId(), link.getMerchantId())
+                .findByIdAndMerchantIdAndMode(link.getCustomerId(), link.getMerchantId(), subscription.getMode())
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
         Merchant merchant = merchantRepository.findById(link.getMerchantId()).orElse(null);
 

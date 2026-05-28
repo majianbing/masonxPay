@@ -77,7 +77,7 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
 
         when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
         when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
-        when(customerRepository.findByIdAndMerchantId(customerId, merchantId)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST)).thenReturn(Optional.of(customer));
         when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(merchant));
         when(itemRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(merchantId, subscriptionId))
                 .thenReturn(List.of(item));
@@ -128,6 +128,7 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
         BillingCustomer customer = new BillingCustomer();
         ReflectionTestUtils.setField(customer, "id", customerId);
         customer.setMerchantId(merchantId);
+        customer.setMode(ApiKeyMode.TEST);
         customer.setName("Jane Customer");
         customer.setEmail("customer@example.com");
         return customer;

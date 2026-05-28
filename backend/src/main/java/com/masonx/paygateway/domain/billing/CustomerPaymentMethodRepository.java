@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +17,7 @@ public interface CustomerPaymentMethodRepository extends JpaRepository<CustomerP
             UUID merchantId, UUID customerId, UUID paymentInstrumentId);
 
     @Modifying
+    @Transactional
     @Query("""
         UPDATE CustomerPaymentMethod m
         SET m.defaultMethod = false
