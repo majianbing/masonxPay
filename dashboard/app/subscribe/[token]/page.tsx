@@ -276,6 +276,16 @@ export default function SubscribePage() {
     }
   }
 
+  // Must be before any early return — Rules of Hooks.
+  const connectors = useMemo(() => {
+    const seen = new Set<string>();
+    return (info?.connectors ?? []).filter(c => {
+      if (seen.has(c.provider)) return false;
+      seen.add(c.provider);
+      return true;
+    });
+  }, [info?.connectors]);
+
   // --- Render ---
 
   if (error && !info) {
@@ -320,17 +330,6 @@ export default function SubscribePage() {
   }
 
   const total = info.items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
-
-  // One entry per PSP brand — multiple accounts of the same brand are collapsed;
-  // the routing engine selects the specific account.
-  const connectors = useMemo(() => {
-    const seen = new Set<string>();
-    return (info.connectors ?? []).filter(c => {
-      if (seen.has(c.provider)) return false;
-      seen.add(c.provider);
-      return true;
-    });
-  }, [info.connectors]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
