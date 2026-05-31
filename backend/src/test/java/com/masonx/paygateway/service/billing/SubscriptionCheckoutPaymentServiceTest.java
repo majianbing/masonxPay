@@ -329,6 +329,50 @@ class SubscriptionCheckoutPaymentServiceTest {
     }
 
     @Test
+    void activeSubscription_checkout_updatesDefaultMethodWithoutCharging() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID instrumentId = UUID.randomUUID();
+        String token = "sub_active_update";
+        String gatewayToken = "gw_tok_active";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+        Subscription subscription = subscription(merchantId, customerId, subscriptionId);
+        subscription.setStatus(SubscriptionStatus.ACTIVE);
+        subscription.setTrialEndsAt(null);
+        PaymentToken paymentToken = paymentToken(merchantId, instrumentId);
+        PaymentInstrument instrument = instrument(merchantId, instrumentId);
+        ProviderAccount account = providerAccount(merchantId, paymentToken.getAccountId());
+        BillingCustomer customer = customer(merchantId, customerId);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(checkoutLinkRepository.claimLink(token)).thenReturn(1);
+        when(paymentTokenService.consume(gatewayToken)).thenReturn(paymentToken);
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
+        when(providerAccountRepository.findById(paymentToken.getAccountId())).thenReturn(Optional.of(account));
+        when(credentialsCodec.decode(account)).thenReturn(new SimulatorCredentials(true, 1.0));
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
+                .thenReturn(Optional.of(customer));
+        when(paymentInstrumentRepository.findByIdAndMerchantId(instrumentId, merchantId)).thenReturn(Optional.of(instrument));
+        when(paymentInstrumentRepository.save(instrument)).thenReturn(instrument);
+        when(reusablePaymentMethodDispatcher.setup(any(), any(), any()))
+                .thenReturn(ReusablePaymentMethodSetupResult.succeeded("sim_cus_x", "sim_pm_x", "{}"));
+        when(customerPaymentMethodRepository.findByMerchantIdAndCustomerIdAndPaymentInstrumentId(
+                merchantId, customerId, instrumentId)).thenReturn(Optional.empty());
+
+        var response = service.checkout(token, gatewayToken);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.status()).isEqualTo(SubscriptionStatus.ACTIVE.name());
+        assertThat(response.paymentIntentId()).isNull();
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE); // unchanged
+        verify(dispatcher, never()).charge(any(), any(), any()); // no duplicate charge
+        verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
+        verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
+    }
+
+    @Test
     void reusableSetup_passesExistingProviderCustomerReferenceToDispatcher() {
         UUID merchantId = UUID.randomUUID();
         UUID customerId = UUID.randomUUID();

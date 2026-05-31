@@ -149,7 +149,10 @@ public class SubscriptionCheckoutPaymentService {
 
         PaymentInstrument reusableInstrument = storeReusablePaymentInstrument(subscription, paymentToken, setupResult, account);
 
-        if (isTrialing(subscription)) {
+        // Only INCOMPLETE subscriptions charge on checkout — this is the first-activation path.
+        // TRIALING stores the method for future billing. ACTIVE and PAST_DUE update the default
+        // payment method without re-charging (payment method update flow).
+        if (subscription.getStatus() != SubscriptionStatus.INCOMPLETE) {
             makeDefaultPaymentMethod(subscription, reusableInstrument);
             markLinkUsed(link);
             return new PublicSubscriptionCheckoutResponse(
@@ -302,10 +305,6 @@ public class SubscriptionCheckoutPaymentService {
             }
         }
         return new BillingDetails(firstName, lastName, customer.getEmail(), null, null);
-    }
-
-    private boolean isTrialing(Subscription subscription) {
-        return subscription.getTrialEndsAt() != null && subscription.getTrialEndsAt().isAfter(Instant.now());
     }
 
     private long subscriptionAmount(Subscription subscription) {
