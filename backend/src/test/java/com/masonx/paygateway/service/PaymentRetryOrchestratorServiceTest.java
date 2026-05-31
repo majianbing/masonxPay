@@ -9,6 +9,7 @@ import com.masonx.paygateway.domain.payment.PaymentRequest;
 import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeResult;
+import com.masonx.paygateway.service.ProviderFailureCodeMapper;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.SquareCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
@@ -50,7 +51,8 @@ class PaymentRetryOrchestratorServiceTest {
     void setUp() {
         orchestrator = new PaymentRetryOrchestratorService(
                 paymentRequestRepository, dispatcher, providerAccountService,
-                failoverPolicy, circuitBreaker, metrics, new NoopTransactionManager(), 3, 2);
+                failoverPolicy, circuitBreaker, new ProviderFailureCodeMapper(),
+                metrics, new NoopTransactionManager(), 3, 2);
 
         lenient().when(paymentRequestRepository.save(any())).thenAnswer(inv -> {
             PaymentRequest attempt = inv.getArgument(0);
@@ -183,7 +185,8 @@ class PaymentRetryOrchestratorServiceTest {
     void execute_allowFallback_configuredLimitAboveHardCap_neverExceedsFiveAttempts() {
         orchestrator = new PaymentRetryOrchestratorService(
                 paymentRequestRepository, dispatcher, providerAccountService,
-                failoverPolicy, circuitBreaker, metrics, new NoopTransactionManager(), 10, 2);
+                failoverPolicy, circuitBreaker, new ProviderFailureCodeMapper(),
+                metrics, new NoopTransactionManager(), 10, 2);
 
         List<RouteCandidate> candidates = List.of(
                 new RouteCandidate(account(PaymentProvider.STRIPE)),
@@ -229,7 +232,8 @@ class PaymentRetryOrchestratorServiceTest {
     void execute_allowFallback_providerException_canUseFallback() {
         orchestrator = new PaymentRetryOrchestratorService(
                 paymentRequestRepository, dispatcher, providerAccountService,
-                failoverPolicy, circuitBreaker, metrics, new NoopTransactionManager(), 3, 1);
+                failoverPolicy, circuitBreaker, new ProviderFailureCodeMapper(),
+                metrics, new NoopTransactionManager(), 3, 1);
 
         ProviderAccount stripe = account(PaymentProvider.STRIPE);
         ProviderAccount square = account(PaymentProvider.SQUARE);

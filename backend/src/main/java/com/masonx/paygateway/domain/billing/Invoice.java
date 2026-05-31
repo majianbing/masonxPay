@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.billing;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -29,6 +30,10 @@ public class Invoice {
 
     @Column(name = "subscription_id", nullable = false)
     private UUID subscriptionId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private ApiKeyMode mode;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
@@ -69,6 +74,8 @@ public class Invoice {
     public UUID getId() { return id; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
+    public ApiKeyMode getMode() { return mode; }
+    public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public UUID getCustomerId() { return customerId; }
     public void setCustomerId(UUID customerId) { this.customerId = customerId; }
     public UUID getSubscriptionId() { return subscriptionId; }

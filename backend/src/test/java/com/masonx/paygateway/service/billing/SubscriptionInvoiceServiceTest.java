@@ -69,6 +69,7 @@ class SubscriptionInvoiceServiceTest {
         var created = service.generateCurrentPeriodInvoice(merchantId, subscriptionId);
         var repeated = service.generateCurrentPeriodInvoice(merchantId, subscriptionId);
 
+        assertThat(created.mode()).isEqualTo(ApiKeyMode.TEST.name());
         assertThat(created.status()).isEqualTo(InvoiceStatus.OPEN.name());
         assertThat(created.amountDue()).isEqualTo(5800);
         assertThat(created.amountPaid()).isZero();

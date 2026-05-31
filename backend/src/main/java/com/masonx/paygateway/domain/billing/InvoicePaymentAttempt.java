@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.billing;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,6 +23,10 @@ public class InvoicePaymentAttempt {
 
     @Column(name = "merchant_id", nullable = false)
     private UUID merchantId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private ApiKeyMode mode;
 
     @Column(name = "invoice_id", nullable = false)
     private UUID invoiceId;
@@ -48,6 +53,8 @@ public class InvoicePaymentAttempt {
     public UUID getId() { return id; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
+    public ApiKeyMode getMode() { return mode; }
+    public void setMode(ApiKeyMode mode) { this.mode = mode; }
     public UUID getInvoiceId() { return invoiceId; }
     public void setInvoiceId(UUID invoiceId) { this.invoiceId = invoiceId; }
     public UUID getPaymentIntentId() { return paymentIntentId; }

@@ -86,6 +86,7 @@ public class SubscriptionInvoiceService {
         invoice.setMerchantId(subscription.getMerchantId());
         invoice.setCustomerId(subscription.getCustomerId());
         invoice.setSubscriptionId(subscription.getId());
+        invoice.setMode(subscription.getMode());
         invoice.setStatus(InvoiceStatus.OPEN);
         invoice.setAmountDue(amountDue);
         invoice.setAmountPaid(0);

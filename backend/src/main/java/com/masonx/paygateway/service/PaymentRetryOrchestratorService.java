@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.payment.PaymentAttemptType;
+import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentRequest;
 import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
@@ -30,6 +31,7 @@ public class PaymentRetryOrchestratorService {
     private final ProviderAccountService providerAccountService;
     private final FailoverPolicy failoverPolicy;
     private final ConnectorCircuitBreaker circuitBreaker;
+    private final ProviderFailureCodeMapper failureCodeMapper;
     private final PaymentMetrics metrics;
     private final TransactionTemplate txTemplate;
     private final int maxAttempts;
@@ -40,6 +42,7 @@ public class PaymentRetryOrchestratorService {
                                            ProviderAccountService providerAccountService,
                                            FailoverPolicy failoverPolicy,
                                            ConnectorCircuitBreaker circuitBreaker,
+                                           ProviderFailureCodeMapper failureCodeMapper,
                                            PaymentMetrics metrics,
                                            PlatformTransactionManager txManager,
                                            @Value("${app.payments.retry.max-attempts:3}") int configuredMaxAttempts,
@@ -49,6 +52,7 @@ public class PaymentRetryOrchestratorService {
         this.providerAccountService = providerAccountService;
         this.failoverPolicy = failoverPolicy;
         this.circuitBreaker = circuitBreaker;
+        this.failureCodeMapper = failureCodeMapper;
         this.metrics = metrics;
         this.txTemplate = new TransactionTemplate(txManager);
         this.maxAttempts = Math.max(1, Math.min(configuredMaxAttempts, HARD_MAX_ATTEMPTS));
@@ -96,6 +100,7 @@ public class PaymentRetryOrchestratorService {
                     result = dispatcher.charge(candidate.provider(), new ChargeRequest(
                             intent.getId(), intent.getAmount(), intent.getCurrency(),
                             paymentMethodType, rawPaymentMethodId,
+                            null,
                             providerIdempotencyKey,
                             intent.getBillingDetails(),
                             intent.getShippingDetails(),
@@ -151,7 +156,7 @@ public class PaymentRetryOrchestratorService {
     }
 
     private OutcomeAction outcomeAction(RouteCandidate candidate, ChargeResult result, boolean retryable) {
-        String configured = candidate.outcomeActions().get(outcomeCategory(result, retryable));
+        String configured = candidate.outcomeActions().get(outcomeCategory(candidate.provider(), result, retryable));
         if (configured == null && result.failureCode() != null) {
             configured = candidate.outcomeActions().get(result.failureCode().trim().toUpperCase(Locale.ROOT));
         }
@@ -169,26 +174,15 @@ public class PaymentRetryOrchestratorService {
         return retryable ? OutcomeAction.RETRY : OutcomeAction.STOP;
     }
 
-    private String outcomeCategory(ChargeResult result, boolean retryable) {
-        if (result.success()) return "APPROVED";
-        if (result.requiresAction()) return "REQUIRES_ACTION";
-        String code = result.failureCode() != null
-                ? result.failureCode().toLowerCase(Locale.ROOT)
-                : "";
-        if (code.contains("timeout")) return "PROVIDER_TIMEOUT";
-        if (code.contains("unavailable") || code.contains("connection") || code.contains("rate_limit")) {
-            return "PROVIDER_UNAVAILABLE";
-        }
-        if (code.contains("insufficient_funds")) return "INSUFFICIENT_FUNDS";
-        if (code.contains("authentication")) return "AUTHENTICATION_REQUIRED";
-        if (code.contains("fraud") || code.contains("risk") || code.contains("stolen") || code.contains("lost")) {
-            return "RISK_DECLINE";
-        }
-        if (code.contains("invalid") || code.contains("incorrect") || code.contains("expired")) {
-            return "INVALID_PAYMENT_METHOD";
-        }
-        if (!retryable) return "HARD_DECLINE";
-        return code.isBlank() ? "UNKNOWN_FAILURE" : "PROVIDER_ERROR";
+    private String outcomeCategory(PaymentProvider provider, ChargeResult result, boolean retryable) {
+        if (result.success()) return ProviderFailureCodeMapper.APPROVED;
+        if (result.requiresAction()) return ProviderFailureCodeMapper.REQUIRES_ACTION;
+        String mapped = failureCodeMapper.category(provider, result.failureCode());
+        if (mapped != null) return mapped;
+        if (!retryable) return ProviderFailureCodeMapper.HARD_DECLINE;
+        return result.failureCode() == null || result.failureCode().isBlank()
+                ? ProviderFailureCodeMapper.UNKNOWN_FAILURE
+                : ProviderFailureCodeMapper.PROVIDER_ERROR;
     }
 
     private enum OutcomeAction {
