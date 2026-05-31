@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { CalendarClock, Copy, Link2, Plus } from 'lucide-react';
+import { CalendarClock, Copy, CreditCard, Link2, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -50,6 +50,30 @@ interface Subscription {
   metadata: Record<string, string>;
   createdAt: string;
   updatedAt: string;
+}
+
+interface Invoice {
+  id: string;
+  subscriptionId: string;
+  status: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  dueAt: string | null;
+  createdAt: string;
+}
+
+interface InvoicePaymentResult {
+  invoiceId: string;
+  invoiceStatus: string;
+  subscriptionStatus: string;
+  paymentIntentId: string | null;
+  attemptNumber: number;
+  success: boolean;
+  failureCode: string | null;
+  failureMessage: string | null;
 }
 
 interface SubscriptionCheckoutLink {
@@ -102,6 +126,10 @@ export default function SubscriptionsPage() {
     () => ['subscription-checkout-links', activeMerchantId, selectedSubscription?.id],
     [activeMerchantId, selectedSubscription?.id],
   );
+  const invoicesKey = useMemo(
+    () => ['invoices', activeMerchantId, selectedSubscription?.id],
+    [activeMerchantId, selectedSubscription?.id],
+  );
 
   const { data: customers } = useQuery<BillingCustomer[]>({
     queryKey: customersKey,
@@ -113,6 +141,14 @@ export default function SubscriptionsPage() {
     queryKey: subscriptionsKey,
     queryFn: () => apiFetch<Subscription[]>(`/api/v1/merchants/${activeMerchantId}/subscriptions?mode=${mode}`),
     enabled: !!activeMerchantId,
+  });
+
+  const { data: invoices, isLoading: invoicesLoading } = useQuery<Invoice[]>({
+    queryKey: invoicesKey,
+    queryFn: () => apiFetch<Invoice[]>(
+      `/api/v1/merchants/${activeMerchantId}/invoices?subscriptionId=${selectedSubscription?.id}`,
+    ),
+    enabled: !!activeMerchantId && !!selectedSubscription,
   });
 
   const { data: checkoutLinks, isLoading: linksLoading } = useQuery<SubscriptionCheckoutLink[]>({
@@ -166,6 +202,26 @@ export default function SubscriptionsPage() {
     onError: (err: unknown) => {
       const e = err as { detail?: string; title?: string };
       toast.error(e.detail ?? e.title ?? 'Could not create checkout link');
+    },
+  });
+
+  const payInvoiceMutation = useMutation({
+    mutationFn: (invoiceId: string) => apiFetch<InvoicePaymentResult>(
+      `/api/v1/merchants/${activeMerchantId}/invoices/${invoiceId}/pay`,
+      { method: 'POST' },
+    ),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(`Invoice paid — subscription is ${result.subscriptionStatus}`);
+      } else {
+        toast.error(result.failureMessage ?? result.failureCode ?? 'Payment failed');
+      }
+      queryClient.invalidateQueries({ queryKey: invoicesKey });
+      queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not pay invoice');
     },
   });
 
@@ -316,6 +372,50 @@ export default function SubscriptionsPage() {
                         </Button>
                       </div>
                       <div className="break-all font-mono text-xs text-muted-foreground">{link.checkoutUrl}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Invoices</h3>
+                  {invoicesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading...</p>
+                  ) : !invoices?.length ? (
+                    <p className="text-sm text-muted-foreground">No invoices yet</p>
+                  ) : invoices.map((invoice) => (
+                    <div key={invoice.id} className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(invoice.periodStart), 'MMM d')}
+                            {' – '}
+                            {format(new Date(invoice.periodEnd), 'MMM d, yyyy')}
+                          </p>
+                          <p className="font-medium">{formatMoney(invoice.amountDue, invoice.currency)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <InvoiceStatusBadge status={invoice.status} />
+                          {invoice.status === 'OPEN' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              disabled={payInvoiceMutation.isPending}
+                              onClick={() => payInvoiceMutation.mutate(invoice.id)}
+                            >
+                              {payInvoiceMutation.isPending
+                                ? <RefreshCw className="size-3.5 animate-spin" />
+                                : <CreditCard className="size-3.5" />}
+                              Pay
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {invoice.status === 'PAID' && (
+                        <p className="mt-1 text-xs text-green-600">
+                          Paid {formatMoney(invoice.amountPaid, invoice.currency)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -474,6 +574,16 @@ function StatusBadge({ status }: { status: Subscription['status'] }) {
     CANCELED: 'border-gray-200 bg-gray-50 text-gray-600',
   };
   return <Badge variant="outline" className={statusClass[status]}>{status}</Badge>;
+}
+
+function InvoiceStatusBadge({ status }: { status: Invoice['status'] }) {
+  const cls: Record<Invoice['status'], string> = {
+    OPEN:           'border-amber-200 bg-amber-50 text-amber-700',
+    PAID:           'border-green-200 bg-green-50 text-green-700',
+    VOID:           'border-gray-200 bg-gray-50 text-gray-600',
+    UNCOLLECTIBLE:  'border-red-200 bg-red-50 text-red-700',
+  };
+  return <Badge variant="outline" className={cls[status]}>{status}</Badge>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
