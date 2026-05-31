@@ -16,6 +16,9 @@ public interface CustomerPaymentMethodRepository extends JpaRepository<CustomerP
     Optional<CustomerPaymentMethod> findByMerchantIdAndCustomerIdAndPaymentInstrumentId(
             UUID merchantId, UUID customerId, UUID paymentInstrumentId);
 
+    Optional<CustomerPaymentMethod> findByMerchantIdAndCustomerIdAndDefaultMethodTrueAndStatus(
+            UUID merchantId, UUID customerId, CustomerPaymentMethodStatus status);
+
     @Modifying
     @Transactional
     @Query("""

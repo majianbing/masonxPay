@@ -1,5 +1,6 @@
 package com.masonx.paygateway.service.billing;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.Invoice;
 import com.masonx.paygateway.domain.billing.InvoiceRepository;
 import com.masonx.paygateway.domain.billing.InvoiceStatus;
@@ -38,6 +39,23 @@ public class SubscriptionInvoiceService {
                 .stream()
                 .map(InvoiceResponse::from)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InvoiceResponse> listAll(UUID merchantId, UUID subscriptionId, ApiKeyMode mode) {
+        if (subscriptionId != null) {
+            loadOwnedSubscription(merchantId, subscriptionId);
+            return invoiceRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtDesc(merchantId, subscriptionId)
+                    .stream().map(InvoiceResponse::from).toList();
+        }
+        return invoiceRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
+                .stream().map(InvoiceResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public InvoiceResponse get(UUID merchantId, UUID invoiceId) {
+        return InvoiceResponse.from(invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Invoice not found")));
     }
 
     @Transactional
