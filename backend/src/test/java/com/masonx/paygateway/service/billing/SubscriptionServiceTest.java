@@ -130,6 +130,70 @@ class SubscriptionServiceTest {
         assertThat(response.checkoutUrl()).startsWith("http://localhost:3000/subscribe/sub_");
     }
 
+    @Test
+    void createCheckoutLink_canceledSubscription_throwsIllegalState() {
+        UUID merchantId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        Subscription subscription = subscription(merchantId, UUID.randomUUID(), subscriptionId);
+        subscription.setStatus(SubscriptionStatus.CANCELED);
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId))
+                .thenReturn(Optional.of(subscription));
+
+        assertThatThrownBy(() -> service.createCheckoutLink(merchantId, subscriptionId, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be created");
+    }
+
+    @Test
+    void createCheckoutLink_unpaidSubscription_throwsIllegalState() {
+        UUID merchantId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        Subscription subscription = subscription(merchantId, UUID.randomUUID(), subscriptionId);
+        subscription.setStatus(SubscriptionStatus.UNPAID);
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId))
+                .thenReturn(Optional.of(subscription));
+
+        assertThatThrownBy(() -> service.createCheckoutLink(merchantId, subscriptionId, null))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void createCheckoutLink_expiresInPast_throwsIllegalArgument() {
+        UUID merchantId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        Subscription subscription = subscription(merchantId, UUID.randomUUID(), subscriptionId);
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId))
+                .thenReturn(Optional.of(subscription));
+
+        var request = new CreateSubscriptionCheckoutLinkRequest(Instant.now().minusSeconds(60));
+        assertThatThrownBy(() -> service.createCheckoutLink(merchantId, subscriptionId, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("expiration must be in the future");
+    }
+
+    @Test
+    void createNonTrialSubscription_startsAsIncomplete() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
+                .thenReturn(Optional.of(customer(merchantId, customerId)));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
+            Subscription s = inv.getArgument(0);
+            ReflectionTestUtils.setField(s, "id", subscriptionId);
+            return s;
+        });
+        when(itemRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(merchantId, subscriptionId))
+                .thenReturn(List.of(item(merchantId, subscriptionId)));
+
+        var response = service.create(merchantId, ApiKeyMode.TEST, new CreateSubscriptionRequest(
+                customerId, "USD", BillingIntervalUnit.MONTH, 1, 0, null,
+                List.of(new CreateSubscriptionRequest.SubscriptionItemRequest("Pro plan", 2900, 1))));
+
+        assertThat(response.status()).isEqualTo(SubscriptionStatus.INCOMPLETE.name());
+        assertThat(response.trialEndsAt()).isNull();
+    }
+
     private BillingCustomer customer(UUID merchantId, UUID customerId) {
         BillingCustomer customer = new BillingCustomer();
         ReflectionTestUtils.setField(customer, "id", customerId);

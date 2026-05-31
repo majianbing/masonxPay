@@ -33,10 +33,10 @@ Systems that now have a foundation but are not complete:
 Current E2E checkpoints:
 
 - [x] Non-trial subscription first payment activates through Mason Simulator and appears in Payments.
-- [ ] Trial subscription activation stores a default method without creating a payment.
-- [ ] Checkout link reuse is rejected and does not create duplicate payments or methods.
-- [ ] Failed first payment does not activate the subscription and does not leave unsafe default-method state.
-- [ ] Current-period invoice generation is idempotent through the dashboard/API flow.
+- [x] Trial subscription activation stores a default method without creating a payment.
+- [x] Checkout link reuse is rejected and does not create duplicate payments or methods.
+- [x] Failed first payment does not activate the subscription and does not leave unsafe default-method state.
+- [x] Current-period invoice generation is idempotent through the dashboard/API flow.
 
 ## Billing Ownership Decision
 
@@ -176,7 +176,7 @@ InvoicePaymentAttemptStatus
   FAILED
 ```
 
-## Stage S1: Customer and Payment Method Foundation `[~]`
+## Stage S1: Customer and Payment Method Foundation `[x]`
 
 Goal: create reusable customer records and link them to safe payment instruments.
 
@@ -187,7 +187,7 @@ Current progress:
 - [x] Enforced payment-instrument ownership when attaching a reusable method to a customer.
 - [x] Added focused service tests for tenant/customer boundaries.
 - [x] Added dashboard customer list/create/edit and basic payment-method attach/visibility.
-- [ ] Add API/controller tests once the dashboard workflow shape is finalized.
+- [x] Added BillingCustomerController integration tests: tenant isolation, mode filtering, cross-merchant instrument rejection, validation.
 
 Tables:
 
@@ -221,11 +221,11 @@ Rules:
 
 Tests:
 
-- [ ] Tenant scoping for customer reads/writes.
-- [ ] Only owned instruments can attach to owned customers.
-- [ ] Default payment method uniqueness per customer.
+- [x] Tenant scoping for customer reads/writes.
+- [x] Only owned instruments can attach to owned customers.
+- [x] Default payment method uniqueness per customer.
 
-## Stage S2: Subscription, Checkout Link, and Invoice Foundation `[~]`
+## Stage S2: Subscription, Checkout Link, and Invoice Foundation `[x]`
 
 Goal: create subscriptions, support merchant-generated subscription checkout links, activate subscription checkout in TEST mode, and prepare invoice generation.
 
@@ -249,9 +249,12 @@ Current progress:
 - [x] Added explicit reusable payment-method provider capability and persisted PSP customer references on `PaymentInstrument`.
 - [x] Added provider setup paths for Stripe, Square, Braintree, and Mason Simulator.
 - [~] Added Mollie recurring customer/first-payment boundary; mandate completion still requires hosted first-payment/webhook handling.
-- [ ] Add reusable promotion/coupon entities after the free-trial foundation is validated.
+- [ ] Add reusable promotion/coupon entities — deferred until after S3 off-session payment is validated.
 - [x] Add public `/subscribe/{token}` checkout APIs/pages and first-payment activation foundation.
-- [ ] Add automated period advancement and recurring invoice generation worker.
+- [x] Added automated period advancement worker: advances ACTIVE subscription periods, generates invoices atomically, honors cancel_at_period_end, idempotent on retry.
+- [x] Added SubscriptionController integration tests: tenant isolation, validation guards, checkout link state checks.
+- [x] Fixed invoice and invoice_payment_attempt missing mode column (V58 migration).
+- [x] Added mode to invoice response DTO.
 
 Tables:
 
@@ -372,9 +375,9 @@ Tests:
 - [x] Trial checkout activation stores default payment method without charging the provider.
 - [x] Subscription checkout stores a reusable provider-scoped payment reference instead of the short-lived customer-present token.
 - [x] Docker Compose build/start validates migrations and service health.
-- [ ] Create subscription with valid customer and default payment method.
+- [x] Create subscription with valid customer (INCOMPLETE) and with trial (TRIALING).
 - [x] Generate one invoice per subscription period idempotently.
-- [ ] State transition guards reject invalid changes.
+- [x] State transition guards reject invalid changes (CANCELED/UNPAID rejects checkout link creation).
 
 ## Stage S3: Off-Session Invoice Payment Execution `[ ]`
 

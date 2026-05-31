@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -205,6 +206,38 @@ class SubscriptionCheckoutPaymentServiceTest {
         verify(checkoutLinkRepository).releaseLink(token);
         verify(customerPaymentMethodRepository, never()).clearDefault(any(), any());
         verify(customerPaymentMethodRepository, never()).save(any(CustomerPaymentMethod.class));
+    }
+
+    @Test
+    void checkout_usedLink_throwsBeforeAnyProviderCall() {
+        String token = "used_link";
+        SubscriptionCheckoutLink link = checkoutLink(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), token);
+        link.setStatus(SubscriptionCheckoutLinkStatus.USED);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+
+        assertThatThrownBy(() -> service.checkout(token, "gw_tok_any"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer active");
+        verify(dispatcher, never()).charge(any(), any(), any());
+    }
+
+    @Test
+    void checkout_concurrentClaim_throwsWhenClaimFails() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        String token = "race_link";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(checkoutLinkRepository.claimLink(token)).thenReturn(0); // concurrent claim won
+
+        assertThatThrownBy(() -> service.checkout(token, "gw_tok_any"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer active");
+        verify(dispatcher, never()).charge(any(), any(), any());
     }
 
     @Test
