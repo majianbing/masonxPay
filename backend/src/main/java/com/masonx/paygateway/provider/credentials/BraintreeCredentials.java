@@ -22,4 +22,9 @@ public record BraintreeCredentials(
     public String clientKey() {
         return merchantId;
     }
+
+    @Override
+    public java.util.Map<String, String> clientConfig() {
+        return java.util.Map.of("sandbox", String.valueOf(sandbox));
+    }
 }

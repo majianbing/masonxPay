@@ -309,7 +309,11 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
         }
     }
 
-    private BraintreeGateway buildGateway(BraintreeCredentials bt) {
+    public String generateClientToken(BraintreeCredentials bt) {
+        return buildGateway(bt).clientToken().generate();
+    }
+
+    BraintreeGateway buildGateway(BraintreeCredentials bt) {
         return new BraintreeGateway(
                 bt.sandbox() ? Environment.SANDBOX : Environment.PRODUCTION,
                 bt.merchantId(),

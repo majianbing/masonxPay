@@ -12,8 +12,11 @@ import com.masonx.paygateway.domain.billing.SubscriptionItem;
 import com.masonx.paygateway.domain.billing.SubscriptionItemRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
+import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.merchant.Merchant;
 import com.masonx.paygateway.domain.merchant.MerchantRepository;
+import com.masonx.paygateway.provider.BraintreePaymentProviderService;
+import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -29,6 +32,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -62,6 +66,15 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
     @MockBean
     private MerchantRepository merchantRepository;
 
+    @MockBean
+    private ProviderAccountRepository providerAccountRepository;
+
+    @MockBean
+    private CredentialsCodec credentialsCodec;
+
+    @MockBean
+    private BraintreePaymentProviderService braintreePaymentProviderService;
+
     @Test
     void publicSubscriptionCheckoutLookupReturnsSubscriptionTerms() throws Exception {
         UUID merchantId = UUID.randomUUID();
@@ -81,6 +94,8 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
         when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(merchant));
         when(itemRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(merchantId, subscriptionId))
                 .thenReturn(List.of(item));
+        when(providerAccountRepository.findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
+                any(), any(), any())).thenReturn(List.of());
 
         mockMvc.perform(get("/pub/subscription-checkout/{token}", token))
                 .andExpect(status().isOk())
