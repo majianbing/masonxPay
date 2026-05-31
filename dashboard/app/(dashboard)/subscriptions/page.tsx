@@ -343,12 +343,20 @@ export default function SubscriptionsPage() {
               <Label>Customer</Label>
               <Select value={form.customerId} onValueChange={(value: string | null) => setForm((current) => ({ ...current, customerId: value ?? '' }))}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select customer" />
+                  <SelectValue placeholder="Select customer">
+                    {form.customerId ? selectedCustomerLabel(form.customerId) : null}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {(customers ?? []).map((customer) => (
                     <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name || customer.email || shortId(customer.id)}
+                      <span className="font-medium">{customer.name || customer.email}</span>
+                      {customer.name && customer.email && (
+                        <span className="ml-2 text-xs text-muted-foreground">{customer.email}</span>
+                      )}
+                      {!customer.name && !customer.email && (
+                        <span className="font-mono text-xs text-muted-foreground">{shortId(customer.id)}</span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
