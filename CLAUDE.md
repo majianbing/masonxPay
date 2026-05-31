@@ -80,13 +80,29 @@ Keep tests modular:
 - Name tests by behavior and expected result.
 - Keep E2E tests separate from fast test suites and run them with an explicit command/profile.
 
+## Engineering Style
+
+- Java: 4-space indent, `com.masonx.paygateway` root, constructor injection, DTOs at API boundaries.
+- TypeScript/React: 2-space indent, PascalCase components, camelCase functions, `@/` imports.
+- Business logic out of controllers. Comments only when intent is non-obvious. No broad `catch (Exception)` without a clear fallback and logging strategy.
+- Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
+
 ## Hard Boundaries
 
 - Keep tenant isolation on every table and query.
+- Keep TEST/LIVE mode isolation as a separate boundary from tenant isolation. Any resource that can exist in both environments must be scoped by both merchant and mode in tables, repositories, services, APIs, dashboard query keys, and tests.
+- Keep merchant portal users and platform admin users in separate tables and realms.
 - Do not weaken payment security, webhook verification, auth, CORS, CSP, or MFA.
+- Never log secrets, tokens, PAN/card data, CVV, private keys, raw provider payloads, or signature headers.
 - Keep provider calls outside DB transactions.
+- Keep webhook/outbox writes atomic with payment state.
 - Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.
+- Keep the backend as a clean modular monolith; cross-module calls go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.
 - Keep external AI model calls outside the sensitive data boundary; use redacted, aggregated evidence only, and support a no-external-AI mode.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Use `docs/DEVELOPMENT_GUIDE.md` for detailed connector, SDK, MFA, and implementation rules.
+
+## Before Final Response
+
+Summarize: files changed and why, tests run and results, remaining risks or follow-up work.

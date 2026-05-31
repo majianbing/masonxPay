@@ -12,6 +12,7 @@ public record ChargeRequest(
         String         currency,
         String         paymentMethodType,
         String         paymentMethodId,   // provider-specific PM token (Stripe pm_xxx, Square sourceId, …)
+        String         providerCustomerReference,
         String         idempotencyKey,
         BillingDetails billingDetails,
         ShippingDetails shippingDetails,

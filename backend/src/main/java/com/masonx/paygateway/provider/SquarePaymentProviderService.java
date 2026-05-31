@@ -30,7 +30,7 @@ import java.util.UUID;
  * Production: connect.squareup.com
  */
 @Service
-public class SquarePaymentProviderService implements PaymentProviderService {
+public class SquarePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(SquarePaymentProviderService.class);
     private static final String SQUARE_VERSION = "2024-01-18";
@@ -61,6 +61,9 @@ public class SquarePaymentProviderService implements PaymentProviderService {
                     "amount",   req.amount(),
                     "currency", req.currency().toUpperCase()));
             body.put("location_id",     square.locationId());
+            if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
+                body.put("customer_id", req.providerCustomerReference());
+            }
 
             // Buyer email for receipts and risk scoring
             if (req.billingDetails() != null && req.billingDetails().email() != null) {
@@ -112,6 +115,86 @@ public class SquarePaymentProviderService implements PaymentProviderService {
         } catch (Exception e) {
             log.error("Square charge error", e);
             return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
+        }
+    }
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request,
+            ProviderCredentials creds) {
+        if (!(creds instanceof SquareCredentials square)) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "connector_not_configured", "No active Square connector found.", false);
+        }
+        if (request.providerPaymentMethodId() == null || request.providerPaymentMethodId().isBlank()) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "missing_payment_method", "Square reusable setup requires a Web Payments SDK source id.", false);
+        }
+
+        try {
+            String customerId = request.existingProviderCustomerReference();
+            if (customerId == null || customerId.isBlank()) {
+                Map<String, Object> customerBody = new LinkedHashMap<>();
+                if (request.billingDetails() != null) {
+                    if (request.billingDetails().email() != null) {
+                        customerBody.put("email_address", request.billingDetails().email());
+                    }
+                    if (request.billingDetails().phone() != null) {
+                        customerBody.put("phone_number", request.billingDetails().phone());
+                    }
+                    if (request.billingDetails().firstName() != null) {
+                        customerBody.put("given_name", request.billingDetails().firstName());
+                    }
+                    if (request.billingDetails().lastName() != null) {
+                        customerBody.put("family_name", request.billingDetails().lastName());
+                    }
+                }
+                customerBody.put("reference_id", request.customerId().toString());
+                customerBody.put("idempotency_key", squareKey(request.idempotencyKey() + "-customer"));
+
+                JsonNode customerResponse = restClient.post()
+                        .uri(square.baseUrl() + "/v2/customers")
+                        .header("Authorization", "Bearer " + square.accessToken())
+                        .header("Square-Version", SQUARE_VERSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(customerBody)
+                        .retrieve()
+                        .body(JsonNode.class);
+                customerId = customerResponse != null
+                        ? customerResponse.path("customer").path("id").asText(null)
+                        : null;
+            }
+            if (customerId == null || customerId.isBlank()) {
+                return ReusablePaymentMethodSetupResult.failed(
+                        "customer_create_failed", "Square did not return a customer id.", true);
+            }
+
+            Map<String, Object> cardBody = new LinkedHashMap<>();
+            cardBody.put("idempotency_key", squareKey(request.idempotencyKey() + "-card"));
+            cardBody.put("source_id", request.providerPaymentMethodId());
+            cardBody.put("card", Map.of("customer_id", customerId));
+
+            JsonNode cardResponse = restClient.post()
+                    .uri(square.baseUrl() + "/v2/cards")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(cardBody)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String cardId = cardResponse != null ? cardResponse.path("card").path("id").asText(null) : null;
+            if (cardId == null || cardId.isBlank()) {
+                return ReusablePaymentMethodSetupResult.failed(
+                        "card_create_failed", "Square did not return a card-on-file id.", true);
+            }
+            return ReusablePaymentMethodSetupResult.succeeded(customerId, cardId, cardResponse.toString());
+        } catch (HttpClientErrorException e) {
+            String code = parseSquareErrorCode(e.getResponseBodyAsString());
+            log.error("Square reusable payment method setup failed: {} — {}", e.getStatusCode(), code);
+            return ReusablePaymentMethodSetupResult.failed(code, e.getMessage(), false);
+        } catch (Exception e) {
+            log.error("Square reusable payment method setup error", e);
+            return ReusablePaymentMethodSetupResult.failed("gateway_error", e.getMessage(), true);
         }
     }
 

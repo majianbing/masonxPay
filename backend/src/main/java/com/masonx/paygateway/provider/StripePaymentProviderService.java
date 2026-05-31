@@ -8,10 +8,14 @@ import com.masonx.paygateway.domain.payment.ShippingDetails;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Customer;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.PaymentMethod;
 import com.stripe.model.Refund;
 import com.stripe.net.RequestOptions;
+import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.stripe.param.PaymentMethodAttachParams;
 import com.stripe.param.RefundCreateParams;
 
 import java.util.Optional;
@@ -20,7 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
-public class StripePaymentProviderService implements PaymentProviderService {
+public class StripePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(StripePaymentProviderService.class);
 
@@ -45,6 +49,11 @@ public class StripePaymentProviderService implements PaymentProviderService {
                     .setConfirm(true)
                     .setPaymentMethod(req.paymentMethodId())
                     .addPaymentMethodType("card");
+
+            if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
+                paramsBuilder.setCustomer(req.providerCustomerReference());
+                paramsBuilder.setSetupFutureUsage(PaymentIntentCreateParams.SetupFutureUsage.OFF_SESSION);
+            }
 
             // return_url is required by Stripe when confirm=true and the card might need 3DS redirect
             if (req.returnUrl() != null) {
@@ -106,6 +115,61 @@ public class StripePaymentProviderService implements PaymentProviderService {
         } catch (StripeException e) {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
             return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true, false, null, null, null);
+        }
+    }
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request,
+            ProviderCredentials creds) {
+        if (!(creds instanceof StripeCredentials stripe) || stripe.secretKey() == null) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "connector_not_configured",
+                    "No active Stripe connector found. Add one under Settings → Connectors.",
+                    false);
+        }
+        if (request.providerPaymentMethodId() == null || request.providerPaymentMethodId().isBlank()) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "missing_payment_method",
+                    "Stripe reusable setup requires a PaymentMethod id from Stripe.js.",
+                    false);
+        }
+
+        try {
+            RequestOptions options = RequestOptions.builder()
+                    .setApiKey(stripe.secretKey())
+                    .setIdempotencyKey(request.idempotencyKey())
+                    .build();
+            String customerId = request.existingProviderCustomerReference();
+            if (customerId == null || customerId.isBlank()) {
+                CustomerCreateParams.Builder customerParams = CustomerCreateParams.builder()
+                        .putMetadata("masonxpayCustomerId", request.customerId().toString());
+                if (request.billingDetails() != null) {
+                    if (request.billingDetails().email() != null) {
+                        customerParams.setEmail(request.billingDetails().email());
+                    }
+                    if (request.billingDetails().phone() != null) {
+                        customerParams.setPhone(request.billingDetails().phone());
+                    }
+                    String name = fullName(request.billingDetails().firstName(), request.billingDetails().lastName());
+                    if (!name.isBlank()) {
+                        customerParams.setName(name);
+                    }
+                }
+                customerId = Customer.create(customerParams.build(), options).getId();
+            }
+
+            PaymentMethod paymentMethod = PaymentMethod.retrieve(request.providerPaymentMethodId(),
+                    RequestOptions.builder().setApiKey(stripe.secretKey()).build());
+            if (paymentMethod.getCustomer() == null || paymentMethod.getCustomer().isBlank()) {
+                paymentMethod = paymentMethod.attach(
+                        PaymentMethodAttachParams.builder().setCustomer(customerId).build(),
+                        RequestOptions.builder().setApiKey(stripe.secretKey()).build());
+            }
+            return ReusablePaymentMethodSetupResult.succeeded(customerId, paymentMethod.getId(), paymentMethod.toJson());
+        } catch (StripeException e) {
+            log.error("Stripe reusable payment method setup failed: {} — {}", e.getCode(), e.getMessage());
+            return ReusablePaymentMethodSetupResult.failed(e.getCode(), e.getMessage(), true);
         }
     }
 

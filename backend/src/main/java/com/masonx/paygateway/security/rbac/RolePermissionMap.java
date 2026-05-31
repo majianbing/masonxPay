@@ -39,7 +39,11 @@ public final class RolePermissionMap {
                 // CONNECTOR
                 "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE",
                 // PAYMENT_LINK
-                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE",
+                // CUSTOMER
+                "CUSTOMER:READ", "CUSTOMER:CREATE", "CUSTOMER:UPDATE", "CUSTOMER:DELETE",
+                // SUBSCRIPTION
+                "SUBSCRIPTION:READ", "SUBSCRIPTION:CREATE", "SUBSCRIPTION:UPDATE", "SUBSCRIPTION:DELETE"
         ));
 
         PERMISSIONS.put(MerchantRole.ADMIN, Set.of(
@@ -64,7 +68,11 @@ public final class RolePermissionMap {
                 // CONNECTOR
                 "CONNECTOR:READ", "CONNECTOR:CREATE", "CONNECTOR:UPDATE", "CONNECTOR:DELETE",
                 // PAYMENT_LINK
-                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE",
+                // CUSTOMER
+                "CUSTOMER:READ", "CUSTOMER:CREATE", "CUSTOMER:UPDATE",
+                // SUBSCRIPTION
+                "SUBSCRIPTION:READ", "SUBSCRIPTION:CREATE", "SUBSCRIPTION:UPDATE"
         ));
 
         PERMISSIONS.put(MerchantRole.DEVELOPER, Set.of(
@@ -83,7 +91,11 @@ public final class RolePermissionMap {
                 // CONNECTOR - read only (devs need to know which providers are connected)
                 "CONNECTOR:READ",
                 // PAYMENT_LINK
-                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE"
+                "PAYMENT_LINK:READ", "PAYMENT_LINK:CREATE", "PAYMENT_LINK:DELETE",
+                // CUSTOMER - read only
+                "CUSTOMER:READ",
+                // SUBSCRIPTION - read only
+                "SUBSCRIPTION:READ"
         ));
 
         PERMISSIONS.put(MerchantRole.FINANCE, Set.of(
@@ -96,13 +108,19 @@ public final class RolePermissionMap {
                 // LOG
                 "LOG:READ",
                 // MERCHANT_SETTINGS - read only
-                "MERCHANT_SETTINGS:READ"
+                "MERCHANT_SETTINGS:READ",
+                // CUSTOMER
+                "CUSTOMER:READ", "CUSTOMER:CREATE", "CUSTOMER:UPDATE",
+                // SUBSCRIPTION
+                "SUBSCRIPTION:READ", "SUBSCRIPTION:CREATE", "SUBSCRIPTION:UPDATE"
         ));
 
         PERMISSIONS.put(MerchantRole.VIEWER, Set.of(
                 "PAYMENT:READ",
                 "LOG:READ",
-                "MERCHANT_SETTINGS:READ"
+                "MERCHANT_SETTINGS:READ",
+                "CUSTOMER:READ",
+                "SUBSCRIPTION:READ"
         ));
     }
 

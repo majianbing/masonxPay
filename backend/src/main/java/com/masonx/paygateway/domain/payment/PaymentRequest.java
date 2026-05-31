@@ -4,7 +4,10 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 
+import org.hibernate.annotations.DynamicUpdate;
+
 @Entity
+@DynamicUpdate
 @Table(name = "payment_requests")
 public class PaymentRequest {
 
@@ -12,7 +15,7 @@ public class PaymentRequest {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "payment_intent_id", nullable = false)
+    @Column(name = "payment_intent_id", nullable = false, updatable = false)
     private UUID paymentIntentId;
 
     @Column(nullable = false)

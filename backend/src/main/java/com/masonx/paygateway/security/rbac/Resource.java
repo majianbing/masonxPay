@@ -11,5 +11,7 @@ public enum Resource {
     MEMBER,
     MERCHANT_SETTINGS,
     CONNECTOR,
-    PAYMENT_LINK
+    PAYMENT_LINK,
+    CUSTOMER,
+    SUBSCRIPTION
 }

@@ -83,7 +83,7 @@ What merchants need to run their business, not just process payments.
 | 5.3 | **API versioning strategy** | [ ] | All routes are `/v1/`. Define deprecation policy and version promotion path before breaking changes accumulate. |
 | 5.4 | **Mobile SDKs** | [ ] | iOS and Android native SDKs. Browser SDK is the model; same lifecycle pattern. |
 | 5.5 | **Reconciliation** | [ ] | Ingest provider settlement files / payout reports. Match against `payment_intents`. Expose discrepancies. |
-| 5.6 | **Subscription / recurring billing** | [ ] | Interval-based charge schedules against vaulted payment methods (depends on 4.4). |
+| 5.6 | **Subscription / recurring billing** | [ ] | Split into standalone Phase S because it requires its own customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries. |
 
 ---
 
@@ -123,8 +123,24 @@ Core boundary: MasonXPay does not need raw PAN to build the next orchestration l
 | O3b | **Routing UI consolidation** | ✅ | Exposed one Routing navigation entry backed by route policies, moved policies into list and dedicated create/edit pages, and kept legacy rules APIs/runtime fallback as compatibility only. |
 | O4 | **Outcome-based fallback** | ✅ | Added route-step `outcome_actions_json`, conservative outcome categorization, retry/next/stop execution, and focused tests. Hard declines stop, simulator declines model hard declines, and live cross-route fallback is gated by instrument portability. |
 | O5 | **Scheduled retry orchestration** | ✅ | Added merchant-scoped scheduled retry job storage, list/cancel APIs, due-job worker execution, automatic capture recovery scheduling, and dashboard visibility. Refund auto-retry is disabled by default because background money movement must not risk merchant fund loss without explicit approval. |
-| O5b | **Subscription/recurring retry planning** | [ ] | MasonXPay does not yet support subscription/recurring billing. Plan the subscription, invoice, saved-payment-method, dunning, and off-session retry model before adding recurring retry execution. |
 | O6 | **Optional portable card support** | [ ] | Add third-party vault or network-token integration only when cross-PSP card portability is a real requirement; keep raw PAN behind an isolated PCI boundary if ever introduced. |
+
+---
+
+## Phase S — Subscription and Recurring Billing
+
+MasonXPay does not currently support subscription or recurring billing. This phase adds that product domain as a clean module before recurring retry/dunning is enabled. Recurring retry depends on subscriptions, invoices, reusable payment instruments, merchant retry policy, and customer notification hooks; it must remain separate from customer-present checkout retry, capture recovery, and refund handling.
+
+See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| S0 | **Architecture and state model** | [ ] | Define customer, subscription, invoice, invoice payment attempt, permission, webhook, and payment-instrument boundaries before runtime code. |
+| S1 | **Customer and payment method foundation** | ✅ | Merchant-scoped TEST/LIVE-isolated customers, payment-method references backed by safe `PaymentInstrument` rows, backend APIs, service tests, controller integration tests (tenant isolation, mode filtering, instrument ownership), and dashboard customer management. |
+| S2 | **Subscription and invoice foundation** | ✅ | Mode-aware subscriptions, subscription items, trial-aware creation, checkout-link tokens, public checkout-link lookup, TEST-mode simulator activation, reusable payment-method setup for Stripe/Square/Braintree/Simulator, invoice storage with mode isolation, idempotent period invoice generation, period advancement worker, controller integration tests, and state transition guards. Promotions/coupons deferred until after S3. Mollie mandate completion remains pending. |
+| S3 | **Off-session invoice payment execution** | [ ] | Pay open invoices through normal payment intent/provider routing using saved reusable PSP references and Mason Simulator tests. Mollie requires first-payment mandate reconciliation before off-session recurring charges. |
+| S4 | **Recurring retry and dunning** | [ ] | Add merchant retry policy, `INVOICE_PAYMENT` scheduled retries, dunning state, final actions, and notification hooks. |
+| S5 | **Dashboard operations** | [~] | Added customer management, subscription list/create/detail/checkout-link UI, and public subscription checkout preview with TEST-mode simulator activation. Invoice views, retry policy, failed invoice retry queue, live PSP activation, and subscription lifecycle actions remain pending. |
 
 ---
 

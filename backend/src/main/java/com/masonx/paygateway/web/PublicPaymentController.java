@@ -138,6 +138,7 @@ public class PublicPaymentController {
         ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 savedIntent.getId(), link.getAmount(), link.getCurrency(),
                 "card", paymentToken.getProviderPmId(),
+                null,
                 idempotencyKey, null, null, null, returnUrl
         ), creds);
         metrics.recordChargeLatency(provider.name(), System.currentTimeMillis() - chargeStart);

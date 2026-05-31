@@ -17,9 +17,17 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Product and phase roadmap: `docs/ROADMAP.md`
 - High-throughput payment core plan: `docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`
 - AI-assisted operations control-plane plan: `docs/AI_CONTROL_PLANE_PLAN.md`
-- Detailed development guide migrated from the old Claude root file: `docs/DEVELOPMENT_GUIDE.md`
+- Detailed development guide (connectors, SDK, MFA, implementation rules): `docs/DEVELOPMENT_GUIDE.md`
 - Full historical prompt/reference: `docs/payment-gateway-full-prompt.md`
 - Root README for setup and public project overview: `README.md`
+
+## Architecture Snapshot
+
+- Financial source of truth: Postgres payment tables and logical shards. Redis is a post-commit hot-path cache only, never authoritative.
+- Idempotency: DB-backed reservation/route records. Kafka/OpenSearch are supporting systems, not payment-state authorities.
+- Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
+- Backend: clean modular monolith — package boundaries are module boundaries; cross-module calls go through services/interfaces or outbox events.
+- AI control plane: advisory only. AI investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
 
 ## Current Phases
 
@@ -43,17 +51,20 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 ## Non-Negotiable Architecture Rules
 
 - Every new table must include `merchant_id`; every read/write path must enforce tenant scope.
+- TEST/LIVE mode is a separate isolation layer from tenant scope. Mode-scoped data such as connectors, customers, payment links, subscriptions, invoices, retries, payment instruments, and dashboard queries must filter by both `merchant_id` and mode whenever the resource can exist in TEST and LIVE.
 - Merchant portal users and platform admin users stay separate.
-- Provider webhooks are unauthenticated at the HTTP edge, so signature verification is mandatory.
+- Do not weaken auth, CORS, CSP, or MFA. Provider webhooks are unauthenticated at the HTTP edge, so signature verification is mandatory.
 - Never log secrets, tokens, PAN/card data, CVV, private keys, raw provider payloads, or signature headers.
 - Webhook/outbox writes must stay atomic with payment state.
 - Do not add `@Transactional` to methods that perform remote provider calls; keep DB transactions short and around state changes.
+- Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument or explicit customer re-authorization.
+- Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, and OpenSearch are supporting systems, not payment-state authorities.
 - Prefer mature infrastructure components for Redis, Kafka, database access, mapping, retries, rate limiting, and similar cross-cutting behavior.
 - Keep submodules clean and focused; avoid turning one module into a catch-all.
 - Keep the backend as a clean modular monolith. Treat package boundaries as module boundaries: payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, and dashboard/API entrypoints should each own one concern. Cross-module calls should go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
 - AI must not authorize, decline, or route payments directly. AI output must pass deterministic validation and human approval before config changes are applied.
-- External AI models must receive only redacted, aggregated, policy-approved evidence. Secrets, raw payment payloads, card data, provider credentials, webhook signatures, private keys, tokens, and unredacted PII must never be sent to model providers.
+- External AI models must receive only redacted, aggregated, policy-approved evidence. Secrets, raw payment payloads, card data, provider credentials, webhook signatures, private keys, tokens, and unredacted PII must never be sent to model providers. Support a no-external-AI mode where deterministic workers and human review function without external model calls.
 
 ## Engineering Style
 

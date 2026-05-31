@@ -5,6 +5,9 @@ import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderService;
+import com.masonx.paygateway.provider.ReusablePaymentMethodProviderService;
+import com.masonx.paygateway.provider.ReusablePaymentMethodSetupRequest;
+import com.masonx.paygateway.provider.ReusablePaymentMethodSetupResult;
 import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
@@ -24,7 +27,7 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 @Service
 @ConditionalOnProperty(prefix = "app.provider-simulator", name = "enabled", havingValue = "true")
-public class MasonSimulatorPaymentProviderService implements PaymentProviderService {
+public class MasonSimulatorPaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
 
     private final ProviderSimulatorProperties properties;
 
@@ -57,6 +60,28 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
             return new RefundResult(false, null, "Mason Simulator synthetic refund failure");
         }
         return new RefundResult(true, "sim_ref_" + request.refundId(), null);
+    }
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request,
+            ProviderCredentials creds) {
+        simulateLatencyAndTimeout();
+        if (shouldFail(creds)) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "simulator_setup_failed",
+                    "Mason Simulator synthetic reusable method setup failure",
+                    false);
+        }
+        String customerReference = request.existingProviderCustomerReference() != null
+                && !request.existingProviderCustomerReference().isBlank()
+                ? request.existingProviderCustomerReference()
+                : "sim_cus_" + request.customerId();
+        String reusableReference = "sim_pm_reusable_" + request.customerId();
+        return ReusablePaymentMethodSetupResult.succeeded(
+                customerReference,
+                reusableReference,
+                json("setup_reusable_method", "succeeded", reusableReference));
     }
 
     @Override
