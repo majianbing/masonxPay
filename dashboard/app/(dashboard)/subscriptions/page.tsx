@@ -205,6 +205,21 @@ export default function SubscriptionsPage() {
     },
   });
 
+  const generateInvoiceMutation = useMutation({
+    mutationFn: () => apiFetch<Invoice>(
+      `/api/v1/merchants/${activeMerchantId}/subscriptions/${selectedSubscription?.id}/invoices/current-period`,
+      { method: 'POST' },
+    ),
+    onSuccess: () => {
+      toast.success('Invoice generated');
+      queryClient.invalidateQueries({ queryKey: invoicesKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not generate invoice');
+    },
+  });
+
   const payInvoiceMutation = useMutation({
     mutationFn: (invoiceId: string) => apiFetch<InvoicePaymentResult>(
       `/api/v1/merchants/${activeMerchantId}/invoices/${invoiceId}/pay`,
@@ -377,7 +392,19 @@ export default function SubscriptionsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Invoices</h3>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-medium">Invoices</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={generateInvoiceMutation.isPending}
+                      onClick={() => generateInvoiceMutation.mutate()}
+                    >
+                      <Plus className="size-4" />
+                      Generate
+                    </Button>
+                  </div>
                   {invoicesLoading ? (
                     <p className="text-sm text-muted-foreground">Loading...</p>
                   ) : !invoices?.length ? (
