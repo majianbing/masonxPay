@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { CalendarClock, CheckCircle2, Loader2, ShieldCheck, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -132,62 +132,74 @@ export default function SubscribePage() {
     if (!token) return;
     fetchSubscription(token).then(data => {
       setInfo(data);
-      const first = data.connectors?.[0] ?? null;
-      setSelectedConnector(first);
+      // Deduplicate by brand so the picker shows one button per PSP, not one per account
+      const seen = new Set<string>();
+      const unique = (data.connectors ?? []).filter(c => {
+        if (seen.has(c.provider)) return false;
+        seen.add(c.provider);
+        return true;
+      });
+      setSelectedConnector(unique[0] ?? null);
     }).catch((e: Error) => setError(e.message));
   }, [token]);
 
-  // Load the selected PSP SDK whenever the selection changes
+  // Load the selected PSP SDK whenever the brand selection changes.
+  // Returns a cleanup function that destroys the mounted SDK instance so switching
+  // A→B→A never leaves a stale mounted element in the container.
   useEffect(() => {
     if (!selectedConnector || !info?.active) return;
     setSdkReady(false);
-    stripeRef.current = null;
-    squareRef.current = null;
-    braintreeRef.current = null;
 
+    let cancelled = false;
     const connector = selectedConnector;
 
     (async () => {
       try {
         if (connector.provider === 'STRIPE') {
           await loadScript('https://js.stripe.com/v3/');
+          if (cancelled) return;
           const stripe = (window as unknown as { Stripe: (key: string) => unknown }).Stripe(connector.clientKey);
           const elements = (stripe as { elements: () => unknown }).elements() as unknown as {
-            create: (type: string, opts?: object) => { mount: (el: HTMLElement) => void };
+            create: (type: string, opts?: object) => { mount: (el: HTMLElement) => void; destroy: () => void };
           };
           const card = elements.create('card', {
             style: { base: { fontSize: '16px', color: '#1a1a1a', '::placeholder': { color: '#9ca3af' } } },
           });
+          if (cancelled) { card.destroy(); return; }
           if (stripeContainerRef.current) card.mount(stripeContainerRef.current);
           stripeRef.current = { stripe, card };
-          setSdkReady(true);
+          if (!cancelled) setSdkReady(true);
         } else if (connector.provider === 'SQUARE') {
           const sandbox = connector.clientConfig?.sandbox !== 'false';
           await loadScript(sandbox
             ? 'https://sandbox.web.squarecdn.com/v1/square.js'
             : 'https://web.squarecdn.com/v1/square.js');
+          if (cancelled) return;
           const Square = (window as unknown as { Square: unknown }).Square as {
             payments: (appId: string, locationId: string) => Promise<{
-              card: () => Promise<{ attach: (el: HTMLElement) => Promise<void>; tokenize: () => Promise<{ token: string }> }>;
+              card: () => Promise<{ attach: (el: HTMLElement) => Promise<void>; tokenize: () => Promise<{ token: string }>; destroy: () => Promise<void> }>;
             }>;
           };
           const payments = await Square.payments(connector.clientKey, connector.clientConfig?.locationId ?? '');
           const card = await payments.card();
+          if (cancelled) { await card.destroy(); return; }
           if (squareContainerRef.current) await card.attach(squareContainerRef.current);
           squareRef.current = { payments, card };
-          setSdkReady(true);
+          if (!cancelled) setSdkReady(true);
         } else if (connector.provider === 'BRAINTREE') {
-          // Fetch short-lived client token from backend
           const tokenRes = await fetch(
             `${API_BASE}/pub/subscription-checkout/braintree-client-token?accountId=${connector.accountId}&subscriptionToken=${token}`,
           );
+          if (cancelled) return;
           if (!tokenRes.ok) throw new Error('Could not load Braintree credentials');
           const { clientToken } = await tokenRes.json();
           await loadScript('https://js.braintreegateway.com/web/dropin/1.43.0/js/dropin.min.js');
+          if (cancelled) return;
           const braintree = (window as unknown as { braintree: unknown }).braintree as {
             dropin: {
               create: (opts: { authorization: string; container: HTMLElement | null }) => Promise<{
                 requestPaymentMethod: () => Promise<{ nonce: string }>;
+                teardown: () => Promise<void>;
               }>;
             };
           };
@@ -195,16 +207,29 @@ export default function SubscribePage() {
             authorization: clientToken,
             container: braintreeContainerRef.current,
           });
+          if (cancelled) { dropin.teardown().catch(() => {}); return; }
           braintreeRef.current = { dropin };
-          setSdkReady(true);
+          if (!cancelled) setSdkReady(true);
         } else {
-          // Simulator / Mollie — no SDK loading needed
-          setSdkReady(true);
+          if (!cancelled) setSdkReady(true);
         }
       } catch (e) {
-        setError((e as Error).message);
+        if (!cancelled) setError((e as Error).message);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      // Unmount Stripe card element from DOM before re-mounting
+      (stripeRef.current?.card as { destroy?: () => void } | null)?.destroy?.();
+      stripeRef.current = null;
+      // Destroy Square card
+      (squareRef.current?.card as { destroy?: () => Promise<void> } | null)?.destroy?.();
+      squareRef.current = null;
+      // Teardown Braintree Drop-in (async — fire and forget)
+      (braintreeRef.current?.dropin as { teardown?: () => Promise<void> } | null)?.teardown?.().catch(() => {});
+      braintreeRef.current = null;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConnector?.provider, selectedConnector?.accountId]);
 
@@ -295,7 +320,17 @@ export default function SubscribePage() {
   }
 
   const total = info.items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
-  const connectors = info.connectors ?? [];
+
+  // One entry per PSP brand — multiple accounts of the same brand are collapsed;
+  // the routing engine selects the specific account.
+  const connectors = useMemo(() => {
+    const seen = new Set<string>();
+    return (info.connectors ?? []).filter(c => {
+      if (seen.has(c.provider)) return false;
+      seen.add(c.provider);
+      return true;
+    });
+  }, [info.connectors]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
