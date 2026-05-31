@@ -3,6 +3,8 @@ package com.masonx.paygateway.provider;
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.CustomerRequest;
 import com.braintreegateway.Environment;
+import com.braintreegateway.PaymentMethod;
+import com.braintreegateway.PaymentMethodRequest;
 import com.braintreegateway.Result;
 import com.braintreegateway.Transaction;
 import com.braintreegateway.TransactionRequest;
@@ -46,7 +48,7 @@ import java.math.BigDecimal;
  * BigDecimal in major units (dollars), so we shift the decimal two places left.
  */
 @Service
-public class BraintreePaymentProviderService implements PaymentProviderService {
+public class BraintreePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(BraintreePaymentProviderService.class);
 
@@ -71,8 +73,12 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
 
             TransactionRequest transactionRequest = new TransactionRequest()
                     .amount(amount)
-                    .paymentMethodNonce(req.paymentMethodId())  // nonce from Drop-in UI
                     .orderId(req.idempotencyKey());             // stored for our audit trail
+            if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
+                transactionRequest.paymentMethodToken(req.paymentMethodId());
+            } else {
+                transactionRequest.paymentMethodNonce(req.paymentMethodId());  // nonce from Drop-in UI
+            }
 
             // Customer details — used by Braintree for risk scoring and receipts
             if (req.billingDetails() != null) {
@@ -151,6 +157,85 @@ public class BraintreePaymentProviderService implements PaymentProviderService {
         } catch (Exception e) {
             log.error("Braintree charge error", e);
             return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
+        }
+    }
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request,
+            ProviderCredentials creds) {
+        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "connector_not_configured",
+                    "No active Braintree connector found. Add one under Settings → Connectors.",
+                    false);
+        }
+        if (request.providerPaymentMethodId() == null || request.providerPaymentMethodId().isBlank()) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "missing_payment_method",
+                    "Braintree reusable setup requires a Drop-in payment method nonce.",
+                    false);
+        }
+
+        try {
+            BraintreeGateway gateway = buildGateway(bt);
+            if (request.existingProviderCustomerReference() != null
+                    && !request.existingProviderCustomerReference().isBlank()) {
+                PaymentMethodRequest methodRequest = new PaymentMethodRequest()
+                        .customerId(request.existingProviderCustomerReference())
+                        .paymentMethodNonce(request.providerPaymentMethodId());
+                Result<? extends PaymentMethod> methodResult = gateway.paymentMethod().create(methodRequest);
+                if (!methodResult.isSuccess()) {
+                    return ReusablePaymentMethodSetupResult.failed(
+                            "validation_error", methodResult.getMessage(), false);
+                }
+                PaymentMethod paymentMethod = methodResult.getTarget();
+                return ReusablePaymentMethodSetupResult.succeeded(
+                        paymentMethod.getCustomerId(),
+                        paymentMethod.getToken(),
+                        "{\"provider\":\"BRAINTREE\",\"customerId\":\"" + paymentMethod.getCustomerId()
+                                + "\",\"paymentMethodToken\":\"" + paymentMethod.getToken() + "\"}");
+            }
+
+            CustomerRequest customerRequest = new CustomerRequest()
+                    .paymentMethodNonce(request.providerPaymentMethodId());
+            if (request.billingDetails() != null) {
+                if (request.billingDetails().firstName() != null) {
+                    customerRequest.firstName(request.billingDetails().firstName());
+                }
+                if (request.billingDetails().lastName() != null) {
+                    customerRequest.lastName(request.billingDetails().lastName());
+                }
+                if (request.billingDetails().email() != null) {
+                    customerRequest.email(request.billingDetails().email());
+                }
+                if (request.billingDetails().phone() != null) {
+                    customerRequest.phone(request.billingDetails().phone());
+                }
+            }
+
+            Result<com.braintreegateway.Customer> result = gateway.customer().create(customerRequest);
+            if (!result.isSuccess()) {
+                return ReusablePaymentMethodSetupResult.failed("validation_error", result.getMessage(), false);
+            }
+            com.braintreegateway.Customer customer = result.getTarget();
+            PaymentMethod defaultMethod = customer.getDefaultPaymentMethod();
+            String reusableToken = defaultMethod != null ? defaultMethod.getToken() : null;
+            if (reusableToken == null && !customer.getPaymentMethods().isEmpty()) {
+                reusableToken = customer.getPaymentMethods().get(0).getToken();
+            }
+            if (reusableToken == null || reusableToken.isBlank()) {
+                return ReusablePaymentMethodSetupResult.failed(
+                        "vault_token_missing", "Braintree did not return a vaulted payment method token.", true);
+            }
+            return ReusablePaymentMethodSetupResult.succeeded(
+                    customer.getId(),
+                    reusableToken,
+                    "{\"provider\":\"BRAINTREE\",\"customerId\":\"" + customer.getId()
+                            + "\",\"paymentMethodToken\":\"" + reusableToken + "\"}");
+        } catch (Exception e) {
+            log.error("Braintree reusable payment method setup error", e);
+            return ReusablePaymentMethodSetupResult.failed("gateway_error", e.getMessage(), true);
         }
     }
 

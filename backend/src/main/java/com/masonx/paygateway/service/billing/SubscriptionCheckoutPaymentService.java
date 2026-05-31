@@ -3,6 +3,8 @@ package com.masonx.paygateway.service.billing;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethod;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodStatus;
+import com.masonx.paygateway.domain.billing.BillingCustomer;
+import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
 import com.masonx.paygateway.domain.billing.Subscription;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLink;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkRepository;
@@ -12,8 +14,11 @@ import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.instrument.InstrumentPortability;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
 import com.masonx.paygateway.domain.instrument.PaymentInstrument;
 import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
+import com.masonx.paygateway.domain.payment.BillingDetails;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.CaptureMethod;
@@ -29,6 +34,9 @@ import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
+import com.masonx.paygateway.provider.ReusablePaymentMethodDispatcher;
+import com.masonx.paygateway.provider.ReusablePaymentMethodSetupRequest;
+import com.masonx.paygateway.provider.ReusablePaymentMethodSetupResult;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
@@ -45,9 +53,11 @@ public class SubscriptionCheckoutPaymentService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionItemRepository itemRepository;
     private final PaymentTokenService paymentTokenService;
+    private final BillingCustomerRepository customerRepository;
     private final ProviderAccountRepository providerAccountRepository;
     private final CredentialsCodec credentialsCodec;
     private final PaymentProviderDispatcher dispatcher;
+    private final ReusablePaymentMethodDispatcher reusablePaymentMethodDispatcher;
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentInstrumentRepository paymentInstrumentRepository;
@@ -59,9 +69,11 @@ public class SubscriptionCheckoutPaymentService {
                                               SubscriptionRepository subscriptionRepository,
                                               SubscriptionItemRepository itemRepository,
                                               PaymentTokenService paymentTokenService,
+                                              BillingCustomerRepository customerRepository,
                                               ProviderAccountRepository providerAccountRepository,
                                               CredentialsCodec credentialsCodec,
                                               PaymentProviderDispatcher dispatcher,
+                                              ReusablePaymentMethodDispatcher reusablePaymentMethodDispatcher,
                                               PaymentIntentRepository paymentIntentRepository,
                                               PaymentRequestRepository paymentRequestRepository,
                                               PaymentInstrumentRepository paymentInstrumentRepository,
@@ -72,9 +84,11 @@ public class SubscriptionCheckoutPaymentService {
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
         this.paymentTokenService = paymentTokenService;
+        this.customerRepository = customerRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
         this.dispatcher = dispatcher;
+        this.reusablePaymentMethodDispatcher = reusablePaymentMethodDispatcher;
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.paymentInstrumentRepository = paymentInstrumentRepository;
@@ -96,15 +110,6 @@ public class SubscriptionCheckoutPaymentService {
             throw new IllegalStateException("Payment token does not belong to this merchant");
         }
 
-        attachDefaultPaymentMethod(subscription, paymentToken);
-
-        if (isTrialing(subscription)) {
-            markLinkUsed(link);
-            return new PublicSubscriptionCheckoutResponse(
-                    true, subscription.getStatus().name(), subscription.getId(), null, null, null);
-        }
-
-        long amount = subscriptionAmount(subscription);
         ProviderAccount account = providerAccountRepository.findById(paymentToken.getAccountId())
                 .orElseThrow(() -> new IllegalStateException("Connector account not found"));
         if (account.getMode() != subscription.getMode()) {
@@ -113,6 +118,45 @@ public class SubscriptionCheckoutPaymentService {
         }
         ProviderCredentials credentials = credentialsCodec.decode(account);
         PaymentProvider provider = PaymentProvider.valueOf(paymentToken.getProvider());
+        BillingCustomer customer = customerRepository
+                .findByIdAndMerchantIdAndMode(subscription.getCustomerId(), subscription.getMerchantId(), subscription.getMode())
+                .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
+        ReusablePaymentMethodSetupResult setupResult = reusablePaymentMethodDispatcher.setup(provider,
+                new ReusablePaymentMethodSetupRequest(
+                        subscription.getMerchantId(),
+                        subscription.getCustomerId(),
+                        subscription.getId(),
+                        account.getId(),
+                        "card",
+                        paymentToken.getProviderPmId(),
+                        existingProviderCustomerReference(subscription, provider, account),
+                        "sub-pm-setup-" + paymentToken.getId(),
+                        billingDetails(customer),
+                        null),
+                credentials);
+        if (!setupResult.success()) {
+            checkoutLinkRepository.releaseLink(token);
+            return new PublicSubscriptionCheckoutResponse(
+                    false,
+                    "FAILED",
+                    subscription.getId(),
+                    null,
+                    setupResult.failureCode() != null ? setupResult.failureCode() : setupResult.actionType(),
+                    setupResult.failureMessage() != null
+                            ? setupResult.failureMessage()
+                            : "Provider requires a hosted reusable payment method setup flow before activation");
+        }
+
+        PaymentInstrument reusableInstrument = storeReusablePaymentInstrument(subscription, paymentToken, setupResult, account);
+
+        if (isTrialing(subscription)) {
+            makeDefaultPaymentMethod(subscription, reusableInstrument);
+            markLinkUsed(link);
+            return new PublicSubscriptionCheckoutResponse(
+                    true, subscription.getStatus().name(), subscription.getId(), null, null, null);
+        }
+
+        long amount = subscriptionAmount(subscription);
         String idempotencyKey = "sub-" + subscription.getId() + "-" + UUID.randomUUID();
 
         PaymentIntent intent = new PaymentIntent();
@@ -134,9 +178,10 @@ public class SubscriptionCheckoutPaymentService {
                 amount,
                 subscription.getCurrency(),
                 "card",
-                paymentToken.getProviderPmId(),
+                reusableInstrument.getTokenReference(),
+                reusableInstrument.getProviderCustomerReference(),
                 idempotencyKey,
-                null,
+                billingDetails(customer),
                 null,
                 null,
                 null
@@ -170,6 +215,7 @@ public class SubscriptionCheckoutPaymentService {
                     result.failureCode(), result.failureMessage());
         }
 
+        makeDefaultPaymentMethod(subscription, reusableInstrument);
         subscription.setStatus(SubscriptionStatus.ACTIVE);
         subscriptionRepository.save(subscription);
         markLinkUsed(link);
@@ -199,16 +245,27 @@ public class SubscriptionCheckoutPaymentService {
                 .orElseThrow(() -> new IllegalArgumentException("Subscription not found"));
     }
 
-    private void attachDefaultPaymentMethod(Subscription subscription, PaymentToken token) {
+    private PaymentInstrument storeReusablePaymentInstrument(Subscription subscription,
+                                                             PaymentToken token,
+                                                             ReusablePaymentMethodSetupResult setupResult,
+                                                             ProviderAccount account) {
         if (token.getInstrumentId() == null) {
-            return;
+            throw new IllegalArgumentException("Payment token is missing an instrument reference");
         }
         PaymentInstrument instrument = paymentInstrumentRepository
                 .findByIdAndMerchantId(token.getInstrumentId(), subscription.getMerchantId())
                 .orElseThrow(() -> new IllegalArgumentException("Payment instrument not found"));
         instrument.setCustomerId(subscription.getCustomerId());
-        paymentInstrumentRepository.save(instrument);
+        instrument.setSource(InstrumentSource.VAULT_TOKEN);
+        instrument.setPortability(InstrumentPortability.PROVIDER_SCOPED);
+        instrument.setProvider(account.getProvider());
+        instrument.setProviderAccountId(account.getId());
+        instrument.setProviderCustomerReference(setupResult.providerCustomerReference());
+        instrument.setTokenReference(setupResult.reusablePaymentMethodReference());
+        return paymentInstrumentRepository.save(instrument);
+    }
 
+    private void makeDefaultPaymentMethod(Subscription subscription, PaymentInstrument instrument) {
         customerPaymentMethodRepository.clearDefault(subscription.getMerchantId(), subscription.getCustomerId());
         CustomerPaymentMethod method = customerPaymentMethodRepository
                 .findByMerchantIdAndCustomerIdAndPaymentInstrumentId(
@@ -222,6 +279,29 @@ public class SubscriptionCheckoutPaymentService {
         method.setStatus(CustomerPaymentMethodStatus.ACTIVE);
         method.setDefaultMethod(true);
         customerPaymentMethodRepository.save(method);
+    }
+
+    private String existingProviderCustomerReference(Subscription subscription,
+                                                     PaymentProvider provider,
+                                                     ProviderAccount account) {
+        return paymentInstrumentRepository
+                .findFirstByMerchantIdAndCustomerIdAndProviderAndProviderAccountIdAndProviderCustomerReferenceIsNotNullOrderByCreatedAtDesc(
+                        subscription.getMerchantId(), subscription.getCustomerId(), provider, account.getId())
+                .map(PaymentInstrument::getProviderCustomerReference)
+                .orElse(null);
+    }
+
+    private BillingDetails billingDetails(BillingCustomer customer) {
+        String firstName = null;
+        String lastName = null;
+        if (customer.getName() != null && !customer.getName().isBlank()) {
+            String[] parts = customer.getName().trim().split("\\s+", 2);
+            firstName = parts[0];
+            if (parts.length > 1) {
+                lastName = parts[1];
+            }
+        }
+        return new BillingDetails(firstName, lastName, customer.getEmail(), null, null);
     }
 
     private boolean isTrialing(Subscription subscription) {

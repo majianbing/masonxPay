@@ -34,7 +34,7 @@ import java.util.Optional;
  * Both use the same API endpoint — https://api.mollie.com/v2.
  */
 @Service
-public class MolliePaymentProviderService implements PaymentProviderService {
+public class MolliePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(MolliePaymentProviderService.class);
 
@@ -68,6 +68,10 @@ public class MolliePaymentProviderService implements PaymentProviderService {
             body.put("description", buildDescription(req));
             body.put("redirectUrl", req.returnUrl() != null ? req.returnUrl() : "https://example.com");
             body.put("metadata", Map.of("paymentIntentId", req.paymentIntentId().toString()));
+            if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
+                body.put("customerId", req.providerCustomerReference());
+                body.put("sequenceType", "first");
+            }
 
             // Optional: set webhookUrl per-payment if configured globally
             if (webhookUrl != null && !webhookUrl.isBlank()) {
@@ -111,6 +115,60 @@ public class MolliePaymentProviderService implements PaymentProviderService {
             log.error("Mollie charge error", e);
             return new ChargeResult(false, null, null, "gateway_error", e.getMessage(),
                     true, false, null, null, null);
+        }
+    }
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request,
+            ProviderCredentials creds) {
+        if (!(creds instanceof MollieCredentials mollie)) {
+            return ReusablePaymentMethodSetupResult.failed(
+                    "connector_not_configured", "No active Mollie connector found.", false);
+        }
+
+        try {
+            String customerId = request.existingProviderCustomerReference();
+            if (customerId == null || customerId.isBlank()) {
+                Map<String, Object> customerBody = new LinkedHashMap<>();
+                customerBody.put("metadata", Map.of("masonxpayCustomerId", request.customerId().toString()));
+                if (request.billingDetails() != null) {
+                    if (request.billingDetails().email() != null) {
+                        customerBody.put("email", request.billingDetails().email());
+                    }
+                    String name = fullName(request.billingDetails().firstName(), request.billingDetails().lastName());
+                    if (!name.isBlank()) {
+                        customerBody.put("name", name);
+                    }
+                }
+                JsonNode response = restClient.post()
+                        .uri(mollie.baseUrl() + "/customers")
+                        .header("Authorization", "Bearer " + mollie.apiKey())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(customerBody)
+                        .retrieve()
+                        .body(JsonNode.class);
+                customerId = response != null ? response.path("id").asText(null) : null;
+                if (customerId == null || customerId.isBlank()) {
+                    return ReusablePaymentMethodSetupResult.failed(
+                            "customer_create_failed", "Mollie did not return a customer id.", true);
+                }
+                return ReusablePaymentMethodSetupResult.actionRequired(
+                        customerId, response.toString(), "mollie_first_payment", null, null);
+            }
+            return ReusablePaymentMethodSetupResult.actionRequired(
+                    customerId,
+                    "{\"provider\":\"MOLLIE\",\"customerId\":\"" + customerId + "\"}",
+                    "mollie_first_payment",
+                    null,
+                    null);
+        } catch (HttpClientErrorException e) {
+            String code = parseMollieErrorCode(e.getResponseBodyAsString());
+            log.error("Mollie reusable payment method setup failed: {} — {}", e.getStatusCode(), code);
+            return ReusablePaymentMethodSetupResult.failed(code, e.getMessage(), false);
+        } catch (Exception e) {
+            log.error("Mollie reusable payment method setup error", e);
+            return ReusablePaymentMethodSetupResult.failed("gateway_error", e.getMessage(), true);
         }
     }
 
@@ -256,5 +314,12 @@ public class MolliePaymentProviderService implements PaymentProviderService {
         } catch (Exception ex) {
             return "mollie_error";
         }
+    }
+
+    private static String fullName(String first, String last) {
+        if (first == null && last == null) return "";
+        if (first == null) return last;
+        if (last == null) return first;
+        return first + " " + last;
     }
 }

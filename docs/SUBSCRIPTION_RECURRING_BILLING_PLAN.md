@@ -17,7 +17,6 @@ Existing systems that this phase can reuse:
 
 Systems that do not exist yet:
 
-- reusable PSP payment-method setup/mandate flows for real providers
 - recurring invoice payment attempts
 - dunning and customer notification workflows
 
@@ -25,6 +24,8 @@ Systems that now have a foundation but are not complete:
 
 - customer records
 - customer default payment methods
+- reusable PSP payment-method setup for Stripe, Square, Braintree, and Mason Simulator
+- Mollie recurring customer creation and first-payment boundary, with mandate completion still pending
 - subscription plans/items
 - public subscription checkout links
 - invoices and invoice payment-attempt storage
@@ -72,30 +73,33 @@ BILLING_OWNER = PROVIDER
 
 That mode should be explicit because it limits MasonXPay routing, fallback, invoice lifecycle control, and cross-provider portability.
 
-## Current PSP Reusable Method Gap
+## Current PSP Reusable Method Boundary
 
-The current S1/S2 foundation proves the subscription/customer model and a TEST-mode Mason Simulator activation path, but it is not production-ready for real recurring billing yet.
+The current S1/S2 foundation proves the subscription/customer model, a TEST-mode Mason Simulator activation path, and an explicit reusable-method provider capability. Subscription checkout now converts a customer-present provider token/nonce into a provider-scoped `PaymentInstrument` with:
 
-Real providers still need a reusable payment-method boundary before monthly deductions can run safely:
+- `source = VAULT_TOKEN`
+- `provider_account_id`
+- `provider_customer_reference`
+- `token_reference` containing only the safe reusable PSP reference
 
 ```text
 customer opens subscription checkout
-  -> MasonXPay creates a provider setup or first-payment session
+  -> MasonXPay creates or reuses a PSP customer where supported
   -> SDK/UI collects customer-present authorization
   -> PSP confirms a reusable method, vault token, card-on-file ID, or mandate
   -> MasonXPay stores only the safe provider reference on PaymentInstrument
   -> later invoices charge that saved reference off-session
 ```
 
-Provider examples:
+Current provider coverage:
 
-- Stripe: `Customer` + `PaymentMethod` via `SetupIntent` or `PaymentIntent.setup_future_usage`.
-- Square: `Customer` + card-on-file ID via Cards API.
-- Braintree: vaulted payment method token.
-- Mollie: customer mandate from a `sequenceType=first` payment, then `sequenceType=recurring` charges.
-- Mason Simulator: fake reusable reference for local integration and E2E tests.
+- Stripe: creates/reuses a `Customer`, attaches a Stripe `PaymentMethod`, and charges with the customer reference plus `setup_future_usage=off_session`.
+- Square: creates/reuses a Square Customer, stores a card-on-file through the Cards API, and charges with `customer_id`.
+- Braintree: creates a Vault customer from a Drop-in nonce and stores the vaulted payment method token.
+- Mason Simulator: returns fake reusable customer/method references for local integration and E2E tests.
+- Mollie: creates/reuses a Mollie Customer and marks that a hosted `sequenceType=first` payment flow is required. Mandate confirmation and later `sequenceType=recurring` charges are still pending.
 
-This should be implemented later as an explicit provider capability, not by changing `PaymentProviderService.brand()`. The likely boundary is a reusable-payment-method provider interface or an expanded payment request model with setup/off-session semantics.
+This boundary is intentionally separate from `PaymentProviderService.brand()` and ordinary one-time charge execution. Provider calls remain outside transaction-scoped state updates.
 
 ## Non-Negotiable Boundaries
 
@@ -242,6 +246,9 @@ Current progress:
 - [x] Added merchant-scoped APIs to list invoices and idempotently generate the current-period invoice.
 - [x] Added focused service tests for current-period invoice generation and invalid subscription state guards.
 - [x] Added customer TEST/LIVE mode isolation so subscription customer selectors and customer APIs do not mix environments.
+- [x] Added explicit reusable payment-method provider capability and persisted PSP customer references on `PaymentInstrument`.
+- [x] Added provider setup paths for Stripe, Square, Braintree, and Mason Simulator.
+- [~] Added Mollie recurring customer/first-payment boundary; mandate completion still requires hosted first-payment/webhook handling.
 - [ ] Add reusable promotion/coupon entities after the free-trial foundation is validated.
 - [x] Add public `/subscribe/{token}` checkout APIs/pages and first-payment activation foundation.
 - [ ] Add automated period advancement and recurring invoice generation worker.
@@ -363,6 +370,7 @@ Tests:
 - [x] Create a shareable checkout link for a merchant-owned subscription.
 - [x] Public checkout lookup returns customer, merchant, subscription, trial, and item terms.
 - [x] Trial checkout activation stores default payment method without charging the provider.
+- [x] Subscription checkout stores a reusable provider-scoped payment reference instead of the short-lived customer-present token.
 - [x] Docker Compose build/start validates migrations and service health.
 - [ ] Create subscription with valid customer and default payment method.
 - [x] Generate one invoice per subscription period idempotently.
@@ -395,7 +403,8 @@ Rules:
 
 Tests:
 
-- [ ] Provider setup/first-payment flow stores a safe reusable payment reference.
+- [x] Provider setup/first-payment flow stores a safe reusable payment reference for Stripe, Square, Braintree, and Mason Simulator.
+- [ ] Mollie first-payment mandate confirmation stores the mandate/reference after webhook reconciliation.
 - [ ] Invoice payment succeeds through simulator and marks invoice paid.
 - [ ] Failed payment marks subscription past due.
 - [ ] Provider-scoped instrument stays on its owning connector account.

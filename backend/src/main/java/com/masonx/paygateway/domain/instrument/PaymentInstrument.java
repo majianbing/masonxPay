@@ -38,6 +38,9 @@ public class PaymentInstrument {
     @Column(name = "provider_account_id")
     private UUID providerAccountId;
 
+    @Column(name = "provider_customer_reference", length = 255)
+    private String providerCustomerReference;
+
     /** Opaque provider, vault, wallet, or network-token reference. Never store PAN or CVV here. */
     @Column(name = "token_reference", nullable = false, columnDefinition = "TEXT")
     private String tokenReference;
@@ -92,6 +95,8 @@ public class PaymentInstrument {
     public void setProvider(PaymentProvider provider) { this.provider = provider; }
     public UUID getProviderAccountId() { return providerAccountId; }
     public void setProviderAccountId(UUID providerAccountId) { this.providerAccountId = providerAccountId; }
+    public String getProviderCustomerReference() { return providerCustomerReference; }
+    public void setProviderCustomerReference(String providerCustomerReference) { this.providerCustomerReference = providerCustomerReference; }
     public String getTokenReference() { return tokenReference; }
     public void setTokenReference(String tokenReference) { this.tokenReference = tokenReference; }
     public String getCardBrand() { return cardBrand; }

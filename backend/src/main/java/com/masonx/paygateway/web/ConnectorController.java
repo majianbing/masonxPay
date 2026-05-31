@@ -138,6 +138,7 @@ public class ConnectorController {
                 req.currency().toLowerCase(),
                 "card",
                 req.testCard(),
+                null,
                 idempotencyKey,
                 null,
                 null,
