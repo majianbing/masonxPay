@@ -94,6 +94,7 @@ Keep tests modular:
 - Keep merchant portal users and platform admin users in separate tables and realms.
 - Do not weaken payment security, webhook verification, auth, CORS, CSP, or MFA.
 - Never log secrets, tokens, PAN/card data, CVV, private keys, raw provider payloads, or signature headers.
+- Every action that moves funds — charge, capture, refund, recurring invoice payment — must have an idempotency guarantee: a deterministic key derived from stable identifiers (never random UUIDs) sent to the provider, and an idempotent DB state check before executing so retries and concurrent workers cannot double-charge or double-refund.
 - Keep provider calls outside DB transactions.
 - Keep webhook/outbox writes atomic with payment state.
 - Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.

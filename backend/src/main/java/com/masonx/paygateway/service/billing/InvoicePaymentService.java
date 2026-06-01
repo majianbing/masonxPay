@@ -124,7 +124,11 @@ public class InvoicePaymentService {
         }
 
         var credentials = credentialsCodec.decode(account);
-        String idempotencyKey = "inv-" + invoiceId + "-" + UUID.randomUUID();
+        // Deterministic key: same invoice + same attempt number always sends the same key to the provider.
+        // Prevents double-charge if the worker retries the same attempt after a crash or timeout.
+        int priorAttemptCount = attemptRepository
+                .findByMerchantIdAndInvoiceIdOrderByAttemptNumberAsc(merchantId, invoiceId).size();
+        String idempotencyKey = "inv-" + invoiceId + "-attempt-" + (priorAttemptCount + 1);
 
         // --- Transaction A: persist PaymentIntent before the provider call ---
         PaymentIntent savedIntent = txTemplate.execute(ts -> {
@@ -237,4 +241,5 @@ public class InvoicePaymentService {
                 failureCode,
                 failureMessage);
     }
+
 }
