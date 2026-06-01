@@ -26,9 +26,6 @@ import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
-import com.masonx.paygateway.service.retry.ScheduledRetryRequest;
-import com.masonx.paygateway.service.retry.ScheduledRetryService;
-import com.masonx.paygateway.domain.retry.ScheduledRetryOperation;
 import com.masonx.paygateway.web.dto.InvoicePaymentResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -56,7 +53,6 @@ public class InvoicePaymentService {
     private final OutboxEventRepository outboxEventRepository;
     private final CredentialsCodec credentialsCodec;
     private final PaymentProviderDispatcher dispatcher;
-    private final ScheduledRetryService scheduledRetryService;
     private final TransactionTemplate txTemplate;
 
     public InvoicePaymentService(InvoiceRepository invoiceRepository,
@@ -69,7 +65,6 @@ public class InvoicePaymentService {
                                  OutboxEventRepository outboxEventRepository,
                                  CredentialsCodec credentialsCodec,
                                  PaymentProviderDispatcher dispatcher,
-                                 ScheduledRetryService scheduledRetryService,
                                  PlatformTransactionManager txManager) {
         this.invoiceRepository = invoiceRepository;
         this.attemptRepository = attemptRepository;
@@ -81,7 +76,6 @@ public class InvoicePaymentService {
         this.outboxEventRepository = outboxEventRepository;
         this.credentialsCodec = credentialsCodec;
         this.dispatcher = dispatcher;
-        this.scheduledRetryService = scheduledRetryService;
         this.txTemplate = new TransactionTemplate(txManager);
     }
 
@@ -130,7 +124,11 @@ public class InvoicePaymentService {
         }
 
         var credentials = credentialsCodec.decode(account);
-        String idempotencyKey = "inv-" + invoiceId + "-" + UUID.randomUUID();
+        // Deterministic key: same invoice + same attempt number always sends the same key to the provider.
+        // Prevents double-charge if the worker retries the same attempt after a crash or timeout.
+        int priorAttemptCount = attemptRepository
+                .findByMerchantIdAndInvoiceIdOrderByAttemptNumberAsc(merchantId, invoiceId).size();
+        String idempotencyKey = "inv-" + invoiceId + "-attempt-" + (priorAttemptCount + 1);
 
         // --- Transaction A: persist PaymentIntent before the provider call ---
         PaymentIntent savedIntent = txTemplate.execute(ts -> {
@@ -233,10 +231,6 @@ public class InvoicePaymentService {
             return nextAttempt;
         });
 
-        if (!success) {
-            scheduleRetryIfNeeded(merchantId, invoiceId, failureCode, failureMessage);
-        }
-
         return new InvoicePaymentResponse(
                 invoiceId,
                 invoice.getStatus().name(),
@@ -248,36 +242,4 @@ public class InvoicePaymentService {
                 failureMessage);
     }
 
-    /**
-     * Schedules an INVOICE_PAYMENT retry job when payment fails.
-     * Idempotent — does nothing if an active retry job already exists for this invoice.
-     * Default policy: 3 attempts with 3/5/7-day delays, final action PAST_DUE.
-     */
-    private void scheduleRetryIfNeeded(UUID merchantId, UUID invoiceId, String failureCode, String failureMessage) {
-        // Hard declines and customer-action-required should not auto-retry
-        String code = failureCode != null ? failureCode.toLowerCase() : "";
-        if (code.contains("hard_decline") || code.contains("risk_decline")
-                || code.contains("requires_customer_action") || code.contains("connector_not_configured")) {
-            return;
-        }
-        try {
-            scheduledRetryService.schedule(new ScheduledRetryRequest(
-                    merchantId,
-                    ScheduledRetryOperation.INVOICE_PAYMENT,
-                    null, null,
-                    invoiceId,
-                    null,
-                    3,
-                    Instant.now().plusSeconds(259200), // first retry after 3 days
-                    "Invoice payment failed; scheduled recurring retry",
-                    failureCode,
-                    failureMessage,
-                    "{\"retryDelaysSeconds\":[259200,432000,604800],\"finalAction\":\"PAST_DUE\"}"
-            ));
-        } catch (Exception e) {
-            // Non-critical — log and continue; the merchant can manually retry
-            org.slf4j.LoggerFactory.getLogger(InvoicePaymentService.class)
-                    .warn("Could not schedule invoice retry for {}: {}", invoiceId, e.getMessage());
-        }
-    }
 }

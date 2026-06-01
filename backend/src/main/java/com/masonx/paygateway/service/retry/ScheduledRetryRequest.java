@@ -10,7 +10,6 @@ public record ScheduledRetryRequest(
         ScheduledRetryOperation operation,
         UUID paymentIntentId,
         UUID refundId,
-        UUID invoiceId,
         UUID connectorAccountId,
         int maxAttempts,
         Instant nextRunAt,

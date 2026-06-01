@@ -57,7 +57,6 @@ public class ScheduledRetryService {
         job.setStatus(ScheduledRetryStatus.SCHEDULED);
         job.setPaymentIntentId(request.paymentIntentId());
         job.setRefundId(request.refundId());
-        job.setInvoiceId(request.invoiceId());
         job.setConnectorAccountId(request.connectorAccountId());
         job.setMaxAttempts(request.maxAttempts() > 0 ? request.maxAttempts() : DEFAULT_MAX_ATTEMPTS);
         job.setNextRunAt(request.nextRunAt() != null ? request.nextRunAt() : Instant.now(clock));
@@ -79,12 +78,6 @@ public class ScheduledRetryService {
             return repository
                     .findFirstByMerchantIdAndOperationAndRefundIdAndStatusInOrderByCreatedAtDesc(
                             request.merchantId(), request.operation(), request.refundId(), ACTIVE_STATUSES)
-                    .orElse(null);
-        }
-        if (request.operation() == ScheduledRetryOperation.INVOICE_PAYMENT) {
-            return repository
-                    .findFirstByMerchantIdAndOperationAndInvoiceIdAndStatusInOrderByCreatedAtDesc(
-                            request.merchantId(), request.operation(), request.invoiceId(), ACTIVE_STATUSES)
                     .orElse(null);
         }
         return null;
@@ -122,10 +115,6 @@ public class ScheduledRetryService {
         if (request.operation() == ScheduledRetryOperation.REFUND
                 && request.refundId() == null) {
             throw new IllegalArgumentException("refundId is required for refund retries");
-        }
-        if (request.operation() == ScheduledRetryOperation.INVOICE_PAYMENT
-                && request.invoiceId() == null) {
-            throw new IllegalArgumentException("invoiceId is required for invoice payment retries");
         }
         if (request.maxAttempts() < 0) {
             throw new IllegalArgumentException("maxAttempts cannot be negative");

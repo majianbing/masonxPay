@@ -406,7 +406,6 @@ public class PaymentIntentService {
                 ScheduledRetryOperation.PAYMENT_CAPTURE,
                 intent.getId(),
                 null,
-                null,
                 intent.getConnectorAccountId(),
                 captureRetryMaxAttempts,
                 Instant.now().plusSeconds(Math.max(1, captureRetryDelaySeconds)),

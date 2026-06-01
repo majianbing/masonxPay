@@ -90,8 +90,7 @@ class InvoicePaymentServiceTest {
                 invoiceRepository, attemptRepository, paymentMethodRepository,
                 instrumentRepository, providerAccountRepository, subscriptionRepository,
                 paymentIntentRepository, outboxEventRepository, credentialsCodec,
-                dispatcher, mock(com.masonx.paygateway.service.retry.ScheduledRetryService.class),
-                noopTxManager());
+                dispatcher, noopTxManager());
 
         merchantId = UUID.randomUUID();
         customerId = UUID.randomUUID();

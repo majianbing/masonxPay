@@ -163,7 +163,6 @@ public class RefundService {
                 refund.getPaymentIntentId(),
                 refund.getId(),
                 null,
-                null,
                 refundRetryMaxAttempts,
                 Instant.now().plusSeconds(Math.max(1, refundRetryDelaySeconds)),
                 "Refund failed; scheduled delayed recovery retry",
