@@ -96,20 +96,21 @@ public class InvoiceBillingWorker {
         if (!enabled) return;
         Instant now = Instant.now(clock);
 
-        // Claim a batch of due invoices inside a transaction using SKIP LOCKED.
-        // Setting nextPaymentAttemptAt to now + 1h is the claim window: concurrent workers
-        // skip this row, and a crash recovers automatically after the window expires.
-        List<Invoice> due = txTemplate.execute(ts -> {
-            List<Invoice> invoices = invoiceRepository.findDueForBilling(now, PageRequest.of(0, batchSize));
-            invoices.forEach(inv -> inv.setNextPaymentAttemptAt(now.plus(CLAIM_WINDOW)));
-            invoiceRepository.saveAll(invoices);
-            return invoices;
-        });
+        // Find candidates — plain SELECT, ShardingSphere-compatible.
+        List<Invoice> candidates = invoiceRepository.findDueForBilling(now, PageRequest.of(0, batchSize));
+        if (candidates.isEmpty()) return;
+        log.debug("InvoiceBillingWorker: {} candidates, attempting optimistic claim", candidates.size());
 
-        if (due == null || due.isEmpty()) return;
-        log.debug("InvoiceBillingWorker: processing {} due invoices", due.size());
-
-        for (Invoice invoice : due) {
+        for (Invoice invoice : candidates) {
+            // Optimistic claim: only one worker wins when both read the same invoice.
+            // claimForBilling succeeds (returns 1) only if nextPaymentAttemptAt hasn't changed.
+            Integer claimed = txTemplate.execute(ts ->
+                    invoiceRepository.claimForBilling(invoice.getId(),
+                            invoice.getNextPaymentAttemptAt(), now.plus(CLAIM_WINDOW)));
+            if (claimed == null || claimed == 0) {
+                log.debug("Invoice {} already claimed by another worker — skipping", invoice.getId());
+                continue;
+            }
             try {
                 chargeInvoice(invoice);
             } catch (Exception e) {

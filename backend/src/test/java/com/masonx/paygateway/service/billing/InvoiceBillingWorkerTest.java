@@ -69,17 +69,15 @@ class InvoiceBillingWorkerTest {
         Invoice invoice = invoice(merchantId, invoiceId, UUID.randomUUID(), InvoiceStatus.OPEN);
 
         when(invoiceRepository.findDueForBilling(any(), any(Pageable.class))).thenReturn(List.of(invoice));
-        when(invoiceRepository.saveAll(any())).thenReturn(List.of(invoice));
+        when(invoiceRepository.claimForBilling(eq(invoiceId), any(), any())).thenReturn(1);
         when(invoicePaymentService.pay(merchantId, invoiceId))
                 .thenReturn(new InvoicePaymentResponse(invoiceId, "PAID", "ACTIVE",
                         UUID.randomUUID(), 1, true, null, null));
 
         worker.processDueInvoices();
 
-        // Claim window set before charging
-        assertThat(invoice.getNextPaymentAttemptAt()).isAfter(NOW);
         verify(invoicePaymentService).pay(merchantId, invoiceId);
-        verify(invoiceRepository, never()).save(invoice); // no reschedule needed on success
+        verify(invoiceRepository, never()).save(invoice);
     }
 
     @Test
@@ -89,7 +87,7 @@ class InvoiceBillingWorkerTest {
         Invoice invoice = invoice(merchantId, invoiceId, UUID.randomUUID(), InvoiceStatus.OPEN);
 
         when(invoiceRepository.findDueForBilling(any(), any(Pageable.class))).thenReturn(List.of(invoice));
-        when(invoiceRepository.saveAll(any())).thenReturn(List.of(invoice));
+        when(invoiceRepository.claimForBilling(eq(invoiceId), any(), any())).thenReturn(1);
         when(invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)).thenReturn(Optional.of(invoice));
         when(invoicePaymentService.pay(merchantId, invoiceId))
                 .thenReturn(new InvoicePaymentResponse(invoiceId, "OPEN", "PAST_DUE",
@@ -97,7 +95,6 @@ class InvoiceBillingWorkerTest {
 
         worker.processDueInvoices();
 
-        // Should reschedule (3-day delay for first attempt)
         verify(invoiceRepository).findByIdAndMerchantId(invoiceId, merchantId);
         assertThat(invoice.getNextPaymentAttemptAt()).isAfter(NOW.plusSeconds(259000));
     }
@@ -111,7 +108,7 @@ class InvoiceBillingWorkerTest {
         Subscription sub = subscription(merchantId, subscriptionId, SubscriptionStatus.PAST_DUE);
 
         when(invoiceRepository.findDueForBilling(any(), any(Pageable.class))).thenReturn(List.of(invoice));
-        when(invoiceRepository.saveAll(any())).thenReturn(List.of(invoice));
+        when(invoiceRepository.claimForBilling(eq(invoiceId), any(), any())).thenReturn(1);
         when(invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)).thenReturn(Optional.of(invoice));
         when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(sub));
         when(invoicePaymentService.pay(merchantId, invoiceId))
@@ -120,7 +117,6 @@ class InvoiceBillingWorkerTest {
 
         worker.processDueInvoices();
 
-        // Hard decline → final action immediately, no retry
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.UNCOLLECTIBLE);
         verify(outboxEventRepository).save(any());
     }
@@ -134,7 +130,7 @@ class InvoiceBillingWorkerTest {
         Subscription sub = subscription(merchantId, subscriptionId, SubscriptionStatus.PAST_DUE);
 
         when(invoiceRepository.findDueForBilling(any(), any(Pageable.class))).thenReturn(List.of(invoice));
-        when(invoiceRepository.saveAll(any())).thenReturn(List.of(invoice));
+        when(invoiceRepository.claimForBilling(eq(invoiceId), any(), any())).thenReturn(1);
         when(invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)).thenReturn(Optional.of(invoice));
         when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(sub));
         when(invoicePaymentService.pay(merchantId, invoiceId))
@@ -145,6 +141,21 @@ class InvoiceBillingWorkerTest {
 
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.UNCOLLECTIBLE);
         verify(outboxEventRepository).save(any());
+    }
+
+    @Test
+    void processDueInvoices_concurrentClaim_skipsAlreadyClaimedInvoice() {
+        UUID merchantId = UUID.randomUUID();
+        UUID invoiceId = UUID.randomUUID();
+        Invoice invoice = invoice(merchantId, invoiceId, UUID.randomUUID(), InvoiceStatus.OPEN);
+
+        when(invoiceRepository.findDueForBilling(any(), any(Pageable.class))).thenReturn(List.of(invoice));
+        // Another worker already claimed it — returns 0
+        when(invoiceRepository.claimForBilling(eq(invoiceId), any(), any())).thenReturn(0);
+
+        worker.processDueInvoices();
+
+        verify(invoicePaymentService, never()).pay(any(), any());
     }
 
     @Test
