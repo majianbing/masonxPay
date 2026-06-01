@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { CalendarClock, Copy, Link2, Plus } from 'lucide-react';
+import { CalendarClock, Copy, CreditCard, Link2, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -52,6 +52,30 @@ interface Subscription {
   updatedAt: string;
 }
 
+interface Invoice {
+  id: string;
+  subscriptionId: string;
+  status: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  dueAt: string | null;
+  createdAt: string;
+}
+
+interface InvoicePaymentResult {
+  invoiceId: string;
+  invoiceStatus: string;
+  subscriptionStatus: string;
+  paymentIntentId: string | null;
+  attemptNumber: number;
+  success: boolean;
+  failureCode: string | null;
+  failureMessage: string | null;
+}
+
 interface SubscriptionCheckoutLink {
   id: string;
   subscriptionId: string;
@@ -62,6 +86,14 @@ interface SubscriptionCheckoutLink {
   expiresAt: string | null;
   completedAt: string | null;
   createdAt: string;
+}
+
+interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
 }
 
 interface FormState {
@@ -95,11 +127,16 @@ export default function SubscriptionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [page, setPage] = useState(0);
 
-  const subscriptionsKey = useMemo(() => ['subscriptions', activeMerchantId, mode], [activeMerchantId, mode]);
+  const subscriptionsKey = useMemo(() => ['subscriptions', activeMerchantId, mode, page], [activeMerchantId, mode, page]);
   const customersKey = useMemo(() => ['customers', activeMerchantId, mode], [activeMerchantId, mode]);
   const checkoutLinksKey = useMemo(
     () => ['subscription-checkout-links', activeMerchantId, selectedSubscription?.id],
+    [activeMerchantId, selectedSubscription?.id],
+  );
+  const invoicesKey = useMemo(
+    () => ['invoices', activeMerchantId, selectedSubscription?.id],
     [activeMerchantId, selectedSubscription?.id],
   );
 
@@ -109,10 +146,20 @@ export default function SubscriptionsPage() {
     enabled: !!activeMerchantId,
   });
 
-  const { data: subscriptions, isLoading } = useQuery<Subscription[]>({
+  const { data: subscriptionPage, isLoading } = useQuery<Page<Subscription>>({
     queryKey: subscriptionsKey,
-    queryFn: () => apiFetch<Subscription[]>(`/api/v1/merchants/${activeMerchantId}/subscriptions?mode=${mode}`),
+    queryFn: () => apiFetch<Page<Subscription>>(
+      `/api/v1/merchants/${activeMerchantId}/subscriptions?mode=${mode}&page=${page}&size=20&sort=createdAt,desc`,
+    ),
     enabled: !!activeMerchantId,
+  });
+
+  const { data: invoices, isLoading: invoicesLoading } = useQuery<Invoice[]>({
+    queryKey: invoicesKey,
+    queryFn: () => apiFetch<Invoice[]>(
+      `/api/v1/merchants/${activeMerchantId}/invoices?subscriptionId=${selectedSubscription?.id}`,
+    ),
+    enabled: !!activeMerchantId && !!selectedSubscription,
   });
 
   const { data: checkoutLinks, isLoading: linksLoading } = useQuery<SubscriptionCheckoutLink[]>({
@@ -169,8 +216,46 @@ export default function SubscriptionsPage() {
     },
   });
 
+  const generateInvoiceMutation = useMutation({
+    mutationFn: () => apiFetch<Invoice>(
+      `/api/v1/merchants/${activeMerchantId}/subscriptions/${selectedSubscription?.id}/invoices/current-period`,
+      { method: 'POST' },
+    ),
+    onSuccess: () => {
+      toast.success('Invoice generated');
+      queryClient.invalidateQueries({ queryKey: invoicesKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not generate invoice');
+    },
+  });
+
+  const payInvoiceMutation = useMutation({
+    mutationFn: (invoiceId: string) => apiFetch<InvoicePaymentResult>(
+      `/api/v1/merchants/${activeMerchantId}/invoices/${invoiceId}/pay`,
+      { method: 'POST' },
+    ),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(`Invoice paid — subscription is ${result.subscriptionStatus}`);
+      } else {
+        toast.error(result.failureMessage ?? result.failureCode ?? 'Payment failed');
+      }
+      queryClient.invalidateQueries({ queryKey: invoicesKey });
+      queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not pay invoice');
+    },
+  });
+
+  // Reset to page 0 when merchant or mode changes
+  useEffect(() => { setPage(0); setSelectedSubscription(null); }, [activeMerchantId, mode]);
+
   const customerById = new Map((customers ?? []).map((customer) => [customer.id, customer]));
-  const rows = subscriptions ?? [];
+  const rows = subscriptionPage?.content ?? [];
 
   function openCreate() {
     setForm({ ...emptyForm, customerId: customers?.[0]?.id ?? '' });
@@ -257,6 +342,30 @@ export default function SubscriptionsPage() {
                 ))}
               </tbody>
             </table>
+            {(subscriptionPage?.totalPages ?? 0) > 1 && (
+              <div className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
+                <span>
+                  {subscriptionPage!.totalElements} total
+                  {subscriptionPage!.totalPages > 1 && ` · page ${page + 1} of ${subscriptionPage!.totalPages}`}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline" size="sm"
+                    disabled={page === 0}
+                    onClick={() => { setPage(p => p - 1); setSelectedSubscription(null); }}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline" size="sm"
+                    disabled={page >= (subscriptionPage?.totalPages ?? 1) - 1}
+                    onClick={() => { setPage(p => p + 1); setSelectedSubscription(null); }}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -316,6 +425,62 @@ export default function SubscriptionsPage() {
                         </Button>
                       </div>
                       <div className="break-all font-mono text-xs text-muted-foreground">{link.checkoutUrl}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-medium">Invoices</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={generateInvoiceMutation.isPending}
+                      onClick={() => generateInvoiceMutation.mutate()}
+                    >
+                      <Plus className="size-4" />
+                      Generate
+                    </Button>
+                  </div>
+                  {invoicesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading...</p>
+                  ) : !invoices?.length ? (
+                    <p className="text-sm text-muted-foreground">No invoices yet</p>
+                  ) : invoices.map((invoice) => (
+                    <div key={invoice.id} className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(invoice.periodStart), 'MMM d')}
+                            {' – '}
+                            {format(new Date(invoice.periodEnd), 'MMM d, yyyy')}
+                          </p>
+                          <p className="font-medium">{formatMoney(invoice.amountDue, invoice.currency)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <InvoiceStatusBadge status={invoice.status} />
+                          {invoice.status === 'OPEN' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5"
+                              disabled={payInvoiceMutation.isPending}
+                              onClick={() => payInvoiceMutation.mutate(invoice.id)}
+                            >
+                              {payInvoiceMutation.isPending
+                                ? <RefreshCw className="size-3.5 animate-spin" />
+                                : <CreditCard className="size-3.5" />}
+                              Pay
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      {invoice.status === 'PAID' && (
+                        <p className="mt-1 text-xs text-green-600">
+                          Paid {formatMoney(invoice.amountPaid, invoice.currency)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -474,6 +639,16 @@ function StatusBadge({ status }: { status: Subscription['status'] }) {
     CANCELED: 'border-gray-200 bg-gray-50 text-gray-600',
   };
   return <Badge variant="outline" className={statusClass[status]}>{status}</Badge>;
+}
+
+function InvoiceStatusBadge({ status }: { status: Invoice['status'] }) {
+  const cls: Record<Invoice['status'], string> = {
+    OPEN:           'border-amber-200 bg-amber-50 text-amber-700',
+    PAID:           'border-green-200 bg-green-50 text-green-700',
+    VOID:           'border-gray-200 bg-gray-50 text-gray-600',
+    UNCOLLECTIBLE:  'border-red-200 bg-red-50 text-red-700',
+  };
+  return <Badge variant="outline" className={cls[status]}>{status}</Badge>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

@@ -17,5 +17,6 @@ public record PublicSubscriptionCheckoutInfo(
         int intervalCount,
         Instant trialEndsAt,
         boolean active,
-        List<SubscriptionItemResponse> items
+        List<SubscriptionItemResponse> items,
+        List<CheckoutConnectorInfo> connectors
 ) {}

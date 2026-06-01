@@ -379,7 +379,7 @@ Tests:
 - [x] Generate one invoice per subscription period idempotently.
 - [x] State transition guards reject invalid changes (CANCELED/UNPAID rejects checkout link creation).
 
-## Stage S3: Off-Session Invoice Payment Execution `[ ]`
+## Stage S3: Off-Session Invoice Payment Execution `[x]`
 
 Goal: charge an open invoice through the normal payment stack.
 
@@ -387,31 +387,44 @@ Flow:
 
 ```text
 OPEN invoice
-  -> load customer default PaymentInstrument
-  -> create PaymentIntent with customer_id and invoice metadata
-  -> confirm off-session through existing route/payment services
-  -> write invoice_payment_attempt
+  -> load customer default PaymentInstrument (source=VAULT_TOKEN, providerCustomerReference present)
+  -> verify connector account mode matches invoice mode
+  -> create PaymentIntent (status=PROCESSING) in transaction A
+  -> charge off-session via PaymentProviderDispatcher (outside transaction)
+  -> requiresAction → treated as failure (customer not present for 3DS)
+  -> write InvoicePaymentAttempt, update intent, invoice, subscription, outbox in transaction B
   -> success: invoice PAID, subscription ACTIVE
-  -> failure: invoice OPEN, subscription PAST_DUE
+  -> failure: invoice OPEN, nextPaymentAttemptAt=now, subscription PAST_DUE
 ```
+
+Current progress:
+
+- [x] Added InvoicePaymentService with two-phase transaction discipline (provider call outside any transaction).
+- [x] Added InvoiceController: POST /pay, GET /{id}, GET / (flat, mode-filtered).
+- [x] Added CustomerPaymentMethodRepository default method query.
+- [x] Added InvoiceRepository flat list query (findByMerchantIdAndMode).
+- [x] Added InvoicePaymentResponse DTO.
+- [x] Idempotent: already-PAID invoice returns immediately without charging.
+- [x] requiresAction treated as failure with requires_customer_action code.
+- [x] attempt_number increments per call; attempt linked to payment intent.
+- [x] 8 unit tests and 6 controller integration tests.
 
 Rules:
 
 - Off-session execution must not call provider adapters directly.
-- Use Mason Simulator for local integration tests.
-- Reuse routing capability checks.
-- Require a valid reusable PSP reference before any real off-session charge.
-- Customer-present setup or first-payment authorization must happen before recurring monthly deductions.
-- Do not cross-provider fallback for provider-scoped instruments unless the instrument is portable.
+- Instrument must have source=VAULT_TOKEN and providerCustomerReference set.
+- No cross-provider fallback — instrument's providerAccountId used directly, not the routing engine.
+- Connector account mode must match invoice mode.
+- requiresAction (3DS redirect) is treated as failure for off-session charges.
 
 Tests:
 
 - [x] Provider setup/first-payment flow stores a safe reusable payment reference for Stripe, Square, Braintree, and Mason Simulator.
 - [ ] Mollie first-payment mandate confirmation stores the mandate/reference after webhook reconciliation.
-- [ ] Invoice payment succeeds through simulator and marks invoice paid.
-- [ ] Failed payment marks subscription past due.
-- [ ] Provider-scoped instrument stays on its owning connector account.
-- [ ] Payment intent and invoice attempt are linked.
+- [x] Invoice payment succeeds through simulator and marks invoice paid.
+- [x] Failed payment marks subscription past due.
+- [x] Provider-scoped instrument stays on its owning connector account (verified via connector account ID).
+- [x] Payment intent and invoice attempt are linked.
 
 ## Stage S4: Recurring Retry and Dunning `[ ]`
 

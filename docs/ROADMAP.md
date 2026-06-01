@@ -138,7 +138,7 @@ See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN
 | S0 | **Architecture and state model** | [ ] | Define customer, subscription, invoice, invoice payment attempt, permission, webhook, and payment-instrument boundaries before runtime code. |
 | S1 | **Customer and payment method foundation** | ✅ | Merchant-scoped TEST/LIVE-isolated customers, payment-method references backed by safe `PaymentInstrument` rows, backend APIs, service tests, controller integration tests (tenant isolation, mode filtering, instrument ownership), and dashboard customer management. |
 | S2 | **Subscription and invoice foundation** | ✅ | Mode-aware subscriptions, subscription items, trial-aware creation, checkout-link tokens, public checkout-link lookup, TEST-mode simulator activation, reusable payment-method setup for Stripe/Square/Braintree/Simulator, invoice storage with mode isolation, idempotent period invoice generation, period advancement worker, controller integration tests, and state transition guards. Promotions/coupons deferred until after S3. Mollie mandate completion remains pending. |
-| S3 | **Off-session invoice payment execution** | [ ] | Pay open invoices through normal payment intent/provider routing using saved reusable PSP references and Mason Simulator tests. Mollie requires first-payment mandate reconciliation before off-session recurring charges. |
+| S3 | **Off-session invoice payment execution** | ✅ | InvoicePaymentService charges open invoices off-session via saved vault tokens. Two-phase transaction discipline (provider call outside DB transaction). requiresAction treated as failure. Idempotent for already-paid invoices. InvoiceController with flat list/get/pay endpoints. 8 unit + 6 integration tests. |
 | S4 | **Recurring retry and dunning** | [ ] | Add merchant retry policy, `INVOICE_PAYMENT` scheduled retries, dunning state, final actions, and notification hooks. |
 | S5 | **Dashboard operations** | [~] | Added customer management, subscription list/create/detail/checkout-link UI, and public subscription checkout preview with TEST-mode simulator activation. Invoice views, retry policy, failed invoice retry queue, live PSP activation, and subscription lifecycle actions remain pending. |
 
@@ -203,6 +203,37 @@ Agent recommendation:
 | AI5 | **Human approval and model settings UI** | [ ] | Add dashboard review UI with diff, explanation, simulated impact, rollback plan, approval/rejection audit trail, versioned routing config updates, and platform-admin controls for default model/provider configuration. |
 | AI6 | **Deterministic execution and rollback** | [ ] | Apply approved policy changes through existing routing rules and monitor rollback conditions with deterministic workers, not AI. |
 | AI7 | **Agent harness, evals, and auditability** | [ ] | Add prompt/template versioning, golden incident datasets, offline evals, model comparison reports, trace links, tool-call audit logs, and rollout gates for changing default models. |
+
+---
+
+## Phase R — Financial Reconciliation
+
+Settlement file reconciliation and real-time dual-stream monitoring at 1–10M transactions/day. Phase R is entirely additive — it builds on the existing Kafka event stream, `payment_requests` table, and provider response storage without touching the authorization path. It is also the foundation that Phase N settlement processing will extend.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| R1 | **Settlement file ingestion** | [ ] | Per-PSP CSV/JSON settlement file parsers (Stripe, Square, Braintree, Mollie). Store raw settlement records in a separate reconciliation table. Schedule daily ingestion jobs. |
+| R2 | **Batch matching engine** | [ ] | Match each settlement line against `payment_requests` by provider payment ID. Detect: unmatched charges, over/under-settled amounts, fee discrepancies, currency conversion gaps. Write discrepancy records. |
+| R3 | **Real-time dual-stream comparison** | [ ] | Kafka Streams job comparing Stream A (internal payment lifecycle events) against Stream B (PSP webhooks). Flag gaps beyond configurable tolerance windows (e.g. succeeded internally but no PSP webhook within 5 min). |
+| R4 | **Reconciliation dashboard** | [ ] | Merchant-facing: unmatched transactions, settlement status per PSP, fee variance report, discrepancy drill-down. Ops: real-time stream divergence alerts. |
+| R5 | **Automated escalation and audit export** | [ ] | Configurable alerting thresholds, merchant-facing reconciliation reports, audit-ready export (CSV/PDF), chargeback evidence packaging. |
+
+---
+
+## Phase N — Direct Card Network Connectivity
+
+Long-term path toward direct acquiring relationships with card networks (Visa, Mastercard, JCB, UnionPay). The `PaymentProviderService` interface is the stable abstraction — Phase N plugs new implementations below it without changing routing, orchestration, or billing above it.
+
+**PCI boundary rule:** Raw PAN and track data must never enter MasonXPay core services at any phase. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that cross the MasonXPay service boundary. A separate, isolated PCI-scoped component handles ISO 8583 communication and translates between network tokens and the card networks. This boundary must be maintained across all phases.
+
+**Prerequisite design hooks (low cost, record intent now):**
+- `InstrumentSource.NETWORK_TOKEN` reserved in the enum for Visa VTS / MC MDES tokens.
+- Phase R settlement accounting should be designed to extend into Phase N clearing and interchange.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| N1 | **Payment Facilitator model** | [ ] | Sub-merchant onboarding under a BIN sponsor acquirer. MasonXPay becomes the master merchant. Direct acquiring bank API integration (not ISO 8583 yet). Extends existing `PaymentProviderService` with a `PayFacProvider` implementation. Requires acquiring bank partnership and PCI DSS SAQ D or Level 1. |
+| N2 | **Direct card network acquiring** | [ ] | ISO 8583 authorization via a separate PCI-scoped service. New `VISA_DIRECT` / `MC_DIRECT` provider implementations. Network token support (`InstrumentSource.NETWORK_TOKEN` via Visa VTS / MC MDES). Requires full acquiring license, dedicated network connectivity, HSM hardware, and PCI DSS Level 1 certification. 5+ year horizon. |
 
 ---
 

@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.billing;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -17,6 +18,8 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
     List<Subscription> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode);
     List<Subscription> findByMerchantIdAndCustomerIdOrderByCreatedAtDesc(UUID merchantId, UUID customerId);
     List<Subscription> findByMerchantIdAndModeAndCustomerIdOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, UUID customerId);
+    Page<Subscription> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, Pageable pageable);
+    Page<Subscription> findByMerchantIdAndModeAndCustomerIdOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, UUID customerId, Pageable pageable);
     Optional<Subscription> findByIdAndMerchantId(UUID id, UUID merchantId);
 
     @Query("SELECT s FROM Subscription s WHERE s.status = :status AND s.currentPeriodEnd < :now ORDER BY s.currentPeriodEnd ASC")

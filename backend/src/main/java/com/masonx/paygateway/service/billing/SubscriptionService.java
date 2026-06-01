@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
 import com.masonx.paygateway.domain.billing.Subscription;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLink;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkStatus;
@@ -55,11 +57,11 @@ public class SubscriptionService {
     }
 
     @Transactional(readOnly = true)
-    public List<SubscriptionResponse> list(UUID merchantId, ApiKeyMode mode, UUID customerId) {
-        List<Subscription> subscriptions = customerId == null
-                ? subscriptionRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
-                : subscriptionRepository.findByMerchantIdAndModeAndCustomerIdOrderByCreatedAtDesc(merchantId, mode, customerId);
-        return subscriptions.stream().map(this::response).toList();
+    public Page<SubscriptionResponse> list(UUID merchantId, ApiKeyMode mode, UUID customerId, Pageable pageable) {
+        Page<Subscription> page = customerId == null
+                ? subscriptionRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode, pageable)
+                : subscriptionRepository.findByMerchantIdAndModeAndCustomerIdOrderByCreatedAtDesc(merchantId, mode, customerId, pageable);
+        return page.map(this::response);
     }
 
     @Transactional(readOnly = true)
