@@ -28,6 +28,12 @@ public interface ScheduledRetryJobRepository extends JpaRepository<ScheduledRetr
             UUID refundId,
             Collection<ScheduledRetryStatus> statuses);
 
+    Optional<ScheduledRetryJob> findFirstByMerchantIdAndOperationAndInvoiceIdAndStatusInOrderByCreatedAtDesc(
+            UUID merchantId,
+            ScheduledRetryOperation operation,
+            UUID invoiceId,
+            Collection<ScheduledRetryStatus> statuses);
+
     @Query("""
         SELECT j FROM ScheduledRetryJob j
         WHERE j.status = com.masonx.paygateway.domain.retry.ScheduledRetryStatus.SCHEDULED

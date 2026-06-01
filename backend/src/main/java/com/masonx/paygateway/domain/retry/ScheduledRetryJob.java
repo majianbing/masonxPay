@@ -38,6 +38,9 @@ public class ScheduledRetryJob {
     @Column(name = "refund_id")
     private UUID refundId;
 
+    @Column(name = "invoice_id")
+    private UUID invoiceId;
+
     @Column(name = "connector_account_id")
     private UUID connectorAccountId;
 
@@ -98,6 +101,8 @@ public class ScheduledRetryJob {
 
     public UUID getRefundId() { return refundId; }
     public void setRefundId(UUID refundId) { this.refundId = refundId; }
+    public UUID getInvoiceId() { return invoiceId; }
+    public void setInvoiceId(UUID invoiceId) { this.invoiceId = invoiceId; }
 
     public UUID getConnectorAccountId() { return connectorAccountId; }
     public void setConnectorAccountId(UUID connectorAccountId) { this.connectorAccountId = connectorAccountId; }

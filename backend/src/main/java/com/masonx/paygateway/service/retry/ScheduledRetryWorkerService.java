@@ -2,6 +2,13 @@ package com.masonx.paygateway.service.retry;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.masonx.paygateway.domain.billing.Invoice;
+import com.masonx.paygateway.domain.billing.InvoiceRepository;
+import com.masonx.paygateway.domain.billing.InvoiceStatus;
+import com.masonx.paygateway.domain.billing.Subscription;
+import com.masonx.paygateway.domain.billing.SubscriptionRepository;
+import com.masonx.paygateway.domain.billing.SubscriptionStatus;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
@@ -22,6 +29,8 @@ import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.ProviderAccountService;
+import com.masonx.paygateway.service.billing.InvoicePaymentService;
+import com.masonx.paygateway.web.dto.InvoicePaymentResponse;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import com.masonx.paygateway.web.dto.RefundResponse;
 import org.slf4j.Logger;
@@ -47,12 +56,18 @@ public class ScheduledRetryWorkerService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledRetryWorkerService.class);
 
+    // Default invoice retry delays in seconds: 3 days, 5 days, 7 days
+    private static final List<Long> DEFAULT_INVOICE_RETRY_DELAYS_SECONDS = List.of(259200L, 432000L, 604800L);
+
     private final ScheduledRetryJobRepository retryJobRepository;
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final RefundRepository refundRepository;
     private final PaymentProviderDispatcher dispatcher;
     private final ProviderAccountService providerAccountService;
+    private final InvoicePaymentService invoicePaymentService;
+    private final InvoiceRepository invoiceRepository;
+    private final SubscriptionRepository subscriptionRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
     private final PaymentMetrics metrics;
@@ -76,13 +91,16 @@ public class ScheduledRetryWorkerService {
                                        RefundRepository refundRepository,
                                        PaymentProviderDispatcher dispatcher,
                                        ProviderAccountService providerAccountService,
+                                       InvoicePaymentService invoicePaymentService,
+                                       InvoiceRepository invoiceRepository,
+                                       SubscriptionRepository subscriptionRepository,
                                        OutboxEventRepository outboxEventRepository,
                                        ObjectMapper objectMapper,
                                        PaymentMetrics metrics,
                                        PlatformTransactionManager txManager) {
         this(retryJobRepository, paymentIntentRepository, paymentRequestRepository, refundRepository, dispatcher,
-                providerAccountService, outboxEventRepository, objectMapper, metrics, txManager,
-                Clock.systemUTC(), defaultWorkerId());
+                providerAccountService, invoicePaymentService, invoiceRepository, subscriptionRepository,
+                outboxEventRepository, objectMapper, metrics, txManager, Clock.systemUTC(), defaultWorkerId());
     }
 
     ScheduledRetryWorkerService(ScheduledRetryJobRepository retryJobRepository,
@@ -91,6 +109,9 @@ public class ScheduledRetryWorkerService {
                                 RefundRepository refundRepository,
                                 PaymentProviderDispatcher dispatcher,
                                 ProviderAccountService providerAccountService,
+                                InvoicePaymentService invoicePaymentService,
+                                InvoiceRepository invoiceRepository,
+                                SubscriptionRepository subscriptionRepository,
                                 OutboxEventRepository outboxEventRepository,
                                 ObjectMapper objectMapper,
                                 PaymentMetrics metrics,
@@ -103,6 +124,9 @@ public class ScheduledRetryWorkerService {
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
+        this.invoicePaymentService = invoicePaymentService;
+        this.invoiceRepository = invoiceRepository;
+        this.subscriptionRepository = subscriptionRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -134,9 +158,11 @@ public class ScheduledRetryWorkerService {
             return;
         }
 
-        RetryOutcome outcome = claimed.getOperation() == ScheduledRetryOperation.PAYMENT_CAPTURE
-                ? executeCapture(claimed)
-                : executeRefund(claimed);
+        RetryOutcome outcome = switch (claimed.getOperation()) {
+            case PAYMENT_CAPTURE -> executeCapture(claimed);
+            case INVOICE_PAYMENT -> executeInvoicePayment(claimed);
+            default             -> executeRefund(claimed);
+        };
 
         txTemplate.executeWithoutResult(ts -> applyOutcome(claimed.getId(), outcome));
     }
@@ -226,6 +252,29 @@ public class ScheduledRetryWorkerService {
                 : RetryOutcome.retryableFailure("refund_failed", result.failureReason());
     }
 
+    private RetryOutcome executeInvoicePayment(ScheduledRetryJob job) {
+        if (job.getInvoiceId() == null) {
+            return RetryOutcome.terminalFailure("missing_invoice", "Job has no invoice reference");
+        }
+        try {
+            InvoicePaymentResponse result = invoicePaymentService.pay(job.getMerchantId(), job.getInvoiceId());
+            if (result.success()) {
+                return RetryOutcome.ok();
+            }
+            // Hard declines and customer-action-required are non-retryable
+            String code = result.failureCode() != null ? result.failureCode().toLowerCase() : "";
+            boolean retryable = !code.contains("hard_decline") && !code.contains("risk_decline")
+                    && !code.contains("invalid_payment_method") && !code.contains("requires_customer_action")
+                    && !code.contains("connector_not_configured");
+            return retryable
+                    ? RetryOutcome.retryableFailure(result.failureCode(), result.failureMessage())
+                    : RetryOutcome.terminalFailure(result.failureCode(), result.failureMessage());
+        } catch (Exception e) {
+            log.error("Invoice payment retry error for invoice {}: {}", job.getInvoiceId(), e.getMessage());
+            return RetryOutcome.retryableFailure("worker_error", e.getMessage());
+        }
+    }
+
     private void applyOutcome(UUID jobId, RetryOutcome outcome) {
         ScheduledRetryJob job = retryJobRepository.findById(jobId).orElseThrow();
         if (outcome.succeeded()) {
@@ -242,7 +291,7 @@ public class ScheduledRetryWorkerService {
             job.setLastErrorMessage(outcome.message());
         } else {
             job.setStatus(ScheduledRetryStatus.SCHEDULED);
-            job.setNextRunAt(Instant.now(clock).plus(Duration.ofSeconds(Math.max(1, backoffSeconds))));
+            job.setNextRunAt(Instant.now(clock).plus(Duration.ofSeconds(nextDelaySeconds(job))));
             job.setLastErrorCode(outcome.errorCode());
             job.setLastErrorMessage(outcome.message());
             job.setLockedAt(null);
@@ -278,7 +327,32 @@ public class ScheduledRetryWorkerService {
         }
     }
 
+    private long nextDelaySeconds(ScheduledRetryJob job) {
+        if (job.getOperation() != ScheduledRetryOperation.INVOICE_PAYMENT) {
+            return Math.max(1, backoffSeconds);
+        }
+        List<Long> delays = DEFAULT_INVOICE_RETRY_DELAYS_SECONDS;
+        if (job.getPayloadJson() != null) {
+            try {
+                var payload = objectMapper.readValue(job.getPayloadJson(), new TypeReference<java.util.Map<String, Object>>() {});
+                Object d = payload.get("retryDelaysSeconds");
+                if (d instanceof List<?> list) {
+                    delays = list.stream()
+                            .map(v -> ((Number) v).longValue())
+                            .toList();
+                }
+            } catch (Exception ignored) {}
+        }
+        // attemptCount has already been incremented for this attempt; use it as the index
+        int idx = Math.max(0, Math.min(job.getAttemptCount() - 1, delays.size() - 1));
+        return Math.max(1, delays.get(idx));
+    }
+
     private void markOperationFailed(ScheduledRetryJob job, RetryOutcome outcome) {
+        if (job.getOperation() == ScheduledRetryOperation.INVOICE_PAYMENT) {
+            applyInvoiceFinalAction(job);
+            return;
+        }
         if (job.getOperation() == ScheduledRetryOperation.PAYMENT_CAPTURE) {
             PaymentIntent intent = paymentIntentRepository.findByIdAndMerchantIdForUpdate(
                             job.getPaymentIntentId(), job.getMerchantId())
@@ -302,6 +376,43 @@ public class ScheduledRetryWorkerService {
             writeOutboxEvent(refund.getMerchantId(), "refund.failed", refund.getId(),
                     RefundResponse.from(refund));
         }
+    }
+
+    private void applyInvoiceFinalAction(ScheduledRetryJob job) {
+        String finalAction = "PAST_DUE";
+        if (job.getPayloadJson() != null) {
+            try {
+                var payload = objectMapper.readValue(job.getPayloadJson(), new TypeReference<java.util.Map<String, Object>>() {});
+                Object fa = payload.get("finalAction");
+                if (fa instanceof String s) finalAction = s.toUpperCase();
+            } catch (Exception ignored) {}
+        }
+        if ("CANCEL".equals(finalAction)) {
+            subscriptionRepository.findByIdAndMerchantId(
+                    invoiceRepository.findByIdAndMerchantId(job.getInvoiceId(), job.getMerchantId())
+                            .map(Invoice::getSubscriptionId).orElse(null),
+                    job.getMerchantId())
+                    .ifPresent(sub -> {
+                        if (sub.getStatus() != SubscriptionStatus.CANCELED) {
+                            sub.setStatus(SubscriptionStatus.CANCELED);
+                            sub.setCanceledAt(Instant.now(clock));
+                            subscriptionRepository.save(sub);
+                            outboxEventRepository.save(new OutboxEvent(
+                                    job.getMerchantId(), "subscription.canceled", sub.getId(),
+                                    "{\"subscriptionId\":\"" + sub.getId() + "\",\"reason\":\"invoice_retry_exhausted\"}"));
+                        }
+                    });
+        } else if ("UNCOLLECTIBLE".equals(finalAction)) {
+            invoiceRepository.findByIdAndMerchantId(job.getInvoiceId(), job.getMerchantId())
+                    .ifPresent(inv -> {
+                        if (inv.getStatus() == com.masonx.paygateway.domain.billing.InvoiceStatus.OPEN) {
+                            inv.setStatus(com.masonx.paygateway.domain.billing.InvoiceStatus.UNCOLLECTIBLE);
+                            invoiceRepository.save(inv);
+                        }
+                    });
+        }
+        // PAST_DUE (default): subscription already PAST_DUE from failed payment — no extra action needed
+        log.info("Invoice retry exhausted for invoice {} — final action: {}", job.getInvoiceId(), finalAction);
     }
 
     private void failClaimedJob(UUID jobId, String errorCode, String errorMessage) {
