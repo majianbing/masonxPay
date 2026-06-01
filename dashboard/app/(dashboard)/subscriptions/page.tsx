@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { CalendarClock, Copy, CreditCard, Link2, Plus, RefreshCw } from 'lucide-react';
@@ -88,6 +88,14 @@ interface SubscriptionCheckoutLink {
   createdAt: string;
 }
 
+interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+}
+
 interface FormState {
   customerId: string;
   description: string;
@@ -119,8 +127,9 @@ export default function SubscriptionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [page, setPage] = useState(0);
 
-  const subscriptionsKey = useMemo(() => ['subscriptions', activeMerchantId, mode], [activeMerchantId, mode]);
+  const subscriptionsKey = useMemo(() => ['subscriptions', activeMerchantId, mode, page], [activeMerchantId, mode, page]);
   const customersKey = useMemo(() => ['customers', activeMerchantId, mode], [activeMerchantId, mode]);
   const checkoutLinksKey = useMemo(
     () => ['subscription-checkout-links', activeMerchantId, selectedSubscription?.id],
@@ -137,9 +146,11 @@ export default function SubscriptionsPage() {
     enabled: !!activeMerchantId,
   });
 
-  const { data: subscriptions, isLoading } = useQuery<Subscription[]>({
+  const { data: subscriptionPage, isLoading } = useQuery<Page<Subscription>>({
     queryKey: subscriptionsKey,
-    queryFn: () => apiFetch<Subscription[]>(`/api/v1/merchants/${activeMerchantId}/subscriptions?mode=${mode}`),
+    queryFn: () => apiFetch<Page<Subscription>>(
+      `/api/v1/merchants/${activeMerchantId}/subscriptions?mode=${mode}&page=${page}&size=20&sort=createdAt,desc`,
+    ),
     enabled: !!activeMerchantId,
   });
 
@@ -240,8 +251,11 @@ export default function SubscriptionsPage() {
     },
   });
 
+  // Reset to page 0 when merchant or mode changes
+  useEffect(() => { setPage(0); setSelectedSubscription(null); }, [activeMerchantId, mode]);
+
   const customerById = new Map((customers ?? []).map((customer) => [customer.id, customer]));
-  const rows = subscriptions ?? [];
+  const rows = subscriptionPage?.content ?? [];
 
   function openCreate() {
     setForm({ ...emptyForm, customerId: customers?.[0]?.id ?? '' });
@@ -328,6 +342,30 @@ export default function SubscriptionsPage() {
                 ))}
               </tbody>
             </table>
+            {(subscriptionPage?.totalPages ?? 0) > 1 && (
+              <div className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
+                <span>
+                  {subscriptionPage!.totalElements} total
+                  {subscriptionPage!.totalPages > 1 && ` · page ${page + 1} of ${subscriptionPage!.totalPages}`}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline" size="sm"
+                    disabled={page === 0}
+                    onClick={() => { setPage(p => p - 1); setSelectedSubscription(null); }}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline" size="sm"
+                    disabled={page >= (subscriptionPage?.totalPages ?? 1) - 1}
+                    onClick={() => { setPage(p => p + 1); setSelectedSubscription(null); }}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

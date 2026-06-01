@@ -98,6 +98,7 @@ Keep tests modular:
 - Keep webhook/outbox writes atomic with payment state.
 - Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.
 - Keep the backend as a clean modular monolith; cross-module calls go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
+- Every merchant-facing list API that can grow beyond 50 items must use Spring Data `Pageable` with `@PageableDefault(size=20)` and return `Page<T>`. Frontend list components must bind a `page` state to the query key and render prev/next controls. Unbounded `List<T>` responses are only acceptable for small, bounded sets (e.g. items on a single record).
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.
 - Keep external AI model calls outside the sensitive data boundary; use redacted, aggregated evidence only, and support a no-external-AI mode.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.

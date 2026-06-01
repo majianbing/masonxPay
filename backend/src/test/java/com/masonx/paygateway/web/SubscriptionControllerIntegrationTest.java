@@ -22,6 +22,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.data.domain.PageImpl;
+
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -70,14 +72,16 @@ class SubscriptionControllerIntegrationTest {
 
     @Test
     void list_returns200WithSubscriptions() throws Exception {
-        when(service.list(eq(merchantId), any(), any()))
-                .thenReturn(List.of(subscriptionResponse(merchantId, customerId, subscriptionId)));
+        when(service.list(eq(merchantId), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of(subscriptionResponse(merchantId, customerId, subscriptionId))));
 
         mockMvc.perform(get("/api/v1/merchants/{merchantId}/subscriptions", merchantId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id").value(subscriptionId.toString()))
-                .andExpect(jsonPath("$[0].status").value("INCOMPLETE"));
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].id").value(subscriptionId.toString()))
+                .andExpect(jsonPath("$.content[0].status").value("INCOMPLETE"))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
@@ -90,13 +94,13 @@ class SubscriptionControllerIntegrationTest {
 
     @Test
     void list_customerIdFilter_passedToService() throws Exception {
-        when(service.list(eq(merchantId), any(), eq(customerId))).thenReturn(List.of());
+        when(service.list(eq(merchantId), any(), eq(customerId), any())).thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/merchants/{merchantId}/subscriptions", merchantId)
                         .param("customerId", customerId.toString()))
                 .andExpect(status().isOk());
 
-        verify(service).list(eq(merchantId), any(), eq(customerId));
+        verify(service).list(eq(merchantId), any(), eq(customerId), any());
     }
 
     @Test

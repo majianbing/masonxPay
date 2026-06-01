@@ -9,6 +9,10 @@ import com.masonx.paygateway.web.dto.InvoiceResponse;
 import com.masonx.paygateway.web.dto.SubscriptionCheckoutLinkResponse;
 import com.masonx.paygateway.web.dto.SubscriptionResponse;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,10 +42,12 @@ public class SubscriptionController {
 
     @GetMapping
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'READ')")
-    public ResponseEntity<List<SubscriptionResponse>> list(@PathVariable UUID merchantId,
-                                                           @RequestParam(required = false, defaultValue = "TEST") String mode,
-                                                           @RequestParam(required = false) UUID customerId) {
-        return ResponseEntity.ok(service.list(merchantId, ApiKeyMode.valueOf(mode.toUpperCase()), customerId));
+    public ResponseEntity<Page<SubscriptionResponse>> list(
+            @PathVariable UUID merchantId,
+            @RequestParam(required = false, defaultValue = "TEST") String mode,
+            @RequestParam(required = false) UUID customerId,
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(service.list(merchantId, ApiKeyMode.valueOf(mode.toUpperCase()), customerId, pageable));
     }
 
     @PostMapping
