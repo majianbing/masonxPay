@@ -59,6 +59,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Do not add `@Transactional` to methods that perform remote provider calls; keep DB transactions short and around state changes.
 - Every merchant-facing list API that can grow beyond 50 items must use Spring Data `Pageable` with `@PageableDefault(size=20)` and return `Page<T>`. Frontend list components must bind a `page` state to the query key and render prev/next controls. Unbounded `List<T>` responses are only acceptable for small, bounded sets (e.g. items on a single record).
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument or explicit customer re-authorization.
+- Raw PAN, track data, and CVV must never enter MasonXPay core services at any phase — including future direct-acquiring phases. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that may cross the MasonXPay service boundary. Any future PCI-scoped component must be a separately deployed, isolated service.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, and OpenSearch are supporting systems, not payment-state authorities.
 - Prefer mature infrastructure components for Redis, Kafka, database access, mapping, retries, rate limiting, and similar cross-cutting behavior.
