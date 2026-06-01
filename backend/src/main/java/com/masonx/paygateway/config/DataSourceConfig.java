@@ -137,6 +137,8 @@ public class DataSourceConfig {
                 "ds_0.route_policy_steps",
                 "ds_0.routing_attributes",
                 "ds_0.routing_rules",
+                "ds_0.invoice_payment_attempts",
+                "ds_0.invoices",
                 "ds_0.scheduled_retry_jobs",
                 "ds_0.subscription_checkout_links",
                 "ds_0.subscription_items",
