@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch, UserRound,
-  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt,
+  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
@@ -14,9 +14,14 @@ const nav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/payments', label: 'Payments', icon: CreditCard },
   { href: '/refunds', label: 'Refunds', icon: RotateCcw },
-  { href: '/customers', label: 'Customers', icon: UserRound },
-  { href: '/subscriptions', label: 'Subscriptions', icon: CalendarClock },
-  { href: '/invoices', label: 'Invoices', icon: Receipt },
+  {
+    label: 'Billing', icon: CircleDollarSign,
+    children: [
+      { href: '/customers', label: 'Customers', icon: UserRound },
+      { href: '/subscriptions', label: 'Subscriptions', icon: CalendarClock },
+      { href: '/invoices', label: 'Invoices', icon: Receipt },
+    ],
+  },
   { href: '/scheduled-retries', label: 'Retries', icon: TimerReset },
   { href: '/routing/policies', label: 'Routing', icon: GitBranch },
   { href: '/connectors', label: 'Connectors', icon: Plug },
@@ -43,6 +48,7 @@ const nav = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState<Record<string, boolean>>({
+    Billing: pathname.startsWith('/customers') || pathname.startsWith('/subscriptions') || pathname.startsWith('/invoices'),
     Developers: pathname.startsWith('/developers'),
     Settings: pathname.startsWith('/settings'),
   });
