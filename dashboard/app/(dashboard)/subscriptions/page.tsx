@@ -128,6 +128,7 @@ export default function SubscriptionsPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [page, setPage] = useState(0);
@@ -405,11 +406,7 @@ export default function SubscriptionsPage() {
                           size="sm"
                           className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
                           disabled={cancelMutation.isPending}
-                          onClick={() => {
-                            if (confirm('Cancel this subscription? This cannot be undone.')) {
-                              cancelMutation.mutate();
-                            }
-                          }}
+                          onClick={() => setCancelConfirmOpen(true)}
                         >
                           <XCircle className="size-3.5" />
                           Cancel
@@ -678,6 +675,38 @@ export default function SubscriptionsPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button disabled={!canSubmit(form) || createMutation.isPending} onClick={() => createMutation.mutate()}>
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel subscription confirmation */}
+      <Dialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cancel subscription?</DialogTitle>
+            <DialogDescription>
+              {selectedSubscription?.items[0]?.description
+                ? `"${selectedSubscription.items[0].description}" will be canceled immediately.`
+                : 'This subscription will be canceled immediately.'}
+              {' '}Any future invoices will not be generated and no further charges will be made.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelConfirmOpen(false)}>
+              Keep subscription
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancelMutation.isPending}
+              onClick={() => {
+                cancelMutation.mutate(undefined, {
+                  onSettled: () => setCancelConfirmOpen(false),
+                });
+              }}
+            >
+              {cancelMutation.isPending ? 'Canceling…' : 'Yes, cancel'}
             </Button>
           </DialogFooter>
         </DialogContent>
