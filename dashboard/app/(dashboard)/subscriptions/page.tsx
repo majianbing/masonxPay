@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { CalendarClock, Copy, CreditCard, Link2, Plus, RefreshCw } from 'lucide-react';
+import { CalendarClock, Copy, CreditCard, ExternalLink, Link2, Plus, RefreshCw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -63,6 +64,7 @@ interface Invoice {
   periodEnd: string;
   dueAt: string | null;
   createdAt: string;
+  latestPaymentIntentId: string | null;
 }
 
 interface InvoicePaymentResult {
@@ -124,6 +126,7 @@ export default function SubscriptionsPage() {
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
   const mode = useAuthStore((s) => s.mode);
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -248,6 +251,22 @@ export default function SubscriptionsPage() {
     onError: (err: unknown) => {
       const e = err as { detail?: string; title?: string };
       toast.error(e.detail ?? e.title ?? 'Could not pay invoice');
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => apiFetch<Subscription>(
+      `/api/v1/merchants/${activeMerchantId}/subscriptions/${selectedSubscription?.id}/cancel`,
+      { method: 'POST' },
+    ),
+    onSuccess: (updated) => {
+      toast.success('Subscription canceled');
+      queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+      setSelectedSubscription(updated);
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not cancel subscription');
     },
   });
 
@@ -378,7 +397,25 @@ export default function SubscriptionsPage() {
                     <h2 className="text-base font-medium">
                       {selectedSubscription.items[0]?.description || 'Subscription'}
                     </h2>
-                    <StatusBadge status={selectedSubscription.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={selectedSubscription.status} />
+                      {!['CANCELED', 'UNPAID'].includes(selectedSubscription.status) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={cancelMutation.isPending}
+                          onClick={() => {
+                            if (confirm('Cancel this subscription? This cannot be undone.')) {
+                              cancelMutation.mutate();
+                            }
+                          }}
+                        >
+                          <XCircle className="size-3.5" />
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <p className="font-mono text-xs text-muted-foreground">{selectedSubscription.id}</p>
                 </div>
@@ -477,9 +514,29 @@ export default function SubscriptionsPage() {
                         </div>
                       </div>
                       {invoice.status === 'PAID' && (
-                        <p className="mt-1 text-xs text-green-600">
-                          Paid {formatMoney(invoice.amountPaid, invoice.currency)}
-                        </p>
+                        <div className="mt-1 flex items-center justify-between">
+                          <p className="text-xs text-green-600">
+                            Paid {formatMoney(invoice.amountPaid, invoice.currency)}
+                          </p>
+                          {invoice.latestPaymentIntentId && (
+                            <button
+                              onClick={() => router.push(`/payments/${invoice.latestPaymentIntentId}`)}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLink className="size-3" />
+                              View payment
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {invoice.status === 'UNCOLLECTIBLE' && invoice.latestPaymentIntentId && (
+                        <button
+                          onClick={() => router.push(`/payments/${invoice.latestPaymentIntentId}`)}
+                          className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <ExternalLink className="size-3" />
+                          View last attempt
+                        </button>
                       )}
                     </div>
                   ))}

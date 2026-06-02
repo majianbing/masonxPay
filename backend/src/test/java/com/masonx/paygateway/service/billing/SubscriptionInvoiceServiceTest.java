@@ -39,7 +39,8 @@ class SubscriptionInvoiceServiceTest {
         subscriptionRepository = mock(SubscriptionRepository.class);
         itemRepository = mock(SubscriptionItemRepository.class);
         invoiceRepository = mock(InvoiceRepository.class);
-        service = new SubscriptionInvoiceService(subscriptionRepository, itemRepository, invoiceRepository);
+        service = new SubscriptionInvoiceService(subscriptionRepository, itemRepository, invoiceRepository,
+                mock(com.masonx.paygateway.domain.billing.InvoicePaymentAttemptRepository.class));
     }
 
     @Test

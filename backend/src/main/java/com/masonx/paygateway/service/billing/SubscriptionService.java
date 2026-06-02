@@ -135,6 +135,20 @@ public class SubscriptionService {
         return SubscriptionCheckoutLinkResponse.from(checkoutLinkRepository.save(link), payBaseUrl);
     }
 
+    @Transactional
+    public SubscriptionResponse cancel(UUID merchantId, UUID subscriptionId) {
+        Subscription subscription = loadOwnedSubscription(merchantId, subscriptionId);
+        if (subscription.getStatus() == SubscriptionStatus.CANCELED) {
+            throw new IllegalStateException("Subscription is already canceled");
+        }
+        if (subscription.getStatus() == SubscriptionStatus.UNPAID) {
+            throw new IllegalStateException("Unpaid subscriptions cannot be canceled this way");
+        }
+        subscription.setStatus(SubscriptionStatus.CANCELED);
+        subscription.setCanceledAt(java.time.Instant.now());
+        return response(subscriptionRepository.save(subscription));
+    }
+
     @Transactional(readOnly = true)
     public List<SubscriptionCheckoutLinkResponse> listCheckoutLinks(UUID merchantId, UUID subscriptionId) {
         loadOwnedSubscription(merchantId, subscriptionId);

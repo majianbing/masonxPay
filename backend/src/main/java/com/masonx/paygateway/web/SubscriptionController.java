@@ -83,6 +83,13 @@ public class SubscriptionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.createCheckoutLink(merchantId, subscriptionId, request));
     }
 
+    @PostMapping("/{subscriptionId}/cancel")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'UPDATE')")
+    public ResponseEntity<SubscriptionResponse> cancel(@PathVariable UUID merchantId,
+                                                       @PathVariable UUID subscriptionId) {
+        return ResponseEntity.ok(service.cancel(merchantId, subscriptionId));
+    }
+
     @GetMapping("/{subscriptionId}/invoices")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'READ')")
     public ResponseEntity<List<InvoiceResponse>> listInvoices(
