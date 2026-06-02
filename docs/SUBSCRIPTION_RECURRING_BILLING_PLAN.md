@@ -426,77 +426,85 @@ Tests:
 - [x] Provider-scoped instrument stays on its owning connector account (verified via connector account ID).
 - [x] Payment intent and invoice attempt are linked.
 
-## Stage S4: Recurring Retry and Dunning `[ ]`
+## Stage S4: Recurring Retry and Dunning `[x]`
 
-Goal: add retry policy for failed subscription invoices only.
+Goal: automatically retry failed invoice payments and apply dunning actions.
 
-Suggested table:
-
-```text
-subscription_retry_policies
-- id
-- merchant_id
-- name
-- max_attempts
-- retry_delays_json
-- final_action
-- customer_notifications_enabled
-- enabled
-- created_at
-- updated_at
-```
-
-Retry operation:
+Implementation: `InvoiceBillingWorker` — a scan-based scheduled worker (not job-queue).
 
 ```text
-scheduled_retry_jobs.operation = INVOICE_PAYMENT
+InvoiceBillingWorker (@Scheduled every 5 minutes)
+  SELECT invoices WHERE status=OPEN AND nextPaymentAttemptAt <= now
+  Optimistic claim per invoice (UPDATE WHERE timestamp matches)
+  → InvoicePaymentService.pay() with deterministic idempotency key
+  → success: invoice PAID, subscription ACTIVE
+  → soft failure (insufficient_funds etc.): nextPaymentAttemptAt += delay
+  → hard decline / max attempts: invoice UNCOLLECTIBLE, outbox event
 ```
 
-Rules:
+Default policy: 3 attempts, delays 3 days / 5 days / 7 days, UNCOLLECTIBLE final action.
+Merchant-configurable policy UI deferred.
 
-- Retry jobs can only target open invoices generated from subscriptions.
-- Retry attempts must create new `invoice_payment_attempts`.
-- Hard declines should stop or require customer payment method update, not blind retry.
-- Final action can mark invoice `UNCOLLECTIBLE`, keep subscription `PAST_DUE`, or cancel subscription depending on merchant policy.
-- Customer notification hooks should be modeled before production use.
+Idempotency:
+- Optimistic claim: concurrent workers race on UPDATE; only one proceeds.
+- Claim window: crash leaves invoice unclaimed after 1 hour.
+- Deterministic provider key: `"inv-{id}-attempt-{n}"` prevents double-charge.
+- Invoice PAID guard in InvoicePaymentService: already-paid invoices are no-ops.
+
+ShardingSphere note: all billing tables must be registered in
+`DataSourceConfig.singleTables()` — ShardingSphere intercepts all JDBC and
+fails on Postgres-specific syntax for unregistered tables.
 
 Tests:
 
-- [ ] Retry schedule creation from failed invoice payment.
-- [ ] Successful retry marks invoice paid and subscription active.
-- [ ] Exhausted retries apply final action.
-- [ ] Hard declines do not loop indefinitely.
+- [x] Success marks invoice paid and subscription active.
+- [x] Retryable failure reschedules with payload delay.
+- [x] Hard decline terminates without reschedule.
+- [x] Max attempts exhausted applies UNCOLLECTIBLE final action.
+- [x] Concurrent claim skip (claimForBilling returns 0).
+- [x] Disabled worker does nothing.
 
-## Stage S5: Dashboard and Merchant Operations `[ ]`
+## Stage S5: Dashboard and Merchant Operations `[x]`
 
 Goal: give merchants enough visibility and control to operate recurring billing.
 
 Current progress:
 
-- [x] Added dashboard customer management.
-- [x] Added subscription list/detail page.
+- [x] Added dashboard customer management (list, create, edit).
+- [x] Added subscription list/detail page with paginated list and status badges.
 - [x] Added create subscription dialog with customer selection, recurring amount, interval, and free-trial days.
-- [x] Added checkout-link creation and copy action for merchant testing.
-- [x] Added public `/subscribe/{token}` preview page.
-- [ ] Add public checkout payment-method authorization and subscription activation before marking the subscription workflow end-to-end complete.
-- [ ] Add invoice, dunning/retry policy, and failed invoice retry queue views.
+- [x] Added checkout-link creation — enforces at-most-one-active-link per subscription; disabled for CANCELED/UNPAID.
+- [x] Added public `/subscribe/{token}` checkout page with real PSP support (Stripe Elements, Square Web Payments, Braintree Drop-in, Simulator). PSP SDK loads lazily; optimistic SDK cleanup prevents duplicate mount on provider switch.
+- [x] Added subscription cancel action with Dialog confirmation (not browser confirm()).
+- [x] Added invoice list in subscription detail: period, amount, status badge, Pay button, Write off button, link to payment intent.
+- [x] Added standalone Invoices page in sidebar: cross-subscription invoice list with status filter, Pay/Write off/View payment actions.
+- [x] Added invoice-to-payment link: `latestPaymentIntentId` in InvoiceResponse, links to /payments/{id}.
+- [x] Added mark-uncollectible endpoint and Write off button (stops billing worker retries).
+- [x] Added human-readable payment method display: card brand + last4 + expiry + provider label instead of truncated UUID.
+- [x] Added Set default and Detach buttons on customer payment methods.
+- [x] Added Billing sidebar group (Customers / Subscriptions / Invoices) replacing three flat entries. Auto-expands on any billing route.
+- [x] Fixed checkout link UX bug: creating a new link deactivates existing ACTIVE links for the same subscription.
+
+Deliberately deferred:
+- Dunning/retry policy configuration UI — billing worker uses sensible defaults (3 attempts, 3/5/7-day delays, UNCOLLECTIBLE final action). Config surface deferred.
+- Mollie mandate/first-payment webhook reconciliation.
+- Promotions/coupons.
 
 Dashboard pages:
 
-- Customers
-- Customer detail with payment methods
-- Subscriptions list/detail
-- Invoices list/detail
-- Dunning/retry policy settings
-- Failed invoice retry queue
+- [x] Customers (list, create, edit, payment method management)
+- [x] Subscriptions (list with pagination, detail, checkout links, invoices, cancel)
+- [x] Invoices (standalone cross-subscription list)
+- [x] Public `/subscribe/{token}` hosted checkout (Stripe, Square, Braintree, Simulator)
+- [ ] Dunning/retry policy settings (deferred)
 
 Controls:
 
-- Create/cancel subscription.
-- Change default payment method.
-- Retry invoice payment manually.
-- Mark invoice uncollectible.
-- Cancel scheduled invoice retry.
+- [x] Create/cancel subscription.
+- [x] Change default payment method.
+- [x] Retry invoice payment manually (Pay button).
+- [x] Mark invoice uncollectible (Write off).
+- Cancel scheduled invoice retry — not applicable (billing worker is scan-based; Write off is the equivalent).
 
 ## API Shape
 
