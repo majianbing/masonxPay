@@ -67,6 +67,19 @@ public class SubscriptionInvoiceService {
         return InvoiceResponse.from(invoice, latestPaymentIntentId(merchantId, invoiceId));
     }
 
+    @Transactional
+    public InvoiceResponse markUncollectible(UUID merchantId, UUID invoiceId) {
+        Invoice invoice = invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Invoice not found"));
+        if (invoice.getStatus() != InvoiceStatus.OPEN) {
+            throw new IllegalStateException("Only OPEN invoices can be marked uncollectible");
+        }
+        invoice.setStatus(InvoiceStatus.UNCOLLECTIBLE);
+        invoice.setNextPaymentAttemptAt(null);
+        return InvoiceResponse.from(invoiceRepository.save(invoice),
+                latestPaymentIntentId(merchantId, invoiceId));
+    }
+
     private UUID latestPaymentIntentId(UUID merchantId, UUID invoiceId) {
         return attemptRepository
                 .findFirstByMerchantIdAndInvoiceIdOrderByAttemptNumberDesc(merchantId, invoiceId)

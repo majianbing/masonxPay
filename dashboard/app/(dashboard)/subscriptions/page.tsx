@@ -235,6 +235,21 @@ export default function SubscriptionsPage() {
     },
   });
 
+  const markUncollectibleMutation = useMutation({
+    mutationFn: (invoiceId: string) => apiFetch<Invoice>(
+      `/api/v1/merchants/${activeMerchantId}/invoices/${invoiceId}/mark-uncollectible`,
+      { method: 'POST' },
+    ),
+    onSuccess: () => {
+      toast.success('Invoice marked uncollectible');
+      queryClient.invalidateQueries({ queryKey: invoicesKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not update invoice');
+    },
+  });
+
   const payInvoiceMutation = useMutation({
     mutationFn: (invoiceId: string) => apiFetch<InvoicePaymentResult>(
       `/api/v1/merchants/${activeMerchantId}/invoices/${invoiceId}/pay`,
@@ -503,18 +518,29 @@ export default function SubscriptionsPage() {
                         <div className="flex items-center gap-2">
                           <InvoiceStatusBadge status={invoice.status} />
                           {invoice.status === 'OPEN' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1.5"
-                              disabled={payInvoiceMutation.isPending}
-                              onClick={() => payInvoiceMutation.mutate(invoice.id)}
-                            >
-                              {payInvoiceMutation.isPending
-                                ? <RefreshCw className="size-3.5 animate-spin" />
-                                : <CreditCard className="size-3.5" />}
-                              Pay
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1.5"
+                                disabled={payInvoiceMutation.isPending}
+                                onClick={() => payInvoiceMutation.mutate(invoice.id)}
+                              >
+                                {payInvoiceMutation.isPending
+                                  ? <RefreshCw className="size-3.5 animate-spin" />
+                                  : <CreditCard className="size-3.5" />}
+                                Pay
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="gap-1.5 text-muted-foreground"
+                                disabled={markUncollectibleMutation.isPending}
+                                onClick={() => markUncollectibleMutation.mutate(invoice.id)}
+                              >
+                                Write off
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
