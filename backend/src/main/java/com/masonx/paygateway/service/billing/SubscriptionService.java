@@ -121,6 +121,9 @@ public class SubscriptionService {
             throw new IllegalStateException("Checkout link cannot be created for this subscription status");
         }
 
+        // Deactivate any existing active links — only one active link per subscription at a time.
+        checkoutLinkRepository.cancelActiveLinks(merchantId, subscriptionId);
+
         SubscriptionCheckoutLink link = new SubscriptionCheckoutLink();
         link.setMerchantId(merchantId);
         link.setCustomerId(subscription.getCustomerId());

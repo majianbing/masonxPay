@@ -437,7 +437,15 @@ export default function SubscriptionsPage() {
                       variant="outline"
                       size="sm"
                       className="gap-1.5"
-                      disabled={linkMutation.isPending}
+                      disabled={
+                        linkMutation.isPending ||
+                        ['CANCELED', 'UNPAID'].includes(selectedSubscription.status)
+                      }
+                      title={
+                        ['CANCELED', 'UNPAID'].includes(selectedSubscription.status)
+                          ? 'Cannot create checkout links for this subscription status'
+                          : undefined
+                      }
                       onClick={() => linkMutation.mutate()}
                     >
                       <Link2 className="size-4" />
