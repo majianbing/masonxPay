@@ -34,4 +34,17 @@ public interface SubscriptionCheckoutLinkRepository extends JpaRepository<Subscr
           AND l.status = 'PROCESSING'
         """)
     void releaseLink(@Param("token") String token);
+
+    /** Deactivates all currently ACTIVE links for a subscription before creating a replacement. */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE SubscriptionCheckoutLink l
+        SET l.status = com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkStatus.CANCELED
+        WHERE l.merchantId = :merchantId
+          AND l.subscriptionId = :subscriptionId
+          AND l.status = com.masonx.paygateway.domain.billing.SubscriptionCheckoutLinkStatus.ACTIVE
+        """)
+    void cancelActiveLinks(@Param("merchantId") UUID merchantId,
+                           @Param("subscriptionId") UUID subscriptionId);
 }

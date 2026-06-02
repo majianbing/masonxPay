@@ -39,6 +39,12 @@ interface CustomerPaymentMethod {
   status: 'ACTIVE' | 'DETACHED';
   defaultMethod: boolean;
   createdAt: string;
+  // Instrument display fields
+  provider: string | null;
+  cardBrand: string | null;
+  last4: string | null;
+  expiryMonth: number | null;
+  expiryYear: number | null;
 }
 
 interface CustomerFormState {
@@ -127,6 +133,39 @@ export default function CustomersPage() {
     onError: (err: unknown) => {
       const e = err as { detail?: string; title?: string };
       toast.error(e.detail ?? e.title ?? 'Could not attach payment method');
+    },
+  });
+
+  const setDefaultMutation = useMutation({
+    mutationFn: (method: CustomerPaymentMethod) => apiFetch<CustomerPaymentMethod>(
+      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods?mode=${mode}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ paymentInstrumentId: method.paymentInstrumentId, defaultMethod: true }),
+      },
+    ),
+    onSuccess: () => {
+      toast.success('Default payment method updated');
+      queryClient.invalidateQueries({ queryKey: paymentMethodsKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not update default');
+    },
+  });
+
+  const detachMutation = useMutation({
+    mutationFn: (methodId: string) => apiFetch(
+      `/api/v1/merchants/${activeMerchantId}/customers/${selectedCustomer?.id}/payment-methods/${methodId}?mode=${mode}`,
+      { method: 'DELETE' },
+    ),
+    onSuccess: () => {
+      toast.success('Payment method detached');
+      queryClient.invalidateQueries({ queryKey: paymentMethodsKey });
+    },
+    onError: (err: unknown) => {
+      const e = err as { detail?: string; title?: string };
+      toast.error(e.detail ?? e.title ?? 'Could not detach');
     },
   });
 
@@ -267,10 +306,36 @@ export default function CustomersPage() {
                   ) : paymentMethods.map((method) => (
                     <div key={method.id} className="rounded-md border p-3 text-sm">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs">{shortId(method.paymentInstrumentId)}</span>
-                        {method.defaultMethod && <Badge variant="secondary">Default</Badge>}
+                        <div className="space-y-0.5">
+                          <p className="font-medium">{cardLabel(method)}</p>
+                          <p className="text-xs text-muted-foreground">{providerLabel(method.provider)}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {method.defaultMethod
+                            ? <Badge variant="secondary">Default</Badge>
+                            : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={setDefaultMutation.isPending}
+                                onClick={() => setDefaultMutation.mutate(method)}
+                              >
+                                Set default
+                              </Button>
+                            )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            disabled={detachMutation.isPending || method.defaultMethod}
+                            title={method.defaultMethod ? 'Cannot detach the default payment method' : 'Detach'}
+                            onClick={() => detachMutation.mutate(method.id)}
+                          >
+                            Detach
+                          </Button>
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">{method.status}</div>
                     </div>
                   ))}
                 </div>
@@ -356,4 +421,24 @@ function metadataToText(metadata: Record<string, string>) {
 
 function shortId(value: string) {
   return `${value.slice(0, 12)}...`;
+}
+
+function cardLabel(method: CustomerPaymentMethod): string {
+  if (method.cardBrand && method.last4) {
+    const brand = method.cardBrand.charAt(0).toUpperCase() + method.cardBrand.slice(1);
+    const expiry = method.expiryMonth && method.expiryYear
+      ? ` · ${String(method.expiryMonth).padStart(2, '0')}/${String(method.expiryYear).slice(-2)}`
+      : '';
+    return `${brand} ···· ${method.last4}${expiry}`;
+  }
+  if (method.provider === 'SIMULATOR') return 'Test card (Simulator)';
+  return `···· ${method.paymentInstrumentId.slice(-6)}`;
+}
+
+function providerLabel(provider: string | null): string {
+  const labels: Record<string, string> = {
+    STRIPE: 'Stripe', SQUARE: 'Square', BRAINTREE: 'Braintree',
+    MOLLIE: 'Mollie', SIMULATOR: 'Mason Simulator',
+  };
+  return provider ? (labels[provider] ?? provider) : 'Unknown provider';
 }

@@ -121,6 +121,9 @@ public class SubscriptionService {
             throw new IllegalStateException("Checkout link cannot be created for this subscription status");
         }
 
+        // Deactivate any existing active links — only one active link per subscription at a time.
+        checkoutLinkRepository.cancelActiveLinks(merchantId, subscriptionId);
+
         SubscriptionCheckoutLink link = new SubscriptionCheckoutLink();
         link.setMerchantId(merchantId);
         link.setCustomerId(subscription.getCustomerId());
@@ -133,6 +136,20 @@ public class SubscriptionService {
         }
         link.setExpiresAt(expiresAt);
         return SubscriptionCheckoutLinkResponse.from(checkoutLinkRepository.save(link), payBaseUrl);
+    }
+
+    @Transactional
+    public SubscriptionResponse cancel(UUID merchantId, UUID subscriptionId) {
+        Subscription subscription = loadOwnedSubscription(merchantId, subscriptionId);
+        if (subscription.getStatus() == SubscriptionStatus.CANCELED) {
+            throw new IllegalStateException("Subscription is already canceled");
+        }
+        if (subscription.getStatus() == SubscriptionStatus.UNPAID) {
+            throw new IllegalStateException("Unpaid subscriptions cannot be canceled this way");
+        }
+        subscription.setStatus(SubscriptionStatus.CANCELED);
+        subscription.setCanceledAt(java.time.Instant.now());
+        return response(subscriptionRepository.save(subscription));
     }
 
     @Transactional(readOnly = true)

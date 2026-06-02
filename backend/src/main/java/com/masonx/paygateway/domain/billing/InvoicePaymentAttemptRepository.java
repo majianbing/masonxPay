@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface InvoicePaymentAttemptRepository extends JpaRepository<InvoicePaymentAttempt, UUID> {
     List<InvoicePaymentAttempt> findByMerchantIdAndInvoiceIdOrderByAttemptNumberAsc(UUID merchantId, UUID invoiceId);
+    java.util.Optional<InvoicePaymentAttempt> findFirstByMerchantIdAndInvoiceIdOrderByAttemptNumberDesc(UUID merchantId, UUID invoiceId);
 }

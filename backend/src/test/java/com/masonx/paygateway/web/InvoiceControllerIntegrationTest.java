@@ -127,6 +127,6 @@ class InvoiceControllerIntegrationTest {
         return new InvoiceResponse(invoiceId, UUID.randomUUID(), subscriptionId,
                 "TEST", "OPEN", 2900, 0, "usd",
                 Instant.now().minusSeconds(86400), Instant.now().plusSeconds(86400),
-                Instant.now(), null, Instant.now());
+                Instant.now(), null, Instant.now(), null);
     }
 }

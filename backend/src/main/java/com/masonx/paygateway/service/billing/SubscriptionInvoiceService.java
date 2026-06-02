@@ -2,6 +2,7 @@ package com.masonx.paygateway.service.billing;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.Invoice;
+import com.masonx.paygateway.domain.billing.InvoicePaymentAttemptRepository;
 import com.masonx.paygateway.domain.billing.InvoiceRepository;
 import com.masonx.paygateway.domain.billing.InvoiceStatus;
 import com.masonx.paygateway.domain.billing.Subscription;
@@ -23,13 +24,16 @@ public class SubscriptionInvoiceService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionItemRepository itemRepository;
     private final InvoiceRepository invoiceRepository;
+    private final InvoicePaymentAttemptRepository attemptRepository;
 
     public SubscriptionInvoiceService(SubscriptionRepository subscriptionRepository,
                                       SubscriptionItemRepository itemRepository,
-                                      InvoiceRepository invoiceRepository) {
+                                      InvoiceRepository invoiceRepository,
+                                      InvoicePaymentAttemptRepository attemptRepository) {
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
         this.invoiceRepository = invoiceRepository;
+        this.attemptRepository = attemptRepository;
     }
 
     @Transactional(readOnly = true)
@@ -37,7 +41,7 @@ public class SubscriptionInvoiceService {
         loadOwnedSubscription(merchantId, subscriptionId);
         return invoiceRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtDesc(merchantId, subscriptionId)
                 .stream()
-                .map(InvoiceResponse::from)
+                .map(inv -> InvoiceResponse.from(inv, latestPaymentIntentId(merchantId, inv.getId())))
                 .toList();
     }
 
@@ -46,16 +50,41 @@ public class SubscriptionInvoiceService {
         if (subscriptionId != null) {
             loadOwnedSubscription(merchantId, subscriptionId);
             return invoiceRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtDesc(merchantId, subscriptionId)
-                    .stream().map(InvoiceResponse::from).toList();
+                    .stream()
+                    .map(inv -> InvoiceResponse.from(inv, latestPaymentIntentId(merchantId, inv.getId())))
+                    .toList();
         }
         return invoiceRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
-                .stream().map(InvoiceResponse::from).toList();
+                .stream()
+                .map(inv -> InvoiceResponse.from(inv, latestPaymentIntentId(merchantId, inv.getId())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public InvoiceResponse get(UUID merchantId, UUID invoiceId) {
-        return InvoiceResponse.from(invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Invoice not found")));
+        Invoice invoice = invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Invoice not found"));
+        return InvoiceResponse.from(invoice, latestPaymentIntentId(merchantId, invoiceId));
+    }
+
+    @Transactional
+    public InvoiceResponse markUncollectible(UUID merchantId, UUID invoiceId) {
+        Invoice invoice = invoiceRepository.findByIdAndMerchantId(invoiceId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Invoice not found"));
+        if (invoice.getStatus() != InvoiceStatus.OPEN) {
+            throw new IllegalStateException("Only OPEN invoices can be marked uncollectible");
+        }
+        invoice.setStatus(InvoiceStatus.UNCOLLECTIBLE);
+        invoice.setNextPaymentAttemptAt(null);
+        return InvoiceResponse.from(invoiceRepository.save(invoice),
+                latestPaymentIntentId(merchantId, invoiceId));
+    }
+
+    private UUID latestPaymentIntentId(UUID merchantId, UUID invoiceId) {
+        return attemptRepository
+                .findFirstByMerchantIdAndInvoiceIdOrderByAttemptNumberDesc(merchantId, invoiceId)
+                .map(a -> a.getPaymentIntentId())
+                .orElse(null);
     }
 
     @Transactional

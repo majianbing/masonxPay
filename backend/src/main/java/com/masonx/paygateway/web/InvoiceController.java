@@ -53,4 +53,11 @@ public class InvoiceController {
                                                       @PathVariable UUID invoiceId) {
         return ResponseEntity.ok(paymentService.pay(merchantId, invoiceId));
     }
+
+    @PostMapping("/{invoiceId}/mark-uncollectible")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'SUBSCRIPTION', 'UPDATE')")
+    public ResponseEntity<InvoiceResponse> markUncollectible(@PathVariable UUID merchantId,
+                                                             @PathVariable UUID invoiceId) {
+        return ResponseEntity.ok(invoiceService.markUncollectible(merchantId, invoiceId));
+    }
 }

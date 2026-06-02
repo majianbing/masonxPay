@@ -18,9 +18,14 @@ public record InvoiceResponse(
         Instant periodEnd,
         Instant dueAt,
         Instant nextPaymentAttemptAt,
-        Instant createdAt
+        Instant createdAt,
+        UUID latestPaymentIntentId
 ) {
     public static InvoiceResponse from(Invoice invoice) {
+        return from(invoice, null);
+    }
+
+    public static InvoiceResponse from(Invoice invoice, UUID latestPaymentIntentId) {
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCustomerId(),
@@ -34,6 +39,7 @@ public record InvoiceResponse(
                 invoice.getPeriodEnd(),
                 invoice.getDueAt(),
                 invoice.getNextPaymentAttemptAt(),
-                invoice.getCreatedAt());
+                invoice.getCreatedAt(),
+                latestPaymentIntentId);
     }
 }
