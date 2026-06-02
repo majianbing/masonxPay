@@ -183,6 +183,7 @@ class BillingCustomerControllerIntegrationTest {
         return new CustomerPaymentMethodResponse(
                 methodId, merchantId, customerId, instrumentId,
                 com.masonx.paygateway.domain.billing.CustomerPaymentMethodStatus.ACTIVE,
-                true, Instant.now(), Instant.now());
+                true, Instant.now(), Instant.now(),
+                "SIMULATOR", null, null, null, null);
     }
 }

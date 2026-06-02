@@ -73,7 +73,10 @@ public class BillingCustomerService {
         loadOwnedCustomer(merchantId, mode, customerId);
         return paymentMethodRepository.findByMerchantIdAndCustomerIdOrderByCreatedAtDesc(merchantId, customerId)
                 .stream()
-                .map(CustomerPaymentMethodResponse::from)
+                .map(m -> CustomerPaymentMethodResponse.from(m,
+                        paymentInstrumentRepository
+                                .findByIdAndMerchantId(m.getPaymentInstrumentId(), merchantId)
+                                .orElse(null)))
                 .toList();
     }
 
