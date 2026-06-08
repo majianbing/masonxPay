@@ -4,11 +4,12 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend,
 } from 'recharts';
 import { format, subDays, parseISO } from 'date-fns';
 import {
-  BarChart2, Plug, Zap, TrendingUp, CreditCard, CheckCircle2, XCircle, ArrowRight,
+  BarChart2, Plug, Zap, TrendingUp, CreditCard, CheckCircle2, XCircle,
+  ArrowRight, RotateCcw, Percent, DollarSign,
 } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
@@ -27,6 +28,13 @@ interface AnalyticsSummary {
   conversionRate: number;
 }
 
+interface RefundSummary {
+  refundVolumeCents: number;
+  refundCount: number;
+  refundRate: number;
+  netVolumeCents: number;
+}
+
 interface BreakdownItem {
   key: string;
   count: number;
@@ -37,10 +45,12 @@ interface TimeSeriesPoint {
   date: string;
   volumeCents: number;
   count: number;
+  refundVolumeCents: number;
 }
 
 interface AnalyticsResponse {
   summary: AnalyticsSummary;
+  refundSummary: RefundSummary;
   breakdown: BreakdownItem[];
   timeSeries: TimeSeriesPoint[];
 }
@@ -53,11 +63,14 @@ const PRESETS = [
   { label: '90D', days: 90 },
 ] as const;
 
-const GROUP_BY_OPTIONS = [
-  { value: 'status', label: 'Status' },
+type GroupBy = 'status' | 'connector' | 'currency' | 'reason';
+
+const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
+  { value: 'status',    label: 'Status' },
   { value: 'connector', label: 'Connector' },
-  { value: 'currency', label: 'Currency' },
-] as const;
+  { value: 'currency',  label: 'Currency' },
+  { value: 'reason',    label: 'Reason' },
+];
 
 const STATUS_COLORS: Record<string, string> = {
   SUCCEEDED: '#22c55e',
@@ -79,9 +92,17 @@ const CONNECTOR_COLORS: Record<string, string> = {
   Unknown: '#94a3b8',
 };
 
-function barColor(key: string, groupBy: string): string {
+const REASON_COLORS: Record<string, string> = {
+  CUSTOMER_REQUEST: '#6366f1',
+  DUPLICATE: '#f59e0b',
+  FRAUDULENT: '#ef4444',
+  Unspecified: '#94a3b8',
+};
+
+function barColor(key: string, groupBy: GroupBy): string {
   if (groupBy === 'status') return STATUS_COLORS[key] ?? '#6366f1';
   if (groupBy === 'connector') return CONNECTOR_COLORS[key] ?? '#6366f1';
+  if (groupBy === 'reason') return REASON_COLORS[key] ?? '#6366f1';
   return '#6366f1';
 }
 
@@ -112,10 +133,18 @@ function EmptyState() {
         </Link>
       </div>
 
-      {/* Ghost preview of the charts so they understand what they'll see */}
+      {/* Ghost preview — 2 rows of cards + chart skeleton */}
       <div className="mt-14 w-full max-w-3xl opacity-25 pointer-events-none select-none" aria-hidden>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
           {['Volume', 'Payments', 'Success rate', 'Failed'].map((t) => (
+            <div key={t} className="rounded-lg border bg-card p-4">
+              <p className="text-xs text-muted-foreground mb-2">{t}</p>
+              <div className="h-6 w-20 rounded bg-muted" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {['Net revenue', 'Refunded', 'Refund count', 'Refund rate'].map((t) => (
             <div key={t} className="rounded-lg border bg-card p-4">
               <p className="text-xs text-muted-foreground mb-2">{t}</p>
               <div className="h-6 w-20 rounded bg-muted" />
@@ -134,52 +163,24 @@ function NoDataInRange({ onReset }: { onReset: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <TrendingUp className="size-10 text-muted-foreground/40 mb-4" />
-      <p className="text-sm font-medium text-foreground mb-1">No payments in this period</p>
+      <p className="text-sm font-medium text-foreground mb-1">No data in this period</p>
       <p className="text-xs text-muted-foreground mb-4">Try a wider date range to see your data.</p>
-      <button
-        onClick={onReset}
-        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-      >
+      <button onClick={onReset} className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
         View last 30 days
       </button>
     </div>
   );
 }
 
-// ─── Summary cards ────────────────────────────────────────────────────────────
+// ─── Payment summary cards ────────────────────────────────────────────────────
 
-function SummaryCards({ summary }: { summary: AnalyticsSummary }) {
+function PaymentCards({ summary }: { summary: AnalyticsSummary }) {
   const cards = [
-    {
-      label: 'Total volume',
-      value: fmt(summary.totalVolumeCents),
-      icon: TrendingUp,
-      color: 'text-indigo-500',
-      bg: 'bg-indigo-50',
-    },
-    {
-      label: 'Total payments',
-      value: summary.totalCount.toLocaleString(),
-      icon: CreditCard,
-      color: 'text-blue-500',
-      bg: 'bg-blue-50',
-    },
-    {
-      label: 'Success rate',
-      value: `${(summary.conversionRate * 100).toFixed(1)}%`,
-      icon: CheckCircle2,
-      color: 'text-green-500',
-      bg: 'bg-green-50',
-    },
-    {
-      label: 'Failed payments',
-      value: summary.failedCount.toLocaleString(),
-      icon: XCircle,
-      color: 'text-red-500',
-      bg: 'bg-red-50',
-    },
+    { label: 'Total volume',   value: fmt(summary.totalVolumeCents),                    icon: TrendingUp,  color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    { label: 'Total payments', value: summary.totalCount.toLocaleString(),              icon: CreditCard,  color: 'text-blue-500',   bg: 'bg-blue-50' },
+    { label: 'Success rate',   value: `${(summary.conversionRate * 100).toFixed(1)}%`,  icon: CheckCircle2, color: 'text-green-500',  bg: 'bg-green-50' },
+    { label: 'Failed',         value: summary.failedCount.toLocaleString(),             icon: XCircle,     color: 'text-red-500',    bg: 'bg-red-50' },
   ];
-
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       {cards.map(({ label, value, icon: Icon, color, bg }) => (
@@ -197,19 +198,55 @@ function SummaryCards({ summary }: { summary: AnalyticsSummary }) {
   );
 }
 
-// ─── Custom tooltip ───────────────────────────────────────────────────────────
+// ─── Refund summary cards ─────────────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: {
-  active?: boolean; payload?: Array<{ value: number; name: string }>; label?: string;
+function RefundCards({ rs }: { rs: RefundSummary }) {
+  const cards = [
+    { label: 'Net revenue',  value: fmt(rs.netVolumeCents),                        icon: DollarSign,  color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'Refunded',     value: fmt(rs.refundVolumeCents),                     icon: RotateCcw,   color: 'text-orange-500',  bg: 'bg-orange-50' },
+    { label: 'Refund count', value: rs.refundCount.toLocaleString(),               icon: RotateCcw,   color: 'text-orange-400',  bg: 'bg-orange-50' },
+    { label: 'Refund rate',  value: `${(rs.refundRate * 100).toFixed(2)}%`,        icon: Percent,     color: rs.refundRate > 0.01 ? 'text-red-500' : 'text-muted-foreground', bg: rs.refundRate > 0.01 ? 'bg-red-50' : 'bg-gray-100' },
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {cards.map(({ label, value, icon: Icon, color, bg }) => (
+        <Card key={label}>
+          <CardContent className="pt-5 pb-4">
+            <div className={cn('inline-flex rounded-lg p-2 mb-3', bg)}>
+              <Icon className={cn('size-4', color)} />
+            </div>
+            <p className="text-xs text-muted-foreground mb-1">{label}</p>
+            <p className="text-2xl font-bold tracking-tight">{value}</p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ─── Revenue + refund chart tooltip ──────────────────────────────────────────
+
+function RevenueTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; name: string; color: string }>;
+  label?: string;
 }) {
   if (!active || !payload?.length) return null;
+  const labels: Record<string, string> = {
+    volumeCents: 'Revenue',
+    refundVolumeCents: 'Refunded',
+  };
   return (
-    <div className="rounded-lg border bg-white shadow-md px-3 py-2 text-sm">
-      <p className="font-medium text-foreground mb-1">{label}</p>
+    <div className="rounded-lg border bg-white shadow-md px-3 py-2 text-sm min-w-[140px]">
+      <p className="font-medium text-foreground mb-1.5">{label}</p>
       {payload.map((p) => (
-        <p key={p.name} className="text-muted-foreground">
-          {p.name === 'volumeCents' ? fmt(p.value) : `${p.value.toLocaleString()} payments`}
-        </p>
+        <div key={p.name} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="size-2 rounded-full inline-block" style={{ background: p.color }} />
+            {labels[p.name] ?? p.name}
+          </span>
+          <span className="font-medium text-foreground">{fmt(p.value)}</span>
+        </div>
       ))}
     </div>
   );
@@ -222,9 +259,9 @@ export default function AnalyticsPage() {
   const mode = useAuthStore((s) => s.mode);
 
   const [preset, setPreset] = useState<7 | 30 | 90>(30);
-  const [groupBy, setGroupBy] = useState<'status' | 'connector' | 'currency'>('status');
+  const [groupBy, setGroupBy] = useState<GroupBy>('status');
 
-  const toDate = format(new Date(), 'yyyy-MM-dd');
+  const toDate   = format(new Date(), 'yyyy-MM-dd');
   const fromDate = format(subDays(new Date(), preset - 1), 'yyyy-MM-dd');
 
   const { data, isLoading } = useQuery<AnalyticsResponse>({
@@ -236,7 +273,7 @@ export default function AnalyticsPage() {
     enabled: !!activeMerchantId,
   });
 
-  const hasAnyData = (data?.summary.totalCount ?? 0) > 0;
+  const hasAnyData    = (data?.summary.totalCount ?? 0) > 0;
   const hasDataInRange = hasAnyData;
 
   const chartSeries = (data?.timeSeries ?? []).map((p) => ({
@@ -244,32 +281,37 @@ export default function AnalyticsPage() {
     day: format(parseISO(p.date), preset === 7 ? 'EEE' : 'MMM d'),
   }));
 
+  // breakdown chart: "reason" is refund data; everything else is payment data
+  const isReasonBreakdown = groupBy === 'reason';
+  const breakdownTitle = isReasonBreakdown
+    ? 'Refunds by reason'
+    : `Payments by ${GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.label.toLowerCase()}`;
+  const breakdownLink  = isReasonBreakdown ? '/refunds' : '/payments';
+  const breakdownLinkLabel = isReasonBreakdown ? 'View refunds' : 'View payments';
+
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="flex justify-between">
           <div className="h-8 w-32 rounded bg-muted" />
-          <div className="h-8 w-48 rounded bg-muted" />
+          <div className="h-8 w-64 rounded bg-muted" />
         </div>
         <div className="grid grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 rounded-lg border bg-muted" />
-          ))}
+          {[...Array(4)].map((_, i) => <div key={i} className="h-28 rounded-lg border bg-muted" />)}
         </div>
-        <div className="h-56 rounded-lg border bg-muted" />
+        <div className="grid grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-28 rounded-lg border bg-muted" />)}
+        </div>
+        <div className="h-64 rounded-lg border bg-muted" />
         <div className="h-48 rounded-lg border bg-muted" />
       </div>
     );
   }
 
-  // First-ever empty state (no data at all)
-  if (!isLoading && !hasAnyData && !data?.timeSeries.some((p) => p.count > 0)) {
+  if (!isLoading && !hasAnyData) {
     return (
       <div className="space-y-4">
-        <PageHeader
-          preset={preset} setPreset={setPreset}
-          groupBy={groupBy} setGroupBy={setGroupBy}
-        />
+        <PageHeader preset={preset} setPreset={setPreset} groupBy={groupBy} setGroupBy={setGroupBy} />
         <EmptyState />
       </div>
     );
@@ -277,29 +319,33 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        preset={preset} setPreset={setPreset}
-        groupBy={groupBy} setGroupBy={setGroupBy}
-      />
+      <PageHeader preset={preset} setPreset={setPreset} groupBy={groupBy} setGroupBy={setGroupBy} />
 
-      {/* Summary cards — always show */}
-      <SummaryCards summary={data!.summary} />
+      {/* Payment summary */}
+      <PaymentCards summary={data!.summary} />
 
-      {/* Revenue over time */}
+      {/* Refund summary */}
+      <RefundCards rs={data!.refundSummary} />
+
+      {/* Revenue + refund overlay chart */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Revenue over time (succeeded)</CardTitle>
+          <CardTitle className="text-sm font-medium">Revenue vs. refunds (succeeded)</CardTitle>
         </CardHeader>
         <CardContent>
           {!hasDataInRange ? (
             <NoDataInRange onReset={() => setPreset(30)} />
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={240}>
               <AreaChart data={chartSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.18} />
+                  <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.16} />
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradRefund" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#f97316" stopOpacity={0.20} />
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -309,18 +355,34 @@ export default function AnalyticsPage() {
                   tickLine={false}
                   axisLine={false}
                   tickFormatter={(v) => `$${(v / 100).toFixed(0)}`}
-                  width={55}
+                  width={58}
                 />
-                <Tooltip content={<ChartTooltip />} />
+                <Tooltip content={<RevenueTooltip />} />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  formatter={(value) => value === 'volumeCents' ? 'Revenue' : 'Refunded'}
+                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                />
                 <Area
                   type="monotone"
                   dataKey="volumeCents"
                   name="volumeCents"
                   stroke="#6366f1"
-                  fill="url(#areaGrad)"
+                  fill="url(#gradRevenue)"
                   strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, fill: '#6366f1' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="refundVolumeCents"
+                  name="refundVolumeCents"
+                  stroke="#f97316"
+                  fill="url(#gradRefund)"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#f97316' }}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -332,25 +394,28 @@ export default function AnalyticsPage() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-medium">
-              Breakdown by {GROUP_BY_OPTIONS.find((o) => o.value === groupBy)?.label.toLowerCase()}
-            </CardTitle>
-            {data?.breakdown && data.breakdown.length > 0 && (
+            <CardTitle className="text-sm font-medium">{breakdownTitle}</CardTitle>
+            {!!data?.breakdown.length && (
               <Link
-                href="/payments"
+                href={breakdownLink}
                 className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
               >
-                View payments <ArrowRight className="size-3" />
+                {breakdownLinkLabel} <ArrowRight className="size-3" />
               </Link>
             )}
           </div>
         </CardHeader>
         <CardContent>
           {!data?.breakdown.length ? (
-            <NoDataInRange onReset={() => setPreset(30)} />
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <RotateCcw className="size-8 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                {isReasonBreakdown ? 'No refunds in this period' : 'No data in this period'}
+              </p>
+            </div>
           ) : (
             <div className="flex gap-8">
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={Math.max(160, data.breakdown.length * 44)}>
                 <BarChart data={data.breakdown} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                   <XAxis
@@ -366,13 +431,13 @@ export default function AnalyticsPage() {
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
-                    width={110}
+                    width={130}
                   />
                   <Tooltip
                     formatter={(v, name) =>
                       name === 'volumeCents'
-                        ? [fmt(Number(v)), 'Volume']
-                        : [Number(v).toLocaleString(), 'Payments']
+                        ? [fmt(Number(v)), isReasonBreakdown ? 'Refund volume' : 'Volume']
+                        : [Number(v).toLocaleString(), isReasonBreakdown ? 'Refunds' : 'Payments']
                     }
                   />
                   <Bar dataKey="count" name="count" radius={[0, 4, 4, 0]}>
@@ -409,22 +474,20 @@ export default function AnalyticsPage() {
   );
 }
 
-// ─── Page header with controls ────────────────────────────────────────────────
+// ─── Page header ──────────────────────────────────────────────────────────────
 
 function PageHeader({
   preset, setPreset, groupBy, setGroupBy,
 }: {
   preset: 7 | 30 | 90;
   setPreset: (v: 7 | 30 | 90) => void;
-  groupBy: 'status' | 'connector' | 'currency';
-  setGroupBy: (v: 'status' | 'connector' | 'currency') => void;
+  groupBy: GroupBy;
+  setGroupBy: (v: GroupBy) => void;
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <h1 className="text-2xl font-semibold">Analytics</h1>
-
       <div className="flex items-center gap-3 flex-wrap">
-        {/* Date preset toggle */}
         <div className="flex rounded-md border overflow-hidden text-sm">
           {PRESETS.map(({ label, days }) => (
             <button
@@ -432,27 +495,21 @@ function PageHeader({
               onClick={() => setPreset(days as 7 | 30 | 90)}
               className={cn(
                 'px-3 py-1.5 transition-colors',
-                preset === days
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-muted',
+                preset === days ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:bg-muted',
               )}
             >
               {label}
             </button>
           ))}
         </div>
-
-        {/* Group by selector */}
         <div className="flex rounded-md border overflow-hidden text-sm">
           {GROUP_BY_OPTIONS.map(({ value, label }) => (
             <button
               key={value}
-              onClick={() => setGroupBy(value as 'status' | 'connector' | 'currency')}
+              onClick={() => setGroupBy(value)}
               className={cn(
                 'px-3 py-1.5 transition-colors',
-                groupBy === value
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-muted',
+                groupBy === value ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:bg-muted',
               )}
             >
               {label}

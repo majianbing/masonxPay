@@ -44,6 +44,15 @@ class AnalyticsControllerIntegrationTest {
 
     private UUID merchantId;
 
+    private static AnalyticsResponse sampleResponse() {
+        return new AnalyticsResponse(
+                new AnalyticsResponse.Summary(200000L, 10L, 8L, 2L, 0.8),
+                new AnalyticsResponse.RefundSummary(5000L, 2L, 0.025, 195000L),
+                List.of(new AnalyticsResponse.BreakdownItem("SUCCEEDED", 8L, 200000L)),
+                List.of(new AnalyticsResponse.TimeSeriesPoint("2026-06-01", 200000L, 10L, 5000L))
+        );
+    }
+
     @BeforeEach
     void setUp() {
         merchantId = UUID.randomUUID();
@@ -52,15 +61,10 @@ class AnalyticsControllerIntegrationTest {
     }
 
     @Test
-    void get_returns200WithResponse() throws Exception {
-        AnalyticsResponse resp = new AnalyticsResponse(
-                new AnalyticsResponse.Summary(50000L, 10L, 8L, 2L, 0.8),
-                List.of(new AnalyticsResponse.BreakdownItem("SUCCEEDED", 8L, 50000L)),
-                List.of(new AnalyticsResponse.TimeSeriesPoint("2026-06-01", 50000L, 10L))
-        );
+    void get_returns200WithFullResponse() throws Exception {
         when(analyticsService.getAnalytics(eq(merchantId), eq(ApiKeyMode.TEST),
                 any(LocalDate.class), any(LocalDate.class), eq("status")))
-                .thenReturn(resp);
+                .thenReturn(sampleResponse());
 
         mockMvc.perform(get("/api/v1/merchants/{merchantId}/analytics", merchantId)
                         .param("mode", "TEST")
@@ -68,16 +72,34 @@ class AnalyticsControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.summary.totalCount").value(10))
                 .andExpect(jsonPath("$.summary.conversionRate").value(0.8))
+                .andExpect(jsonPath("$.refundSummary.refundVolumeCents").value(5000))
+                .andExpect(jsonPath("$.refundSummary.refundRate").value(0.025))
+                .andExpect(jsonPath("$.refundSummary.netVolumeCents").value(195000))
                 .andExpect(jsonPath("$.breakdown[0].key").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.timeSeries[0].date").value("2026-06-01"));
+                .andExpect(jsonPath("$.timeSeries[0].date").value("2026-06-01"))
+                .andExpect(jsonPath("$.timeSeries[0].refundVolumeCents").value(5000));
+    }
+
+    @Test
+    void get_groupByReason_returns200() throws Exception {
+        when(analyticsService.getAnalytics(eq(merchantId), any(), any(), any(), eq("reason")))
+                .thenReturn(new AnalyticsResponse(
+                        new AnalyticsResponse.Summary(0, 0, 0, 0, 0.0),
+                        new AnalyticsResponse.RefundSummary(0, 0, 0.0, 0),
+                        List.of(new AnalyticsResponse.BreakdownItem("CUSTOMER_REQUEST", 3L, 6000L)),
+                        List.of()
+                ));
+
+        mockMvc.perform(get("/api/v1/merchants/{merchantId}/analytics", merchantId)
+                        .param("groupBy", "reason"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.breakdown[0].key").value("CUSTOMER_REQUEST"));
     }
 
     @Test
     void get_wrongTenant_returns403() throws Exception {
-        UUID otherMerchant = UUID.randomUUID();
-        // permissionEvaluator returns false for otherMerchant (Mockito default is false)
-
-        mockMvc.perform(get("/api/v1/merchants/{merchantId}/analytics", otherMerchant))
+        UUID other = UUID.randomUUID();
+        mockMvc.perform(get("/api/v1/merchants/{merchantId}/analytics", other))
                 .andExpect(status().isForbidden());
     }
 
@@ -89,15 +111,16 @@ class AnalyticsControllerIntegrationTest {
     }
 
     @Test
-    void get_defaultsApplied_returns200() throws Exception {
+    void get_defaults_returns200() throws Exception {
         when(analyticsService.getAnalytics(any(), any(), any(), any(), any()))
                 .thenReturn(new AnalyticsResponse(
                         new AnalyticsResponse.Summary(0, 0, 0, 0, 0.0),
+                        new AnalyticsResponse.RefundSummary(0, 0, 0.0, 0),
                         List.of(), List.of()
                 ));
 
         mockMvc.perform(get("/api/v1/merchants/{merchantId}/analytics", merchantId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.summary.totalCount").value(0));
+                .andExpect(jsonPath("$.refundSummary.refundCount").value(0));
     }
 }
