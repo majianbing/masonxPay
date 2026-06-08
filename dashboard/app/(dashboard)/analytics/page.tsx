@@ -337,7 +337,7 @@ export default function AnalyticsPage() {
             <NoDataInRange onReset={() => setPreset(30)} />
           ) : (
             <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={chartSeries} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <AreaChart data={chartSeries} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.16} />
@@ -350,7 +350,19 @@ export default function AnalyticsPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                {/* Left axis: revenue scale */}
                 <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `$${(v / 100).toFixed(0)}`}
+                  width={58}
+                />
+                {/* Right axis: refund scale — independent so small refund amounts remain visible */}
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
@@ -361,10 +373,11 @@ export default function AnalyticsPage() {
                 <Legend
                   iconType="circle"
                   iconSize={8}
-                  formatter={(value) => value === 'volumeCents' ? 'Revenue' : 'Refunded'}
+                  formatter={(value) => value === 'volumeCents' ? 'Revenue (left)' : 'Refunded (right)'}
                   wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                 />
                 <Area
+                  yAxisId="left"
                   type="monotone"
                   dataKey="volumeCents"
                   name="volumeCents"
@@ -375,6 +388,7 @@ export default function AnalyticsPage() {
                   activeDot={{ r: 4, fill: '#6366f1' }}
                 />
                 <Area
+                  yAxisId="right"
                   type="monotone"
                   dataKey="refundVolumeCents"
                   name="refundVolumeCents"
