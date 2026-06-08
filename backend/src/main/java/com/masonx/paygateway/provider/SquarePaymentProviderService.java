@@ -24,13 +24,14 @@ import java.util.UUID;
 
 /**
  * Square payment provider — calls Square's REST API directly via RestClient.
- * No Square Java SDK dependency needed; the API is simple REST + JSON.
  *
  * Sandbox:    connect.squareupsandbox.com
  * Production: connect.squareup.com
  */
 @Service
-public class SquarePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
+public class SquarePaymentProviderService
+        extends AbstractPaymentProviderService<SquareCredentials>
+        implements ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(SquarePaymentProviderService.class);
     private static final String SQUARE_VERSION = "2024-01-18";
@@ -47,12 +48,12 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
     }
 
     @Override
-    public ChargeResult charge(ChargeRequest req, ProviderCredentials creds) {
-        if (!(creds instanceof SquareCredentials square)) {
-            return new ChargeResult(false, null, null,
-                    "connector_not_configured", "No active Square connector found.", false, false, null, null, null);
-        }
+    protected Class<SquareCredentials> credentialsType() {
+        return SquareCredentials.class;
+    }
 
+    @Override
+    protected ChargeResult sendCharge(ChargeRequest req, SquareCredentials square) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("source_id",       req.paymentMethodId());
@@ -64,17 +65,11 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
             if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
                 body.put("customer_id", req.providerCustomerReference());
             }
-
-            // Buyer email for receipts and risk scoring
             if (req.billingDetails() != null && req.billingDetails().email() != null) {
                 body.put("buyer_email_address", req.billingDetails().email());
             }
-
-            // Billing address — used by Square for AVS and risk scoring
             Map<String, Object> billingAddr = buildSquareAddress(req.billingDetails());
             if (billingAddr != null) body.put("billing_address", billingAddr);
-
-            // Manual capture: authorize now, settle later via captureAtProvider()
             if (req.captureMethod() == CaptureMethod.MANUAL) {
                 body.put("autocomplete", false);
             }
@@ -94,18 +89,16 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
                         "No payment object in Square response", true, false, null, null, null);
             }
 
-            String status = payment.path("status").asText("");
-            boolean succeeded = "COMPLETED".equalsIgnoreCase(status);
-            String paymentId = payment.path("id").asText(null);
+            String status      = payment.path("status").asText("");
+            boolean succeeded  = "COMPLETED".equalsIgnoreCase(status);
+            String paymentId   = payment.path("id").asText(null);
             String responseJson = response.toString();
 
             if (!succeeded) {
                 String errorCode = payment.path("delay_action").asText("card_declined");
-                // Card-level failures are never retryable
                 return new ChargeResult(false, paymentId, responseJson, errorCode,
                         "Payment status: " + status, false, false, null, null, null);
             }
-
             return new ChargeResult(true, paymentId, responseJson, null, null, false, false, null, null, null);
 
         } catch (HttpClientErrorException e) {
@@ -119,9 +112,108 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
     }
 
     @Override
+    protected RefundResult sendRefund(RefundRequest req, SquareCredentials square) {
+        try {
+            Map<String, Object> body = Map.of(
+                    "idempotency_key", squareKey("refund-" + req.refundId()),
+                    "payment_id",      req.providerPaymentId(),
+                    "amount_money",    Map.of("amount", req.amount(), "currency", "USD")
+            );
+
+            JsonNode response = restClient.post()
+                    .uri(square.baseUrl() + "/v2/refunds")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            JsonNode refund = response != null ? response.path("refund") : null;
+            if (refund == null || refund.isMissingNode()) {
+                return new RefundResult(false, null, "No refund object in Square response");
+            }
+            String status = refund.path("status").asText("");
+            boolean succeeded = "COMPLETED".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status);
+            return new RefundResult(succeeded, refund.path("id").asText(null),
+                    succeeded ? null : "Refund status: " + status);
+
+        } catch (HttpClientErrorException e) {
+            String code = parseSquareErrorCode(e.getResponseBodyAsString());
+            log.error("Square refund failed: {} — {}", e.getStatusCode(), code);
+            return new RefundResult(false, null, e.getMessage());
+        } catch (Exception e) {
+            log.error("Square refund error", e);
+            return new RefundResult(false, null, e.getMessage());
+        }
+    }
+
+    @Override
+    protected Optional<PaymentIntentStatus> sendSyncStatus(String providerPaymentId, SquareCredentials square) {
+        try {
+            JsonNode response = restClient.get()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId)
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            PaymentIntentStatus mapped = switch (status.toUpperCase()) {
+                case "COMPLETED" -> PaymentIntentStatus.SUCCEEDED;
+                case "CANCELED"  -> PaymentIntentStatus.CANCELED;
+                case "FAILED"    -> PaymentIntentStatus.FAILED;
+                default          -> null;
+            };
+            return Optional.ofNullable(mapped);
+        } catch (Exception e) {
+            log.warn("Square syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    protected boolean sendCapture(String providerPaymentId, SquareCredentials square) {
+        try {
+            JsonNode response = restClient.post()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/complete")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            return "COMPLETED".equalsIgnoreCase(status);
+        } catch (Exception e) {
+            log.warn("Square captureAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    protected boolean sendCancel(String providerPaymentId, SquareCredentials square) {
+        try {
+            JsonNode response = restClient.post()
+                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/cancel")
+                    .header("Authorization", "Bearer " + square.accessToken())
+                    .header("Square-Version", SQUARE_VERSION)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String status = response != null
+                    ? response.path("payment").path("status").asText("") : "";
+            return "CANCELED".equalsIgnoreCase(status);
+        } catch (Exception e) {
+            log.warn("Square cancelAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
+            return false;
+        }
+    }
+
+    // ── ReusablePaymentMethodProviderService ──────────────────────────────────
+
+    @Override
     public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
-            ReusablePaymentMethodSetupRequest request,
-            ProviderCredentials creds) {
+            ReusablePaymentMethodSetupRequest request, ProviderCredentials creds) {
         if (!(creds instanceof SquareCredentials square)) {
             return ReusablePaymentMethodSetupResult.failed(
                     "connector_not_configured", "No active Square connector found.", false);
@@ -136,18 +228,14 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
             if (customerId == null || customerId.isBlank()) {
                 Map<String, Object> customerBody = new LinkedHashMap<>();
                 if (request.billingDetails() != null) {
-                    if (request.billingDetails().email() != null) {
+                    if (request.billingDetails().email() != null)
                         customerBody.put("email_address", request.billingDetails().email());
-                    }
-                    if (request.billingDetails().phone() != null) {
+                    if (request.billingDetails().phone() != null)
                         customerBody.put("phone_number", request.billingDetails().phone());
-                    }
-                    if (request.billingDetails().firstName() != null) {
+                    if (request.billingDetails().firstName() != null)
                         customerBody.put("given_name", request.billingDetails().firstName());
-                    }
-                    if (request.billingDetails().lastName() != null) {
+                    if (request.billingDetails().lastName() != null)
                         customerBody.put("family_name", request.billingDetails().lastName());
-                    }
                 }
                 customerBody.put("reference_id", request.customerId().toString());
                 customerBody.put("idempotency_key", squareKey(request.idempotencyKey() + "-customer"));
@@ -161,8 +249,7 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
                         .retrieve()
                         .body(JsonNode.class);
                 customerId = customerResponse != null
-                        ? customerResponse.path("customer").path("id").asText(null)
-                        : null;
+                        ? customerResponse.path("customer").path("id").asText(null) : null;
             }
             if (customerId == null || customerId.isBlank()) {
                 return ReusablePaymentMethodSetupResult.failed(
@@ -188,6 +275,7 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
                         "card_create_failed", "Square did not return a card-on-file id.", true);
             }
             return ReusablePaymentMethodSetupResult.succeeded(customerId, cardId, cardResponse.toString());
+
         } catch (HttpClientErrorException e) {
             String code = parseSquareErrorCode(e.getResponseBodyAsString());
             log.error("Square reusable payment method setup failed: {} — {}", e.getStatusCode(), code);
@@ -198,143 +286,32 @@ public class SquarePaymentProviderService implements PaymentProviderService, Reu
         }
     }
 
-    @Override
-    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof SquareCredentials square)) return Optional.empty();
-        try {
-            JsonNode response = restClient.get()
-                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId)
-                    .header("Authorization", "Bearer " + square.accessToken())
-                    .header("Square-Version", SQUARE_VERSION)
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            String status = response != null
-                    ? response.path("payment").path("status").asText("") : "";
-            PaymentIntentStatus mapped = switch (status.toUpperCase()) {
-                case "COMPLETED" -> PaymentIntentStatus.SUCCEEDED;
-                case "CANCELED"  -> PaymentIntentStatus.CANCELED;
-                case "FAILED"    -> PaymentIntentStatus.FAILED;
-                default          -> null; // APPROVED / PENDING — still in-flight
-            };
-            return Optional.ofNullable(mapped);
-        } catch (Exception e) {
-            log.warn("Square syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    @Override
-    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof SquareCredentials square)) return false;
-        try {
-            JsonNode response = restClient.post()
-                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/complete")
-                    .header("Authorization", "Bearer " + square.accessToken())
-                    .header("Square-Version", SQUARE_VERSION)
-                    .retrieve()
-                    .body(JsonNode.class);
-            String status = response != null
-                    ? response.path("payment").path("status").asText("") : "";
-            return "COMPLETED".equalsIgnoreCase(status);
-        } catch (Exception e) {
-            log.warn("Square captureAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof SquareCredentials square)) return false;
-        try {
-            JsonNode response = restClient.post()
-                    .uri(square.baseUrl() + "/v2/payments/" + providerPaymentId + "/cancel")
-                    .header("Authorization", "Bearer " + square.accessToken())
-                    .header("Square-Version", SQUARE_VERSION)
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            String status = response != null
-                    ? response.path("payment").path("status").asText("") : "";
-            return "CANCELED".equalsIgnoreCase(status);
-        } catch (Exception e) {
-            log.warn("Square cancelAtProvider failed for {}: {}", providerPaymentId, e.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public RefundResult refund(RefundRequest req, ProviderCredentials creds) {
-        if (!(creds instanceof SquareCredentials square)) {
-            return new RefundResult(false, null, "No active Square connector found.");
-        }
-
-        try {
-            Map<String, Object> body = Map.of(
-                    "idempotency_key", squareKey("refund-" + req.refundId()),
-                    "payment_id",      req.providerPaymentId(),
-                    "amount_money",    Map.of(
-                            "amount",   req.amount(),
-                            "currency", "USD")   // Square refunds inherit currency from payment
-            );
-
-            JsonNode response = restClient.post()
-                    .uri(square.baseUrl() + "/v2/refunds")
-                    .header("Authorization", "Bearer " + square.accessToken())
-                    .header("Square-Version", SQUARE_VERSION)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(JsonNode.class);
-
-            JsonNode refund = response != null ? response.path("refund") : null;
-            if (refund == null || refund.isMissingNode()) {
-                return new RefundResult(false, null, "No refund object in Square response");
-            }
-
-            String status = refund.path("status").asText("");
-            boolean succeeded = "COMPLETED".equalsIgnoreCase(status) || "PENDING".equalsIgnoreCase(status);
-            return new RefundResult(succeeded, refund.path("id").asText(null),
-                    succeeded ? null : "Refund status: " + status);
-
-        } catch (HttpClientErrorException e) {
-            String code = parseSquareErrorCode(e.getResponseBodyAsString());
-            log.error("Square refund failed: {} — {}", e.getStatusCode(), code);
-            return new RefundResult(false, null, e.getMessage());
-        } catch (Exception e) {
-            log.error("Square refund error", e);
-            return new RefundResult(false, null, e.getMessage());
-        }
-    }
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private Map<String, Object> buildSquareAddress(BillingDetails bd) {
         if (bd == null) return null;
         Address addr = bd.address();
         Map<String, Object> map = new HashMap<>();
-        if (bd.firstName() != null)              map.put("first_name", bd.firstName());
-        if (bd.lastName() != null)               map.put("last_name", bd.lastName());
+        if (bd.firstName() != null)        map.put("first_name", bd.firstName());
+        if (bd.lastName() != null)         map.put("last_name", bd.lastName());
         if (addr != null) {
-            if (addr.line1() != null)            map.put("address_line_1", addr.line1());
-            if (addr.line2() != null)            map.put("address_line_2", addr.line2());
-            if (addr.city() != null)             map.put("locality", addr.city());
-            if (addr.state() != null)            map.put("administrative_district_level_1", addr.state());
-            if (addr.postalCode() != null)       map.put("postal_code", addr.postalCode());
-            if (addr.country() != null)          map.put("country", addr.country());
+            if (addr.line1() != null)      map.put("address_line_1", addr.line1());
+            if (addr.line2() != null)      map.put("address_line_2", addr.line2());
+            if (addr.city() != null)       map.put("locality", addr.city());
+            if (addr.state() != null)      map.put("administrative_district_level_1", addr.state());
+            if (addr.postalCode() != null) map.put("postal_code", addr.postalCode());
+            if (addr.country() != null)    map.put("country", addr.country());
         }
         return map.isEmpty() ? null : map;
     }
 
-    /**
-     * Square requires idempotency_key ≤ 45 characters.
-     * Derive a deterministic UUID (36 chars) from any key — collision-resistant, always in range.
-     */
+    /** Square requires idempotency_key ≤ 45 chars; derive a deterministic UUID (36 chars). */
     private String squareKey(String key) {
         return UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private String parseSquareErrorCode(String body) {
         try {
-            // errors[0].code from Square error response
             int start = body.indexOf("\"code\":");
             if (start < 0) return "square_error";
             int valueStart = body.indexOf('"', start + 7) + 1;

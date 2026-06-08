@@ -16,39 +16,27 @@ import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.domain.payment.ShippingDetails;
 import com.masonx.paygateway.provider.credentials.BraintreeCredentials;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
-
-import java.util.Optional;
-import com.masonx.paygateway.provider.ChargeRequest;
-import com.masonx.paygateway.provider.ChargeResult;
-import com.masonx.paygateway.provider.RefundRequest;
-import com.masonx.paygateway.provider.RefundResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 /**
  * Braintree payment provider — uses the official Braintree Java SDK.
  *
- * Payment flow:
- *   1. Frontend calls POST /api/v1/merchants/{id}/connectors/{accountId}/client-token
- *      to get a short-lived client token.
- *   2. Frontend initialises Braintree Drop-in UI with the token; user completes payment
- *      and receives a payment method nonce.
- *   3. Frontend passes nonce to its backend, which submits it as paymentMethodId in
- *      POST /api/v1/payment-intents/{id}/confirm.
- *
- * Idempotency: Braintree has no native idempotency key header. We store our internal
- * idempotency key in the transaction's orderId field. Braintree does not reject duplicates
- * automatically based on orderId — duplicate protection is still enforced by our own DB
- * unique constraint on (merchant_id, idempotency_key).
- *
  * Amount: stored in the gateway as minor currency units (cents). Braintree expects a
  * BigDecimal in major units (dollars), so we shift the decimal two places left.
+ *
+ * Idempotency: Braintree has no native idempotency key header. We store our internal
+ * key in the transaction's orderId field. Duplicate protection is still enforced by our
+ * own DB unique constraint on (merchant_id, idempotency_key).
  */
 @Service
-public class BraintreePaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
+public class BraintreePaymentProviderService
+        extends AbstractPaymentProviderService<BraintreeCredentials>
+        implements ReusablePaymentMethodProviderService {
 
     private static final Logger log = LoggerFactory.getLogger(BraintreePaymentProviderService.class);
 
@@ -58,29 +46,27 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
     }
 
     @Override
-    public ChargeResult charge(ChargeRequest req, ProviderCredentials creds) {
-        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) {
-            return new ChargeResult(false, null, null,
-                    "connector_not_configured",
-                    "No active Braintree connector found. Add one under Settings → Connectors.",
-                    false, false, null, null, null);
-        }
+    protected Class<BraintreeCredentials> credentialsType() {
+        return BraintreeCredentials.class;
+    }
+
+    @Override
+    protected ChargeResult sendCharge(ChargeRequest req, BraintreeCredentials bt) {
+        if (bt.privateKey() == null) return missingConnectorCharge();
 
         BraintreeGateway gateway = buildGateway(bt);
         try {
-            // Amount: convert cents → dollars (Braintree requires decimal dollars)
             BigDecimal amount = new BigDecimal(req.amount()).movePointLeft(2);
 
             TransactionRequest transactionRequest = new TransactionRequest()
                     .amount(amount)
-                    .orderId(req.idempotencyKey());             // stored for our audit trail
+                    .orderId(req.idempotencyKey());
             if (req.providerCustomerReference() != null && !req.providerCustomerReference().isBlank()) {
                 transactionRequest.paymentMethodToken(req.paymentMethodId());
             } else {
-                transactionRequest.paymentMethodNonce(req.paymentMethodId());  // nonce from Drop-in UI
+                transactionRequest.paymentMethodNonce(req.paymentMethodId());
             }
 
-            // Customer details — used by Braintree for risk scoring and receipts
             if (req.billingDetails() != null) {
                 BillingDetails bd = req.billingDetails();
                 CustomerRequest customer = transactionRequest.customer();
@@ -90,7 +76,6 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                 if (bd.phone() != null)     customer.phone(bd.phone());
                 customer.done();
 
-                // Billing address — used for AVS verification
                 if (bd.address() != null) {
                     Address addr = bd.address();
                     var billing = transactionRequest.billingAddress();
@@ -106,7 +91,6 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                 }
             }
 
-            // Shipping address — used for dispute evidence
             if (req.shippingDetails() != null && req.shippingDetails().address() != null) {
                 ShippingDetails sd = req.shippingDetails();
                 Address addr = sd.address();
@@ -122,10 +106,8 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                 shipping.done();
             }
 
-            // MANUAL capture: authorize only, do not submit for settlement yet
-            boolean submitForSettlement = req.captureMethod() != CaptureMethod.MANUAL;
             transactionRequest.options()
-                        .submitForSettlement(submitForSettlement)
+                    .submitForSettlement(req.captureMethod() != CaptureMethod.MANUAL)
                     .done();
 
             Result<Transaction> result = gateway.transaction().sale(transactionRequest);
@@ -135,7 +117,6 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                 return new ChargeResult(true, tx.getId(), null, null, null, false, false, null, null, null);
             }
 
-            // Processor declined or gateway rejection
             Transaction tx = result.getTransaction();
             if (tx != null) {
                 String failureCode = switch (tx.getStatus()) {
@@ -143,16 +124,14 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                     case GATEWAY_REJECTED   -> "gateway_rejected";
                     default                 -> "payment_failed";
                 };
-                String message = tx.getProcessorResponseText() != null
-                        ? tx.getProcessorResponseText()
-                        : result.getMessage();
                 boolean retryable = tx.getStatus() == Transaction.Status.GATEWAY_REJECTED;
-                return new ChargeResult(false, tx.getId(), null, failureCode, message, retryable, false, null, null, null);
+                return new ChargeResult(false, tx.getId(), null, failureCode,
+                        tx.getProcessorResponseText() != null ? tx.getProcessorResponseText() : result.getMessage(),
+                        retryable, false, null, null, null);
             }
 
-            // Validation error (bad nonce, missing fields, etc.)
-            String validationMessage = result.getMessage();
-            return new ChargeResult(false, null, null, "validation_error", validationMessage, false, false, null, null, null);
+            return new ChargeResult(false, null, null, "validation_error", result.getMessage(),
+                    false, false, null, null, null);
 
         } catch (Exception e) {
             log.error("Braintree charge error", e);
@@ -161,20 +140,77 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
     }
 
     @Override
+    protected RefundResult sendRefund(RefundRequest req, BraintreeCredentials bt) {
+        if (bt.privateKey() == null) return missingConnectorRefund();
+        try {
+            BigDecimal amount = new BigDecimal(req.amount()).movePointLeft(2);
+            Result<Transaction> result = buildGateway(bt).transaction().refund(req.providerPaymentId(), amount);
+            if (result.isSuccess()) return new RefundResult(true, result.getTarget().getId(), null);
+            return new RefundResult(false, null, result.getMessage());
+        } catch (Exception e) {
+            log.error("Braintree refund error", e);
+            return new RefundResult(false, null, e.getMessage());
+        }
+    }
+
+    @Override
+    protected Optional<PaymentIntentStatus> sendSyncStatus(String providerPaymentId, BraintreeCredentials bt) {
+        if (bt.privateKey() == null) return Optional.empty();
+        try {
+            Transaction tx = buildGateway(bt).transaction().find(providerPaymentId);
+            PaymentIntentStatus mapped = switch (tx.getStatus()) {
+                case SETTLED, SETTLEMENT_CONFIRMED          -> PaymentIntentStatus.SUCCEEDED;
+                case VOIDED, FAILED, SETTLEMENT_DECLINED,
+                     PROCESSOR_DECLINED, GATEWAY_REJECTED   -> PaymentIntentStatus.FAILED;
+                default                                     -> null;
+            };
+            return Optional.ofNullable(mapped);
+        } catch (Exception e) {
+            log.warn("Braintree syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    protected boolean sendCapture(String providerPaymentId, BraintreeCredentials bt) {
+        if (bt.privateKey() == null) return false;
+        try {
+            Result<Transaction> result = buildGateway(bt).transaction().submitForSettlement(providerPaymentId);
+            if (result.isSuccess()) return true;
+            log.warn("Braintree captureAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.warn("Braintree captureAtProvider error for {}: {}", providerPaymentId, e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    protected boolean sendCancel(String providerPaymentId, BraintreeCredentials bt) {
+        if (bt.privateKey() == null) return false;
+        try {
+            Result<Transaction> result = buildGateway(bt).transaction().voidTransaction(providerPaymentId);
+            if (result.isSuccess()) return true;
+            log.warn("Braintree cancelAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
+            return false;
+        } catch (Exception e) {
+            log.warn("Braintree cancelAtProvider error for {}: {}", providerPaymentId, e.getMessage());
+            return false;
+        }
+    }
+
+    // ── ReusablePaymentMethodProviderService ──────────────────────────────────
+
+    @Override
     public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
-            ReusablePaymentMethodSetupRequest request,
-            ProviderCredentials creds) {
+            ReusablePaymentMethodSetupRequest request, ProviderCredentials creds) {
         if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) {
-            return ReusablePaymentMethodSetupResult.failed(
-                    "connector_not_configured",
-                    "No active Braintree connector found. Add one under Settings → Connectors.",
-                    false);
+            return ReusablePaymentMethodSetupResult.failed("connector_not_configured",
+                    "No active Braintree connector found. Add one under Settings → Connectors.", false);
         }
         if (request.providerPaymentMethodId() == null || request.providerPaymentMethodId().isBlank()) {
-            return ReusablePaymentMethodSetupResult.failed(
-                    "missing_payment_method",
-                    "Braintree reusable setup requires a Drop-in payment method nonce.",
-                    false);
+            return ReusablePaymentMethodSetupResult.failed("missing_payment_method",
+                    "Braintree reusable setup requires a Drop-in payment method nonce.", false);
         }
 
         try {
@@ -186,32 +222,25 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                         .paymentMethodNonce(request.providerPaymentMethodId());
                 Result<? extends PaymentMethod> methodResult = gateway.paymentMethod().create(methodRequest);
                 if (!methodResult.isSuccess()) {
-                    return ReusablePaymentMethodSetupResult.failed(
-                            "validation_error", methodResult.getMessage(), false);
+                    return ReusablePaymentMethodSetupResult.failed("validation_error", methodResult.getMessage(), false);
                 }
-                PaymentMethod paymentMethod = methodResult.getTarget();
-                return ReusablePaymentMethodSetupResult.succeeded(
-                        paymentMethod.getCustomerId(),
-                        paymentMethod.getToken(),
-                        "{\"provider\":\"BRAINTREE\",\"customerId\":\"" + paymentMethod.getCustomerId()
-                                + "\",\"paymentMethodToken\":\"" + paymentMethod.getToken() + "\"}");
+                PaymentMethod pm = methodResult.getTarget();
+                return ReusablePaymentMethodSetupResult.succeeded(pm.getCustomerId(), pm.getToken(),
+                        "{\"provider\":\"BRAINTREE\",\"customerId\":\"" + pm.getCustomerId()
+                                + "\",\"paymentMethodToken\":\"" + pm.getToken() + "\"}");
             }
 
             CustomerRequest customerRequest = new CustomerRequest()
                     .paymentMethodNonce(request.providerPaymentMethodId());
             if (request.billingDetails() != null) {
-                if (request.billingDetails().firstName() != null) {
+                if (request.billingDetails().firstName() != null)
                     customerRequest.firstName(request.billingDetails().firstName());
-                }
-                if (request.billingDetails().lastName() != null) {
+                if (request.billingDetails().lastName() != null)
                     customerRequest.lastName(request.billingDetails().lastName());
-                }
-                if (request.billingDetails().email() != null) {
+                if (request.billingDetails().email() != null)
                     customerRequest.email(request.billingDetails().email());
-                }
-                if (request.billingDetails().phone() != null) {
+                if (request.billingDetails().phone() != null)
                     customerRequest.phone(request.billingDetails().phone());
-                }
             }
 
             Result<com.braintreegateway.Customer> result = gateway.customer().create(customerRequest);
@@ -225,12 +254,10 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
                 reusableToken = customer.getPaymentMethods().get(0).getToken();
             }
             if (reusableToken == null || reusableToken.isBlank()) {
-                return ReusablePaymentMethodSetupResult.failed(
-                        "vault_token_missing", "Braintree did not return a vaulted payment method token.", true);
+                return ReusablePaymentMethodSetupResult.failed("vault_token_missing",
+                        "Braintree did not return a vaulted payment method token.", true);
             }
-            return ReusablePaymentMethodSetupResult.succeeded(
-                    customer.getId(),
-                    reusableToken,
+            return ReusablePaymentMethodSetupResult.succeeded(customer.getId(), reusableToken,
                     "{\"provider\":\"BRAINTREE\",\"customerId\":\"" + customer.getId()
                             + "\",\"paymentMethodToken\":\"" + reusableToken + "\"}");
         } catch (Exception e) {
@@ -239,75 +266,7 @@ public class BraintreePaymentProviderService implements PaymentProviderService, 
         }
     }
 
-    @Override
-    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return Optional.empty();
-        try {
-            Transaction tx = buildGateway(bt).transaction().find(providerPaymentId);
-            PaymentIntentStatus mapped = switch (tx.getStatus()) {
-                case SETTLED, SETTLEMENT_CONFIRMED           -> PaymentIntentStatus.SUCCEEDED;
-                case VOIDED, FAILED, SETTLEMENT_DECLINED,
-                     PROCESSOR_DECLINED, GATEWAY_REJECTED    -> PaymentIntentStatus.FAILED;
-                default                                      -> null; // AUTHORIZED / SUBMITTED / SETTLING — in-flight
-            };
-            return Optional.ofNullable(mapped);
-        } catch (Exception e) {
-            log.warn("Braintree syncStatus failed for {}: {}", providerPaymentId, e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    @Override
-    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return false;
-        try {
-            Result<Transaction> result = buildGateway(bt).transaction().submitForSettlement(providerPaymentId);
-            if (result.isSuccess()) return true;
-            log.warn("Braintree captureAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
-            return false;
-        } catch (Exception e) {
-            log.warn("Braintree captureAtProvider error for {}: {}", providerPaymentId, e.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) return false;
-        try {
-            Result<Transaction> result = buildGateway(bt).transaction().voidTransaction(providerPaymentId);
-            if (result.isSuccess()) return true;
-            log.warn("Braintree cancelAtProvider failed for {}: {}", providerPaymentId, result.getMessage());
-            return false;
-        } catch (Exception e) {
-            log.warn("Braintree cancelAtProvider error for {}: {}", providerPaymentId, e.getMessage());
-            return false;
-        }
-    }
-
-    @Override
-    public RefundResult refund(RefundRequest req, ProviderCredentials creds) {
-        if (!(creds instanceof BraintreeCredentials bt) || bt.privateKey() == null) {
-            return new RefundResult(false, null, "No active Braintree connector found.");
-        }
-
-        BraintreeGateway gateway = buildGateway(bt);
-        try {
-            BigDecimal amount = new BigDecimal(req.amount()).movePointLeft(2);
-
-            Result<Transaction> result = gateway.transaction().refund(req.providerPaymentId(), amount);
-
-            if (result.isSuccess()) {
-                return new RefundResult(true, result.getTarget().getId(), null);
-            }
-
-            return new RefundResult(false, null, result.getMessage());
-
-        } catch (Exception e) {
-            log.error("Braintree refund error", e);
-            return new RefundResult(false, null, e.getMessage());
-        }
-    }
+    // ── Public helpers used by controllers ────────────────────────────────────
 
     public String generateClientToken(BraintreeCredentials bt) {
         return buildGateway(bt).clientToken().generate();
