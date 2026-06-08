@@ -87,4 +87,66 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
           )
         """)
     Optional<PaymentIntent> findByIdProcessingForUpdate(@Param("id") UUID id);
+
+    // --- Analytics aggregation queries ---
+
+    /** Returns [status (enum), count (Long), totalAmount (Long)] rows. */
+    @Query("""
+        SELECT p.status, COUNT(p), SUM(p.amount)
+        FROM PaymentIntent p
+        WHERE p.merchantId = :merchantId AND p.mode = :mode
+          AND p.createdAt BETWEEN :from AND :to
+        GROUP BY p.status
+        """)
+    List<Object[]> findGroupedByStatus(
+        @Param("merchantId") UUID merchantId,
+        @Param("mode") ApiKeyMode mode,
+        @Param("from") Instant from,
+        @Param("to") Instant to
+    );
+
+    /** Returns [resolvedProvider (enum or null), count (Long), totalAmount (Long)] rows. */
+    @Query("""
+        SELECT p.resolvedProvider, COUNT(p), SUM(p.amount)
+        FROM PaymentIntent p
+        WHERE p.merchantId = :merchantId AND p.mode = :mode
+          AND p.createdAt BETWEEN :from AND :to
+        GROUP BY p.resolvedProvider
+        """)
+    List<Object[]> findGroupedByProvider(
+        @Param("merchantId") UUID merchantId,
+        @Param("mode") ApiKeyMode mode,
+        @Param("from") Instant from,
+        @Param("to") Instant to
+    );
+
+    /** Returns [currency (String), count (Long), totalAmount (Long)] rows. */
+    @Query("""
+        SELECT p.currency, COUNT(p), SUM(p.amount)
+        FROM PaymentIntent p
+        WHERE p.merchantId = :merchantId AND p.mode = :mode
+          AND p.createdAt BETWEEN :from AND :to
+        GROUP BY p.currency
+        """)
+    List<Object[]> findGroupedByCurrency(
+        @Param("merchantId") UUID merchantId,
+        @Param("mode") ApiKeyMode mode,
+        @Param("from") Instant from,
+        @Param("to") Instant to
+    );
+
+    /** Minimal projection for daily time-series grouping in the service layer. */
+    @Query("""
+        SELECT p.createdAt, p.amount, p.status
+        FROM PaymentIntent p
+        WHERE p.merchantId = :merchantId AND p.mode = :mode
+          AND p.createdAt BETWEEN :from AND :to
+        ORDER BY p.createdAt
+        """)
+    List<Object[]> findRawForTimeSeries(
+        @Param("merchantId") UUID merchantId,
+        @Param("mode") ApiKeyMode mode,
+        @Param("from") Instant from,
+        @Param("to") Instant to
+    );
 }
