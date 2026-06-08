@@ -2,9 +2,9 @@ package com.masonx.paygateway.provider.simulator;
 
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.provider.AbstractPaymentProviderService;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
-import com.masonx.paygateway.provider.PaymentProviderService;
 import com.masonx.paygateway.provider.ReusablePaymentMethodProviderService;
 import com.masonx.paygateway.provider.ReusablePaymentMethodSetupRequest;
 import com.masonx.paygateway.provider.ReusablePaymentMethodSetupResult;
@@ -21,13 +21,15 @@ import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * In-process fake PSP used by H7 benchmarks.
- * It is wired as a normal provider adapter so confirm/capture/refund benchmarks
- * still exercise routing, credential loading, retry orchestration, DB state
- * transitions, outbox writes, and optional Kafka/Redis side paths.
+ * Wired as a normal provider adapter so benchmarks exercise the full stack:
+ * routing, credential loading, retry orchestration, DB state transitions,
+ * outbox writes, and optional Kafka/Redis side paths.
  */
 @Service
 @ConditionalOnProperty(prefix = "app.provider-simulator", name = "enabled", havingValue = "true")
-public class MasonSimulatorPaymentProviderService implements PaymentProviderService, ReusablePaymentMethodProviderService {
+public class MasonSimulatorPaymentProviderService
+        extends AbstractPaymentProviderService<SimulatorCredentials>
+        implements ReusablePaymentMethodProviderService {
 
     private final ProviderSimulatorProperties properties;
 
@@ -41,7 +43,12 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
     }
 
     @Override
-    public ChargeResult charge(ChargeRequest request, ProviderCredentials creds) {
+    protected Class<SimulatorCredentials> credentialsType() {
+        return SimulatorCredentials.class;
+    }
+
+    @Override
+    protected ChargeResult sendCharge(ChargeRequest request, SimulatorCredentials creds) {
         simulateLatencyAndTimeout();
         if (shouldFail(creds)) {
             return new ChargeResult(false, null, json("charge", "failed", null),
@@ -54,7 +61,7 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
     }
 
     @Override
-    public RefundResult refund(RefundRequest request, ProviderCredentials creds) {
+    protected RefundResult sendRefund(RefundRequest request, SimulatorCredentials creds) {
         simulateLatencyAndTimeout();
         if (shouldFail(creds)) {
             return new RefundResult(false, null, "Mason Simulator synthetic refund failure");
@@ -63,11 +70,31 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
     }
 
     @Override
-    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
-            ReusablePaymentMethodSetupRequest request,
-            ProviderCredentials creds) {
+    protected Optional<PaymentIntentStatus> sendSyncStatus(String providerPaymentId, SimulatorCredentials creds) {
         simulateLatencyAndTimeout();
-        if (shouldFail(creds)) {
+        return Optional.of(PaymentIntentStatus.SUCCEEDED);
+    }
+
+    @Override
+    protected boolean sendCapture(String providerPaymentId, SimulatorCredentials creds) {
+        simulateLatencyAndTimeout();
+        return !shouldFail(creds);
+    }
+
+    @Override
+    protected boolean sendCancel(String providerPaymentId, SimulatorCredentials creds) {
+        simulateLatencyAndTimeout();
+        return !shouldFail(creds);
+    }
+
+    // ── ReusablePaymentMethodProviderService ──────────────────────────────────
+
+    @Override
+    public ReusablePaymentMethodSetupResult setupReusablePaymentMethod(
+            ReusablePaymentMethodSetupRequest request, ProviderCredentials creds) {
+        simulateLatencyAndTimeout();
+        SimulatorCredentials simCreds = creds instanceof SimulatorCredentials s ? s : null;
+        if (simCreds != null && shouldFail(simCreds)) {
             return ReusablePaymentMethodSetupResult.failed(
                     "simulator_setup_failed",
                     "Mason Simulator synthetic reusable method setup failure",
@@ -84,23 +111,7 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
                 json("setup_reusable_method", "succeeded", reusableReference));
     }
 
-    @Override
-    public Optional<PaymentIntentStatus> syncStatus(String providerPaymentId, ProviderCredentials creds) {
-        simulateLatencyAndTimeout();
-        return Optional.of(PaymentIntentStatus.SUCCEEDED);
-    }
-
-    @Override
-    public boolean cancelAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        simulateLatencyAndTimeout();
-        return !shouldFail(creds);
-    }
-
-    @Override
-    public boolean captureAtProvider(String providerPaymentId, ProviderCredentials creds) {
-        simulateLatencyAndTimeout();
-        return !shouldFail(creds);
-    }
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     private void simulateLatencyAndTimeout() {
         double random = ThreadLocalRandom.current().nextDouble();
@@ -109,18 +120,12 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
             throw new RuntimeException("Mason Simulator synthetic timeout");
         }
         long jitter = properties.getJitterMs() > 0
-                ? ThreadLocalRandom.current().nextLong(properties.getJitterMs() + 1)
-                : 0;
+                ? ThreadLocalRandom.current().nextLong(properties.getJitterMs() + 1) : 0;
         sleep(properties.getBaseLatencyMs() + jitter);
     }
 
-    private boolean shouldFail(ProviderCredentials creds) {
-        // Prefer the connector-specific simulator success rate so one merchant
-        // can model a healthy PSP while another models a degraded PSP.
-        double successRate = creds instanceof SimulatorCredentials simulator
-                ? simulator.successRate()
-                : 1.0 - properties.getFailureRate();
-        return ThreadLocalRandom.current().nextDouble() >= successRate;
+    private boolean shouldFail(SimulatorCredentials creds) {
+        return ThreadLocalRandom.current().nextDouble() >= creds.successRate();
     }
 
     private void sleep(long millis) {
@@ -134,10 +139,9 @@ public class MasonSimulatorPaymentProviderService implements PaymentProviderServ
     }
 
     private String json(String operation, String status, String id) {
-        String requestId = "sim_req_" + UUID.randomUUID();
         return "{\"provider\":\"SIMULATOR\",\"operation\":\"" + operation
                 + "\",\"status\":\"" + status
                 + "\",\"id\":\"" + (id != null ? id : "")
-                + "\",\"requestId\":\"" + requestId + "\"}";
+                + "\",\"requestId\":\"sim_req_" + UUID.randomUUID() + "\"}";
     }
 }
