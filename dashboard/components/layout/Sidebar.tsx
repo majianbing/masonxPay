@@ -5,13 +5,14 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch, UserRound,
-  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign,
+  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign, BarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
 
 const nav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
+  { href: '/analytics', label: 'Analytics', icon: BarChart2 },
   { href: '/payments', label: 'Payments', icon: CreditCard },
   { href: '/refunds', label: 'Refunds', icon: RotateCcw },
   {
