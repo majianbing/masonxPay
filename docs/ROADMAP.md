@@ -65,12 +65,12 @@ What merchants need to run their business, not just process payments.
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| 4.1 | **Merchant analytics API + dashboard** | [ ] | `GET /analytics?from=&to=&groupBy=connector\|currency\|status` — aggregates from existing tables. Dashboard page: volume, conversion rate, top failure codes, revenue over time. Powered by Phase 2 data. |
-| 4.2 | **Webhook endpoint management UI** | [ ] | Backend table exists. Merchants need to configure, test, and view delivery history for their own webhook URLs from the dashboard. |
-| 4.3 | **Event replay** | [ ] | Allow merchants to replay a failed/missed webhook delivery from the dashboard. |
-| 4.4 | **Customer vault** | [ ] | Save and reuse payment methods (tokenised). Unlocks "charge on file", one-click checkout, and subscription use cases. Requires a `customers` + `saved_payment_methods` table. |
-| 4.5 | **Disputes / chargebacks** | [ ] | Ingest dispute webhooks from providers, expose case management in dashboard, allow evidence submission back to provider. |
-| 4.6 | **Merchant audit log** | [ ] | Merchant-facing log: who changed connector credentials, who issued a refund, role changes. `admin_audit_logs` exists for the platform realm; mirror it for the merchant realm. |
+| 4.1 | **Merchant analytics API + dashboard** | ✅ | `GET /analytics?mode=&from=&to=&groupBy=status\|connector\|currency\|reason` — JPQL aggregates on `payment_intents` and `refunds`. Response: payment summary (volume, count, conversion rate, failed count), refund summary (refund volume, count, rate, net revenue), breakdown by selected dimension, daily time-series with revenue and refund volume. Dashboard `/analytics`: 8 summary cards (4 payment + 4 refund), dual-axis area chart (revenue left / refunds right), horizontal bar breakdown with legend, 7D/30D/90D preset toggle, groupBy toggle including Reason for refund breakdown. Designed empty state with ghost preview and CTA links for new merchants. |
+| 4.2 | **Webhook endpoint management UI** | ✅ | Already delivered: `WebhookEndpointController` (CRUD + rotate-secret + delivery history) and dashboard `/developers/webhooks` page (302 lines). No gap. |
+| 4.3 | **Event replay** | [ ] | Allow merchants to replay a failed/missed webhook delivery from the dashboard. Backend: `POST /webhook-endpoints/{id}/deliveries/{id}/replay` creates a new `WebhookDelivery` row for re-enqueue. Dashboard: Replay button in delivery list. |
+| 4.4 | **Customer vault** | ✅ | Delivered in Phase S1/S2: `customers`, `customer_payment_methods`, `PaymentInstrument` vault tokens, dashboard customer management (list/create/edit, attach/detach/set-default). |
+| 4.5 | **Disputes / chargebacks** | [ ] | Ingest dispute webhooks from providers (Stripe: `charge.dispute.*`, Square: `dispute.*`, Braintree: `DISPUTE_*`), expose case management in dashboard, allow evidence submission back to provider. New `disputes` table. |
+| 4.6 | **Merchant audit log** | [ ] | Merchant-facing log: who changed connector credentials, who issued a refund, role changes. New `merchant_audit_logs` table + write points in service layer + paginated API + dashboard settings page. |
 
 ---
 
