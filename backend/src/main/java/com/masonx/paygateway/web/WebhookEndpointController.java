@@ -1,12 +1,16 @@
 package com.masonx.paygateway.web;
 
-import com.masonx.paygateway.domain.webhook.WebhookDeliveryRepository;
+import com.masonx.paygateway.domain.webhook.WebhookDeliveryStatus;
+import com.masonx.paygateway.service.WebhookDeliveryService;
 import com.masonx.paygateway.service.WebhookEndpointService;
 import com.masonx.paygateway.web.dto.CreateWebhookEndpointRequest;
 import com.masonx.paygateway.web.dto.UpdateWebhookEndpointRequest;
 import com.masonx.paygateway.web.dto.WebhookDeliveryResponse;
 import com.masonx.paygateway.web.dto.WebhookEndpointResponse;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,19 +18,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/merchants/{merchantId}/webhook-endpoints")
 public class WebhookEndpointController {
 
     private final WebhookEndpointService webhookEndpointService;
-    private final WebhookDeliveryRepository webhookDeliveryRepository;
+    private final WebhookDeliveryService webhookDeliveryService;
 
     public WebhookEndpointController(WebhookEndpointService webhookEndpointService,
-                                      WebhookDeliveryRepository webhookDeliveryRepository) {
+                                      WebhookDeliveryService webhookDeliveryService) {
         this.webhookEndpointService = webhookEndpointService;
-        this.webhookDeliveryRepository = webhookDeliveryRepository;
+        this.webhookDeliveryService = webhookDeliveryService;
     }
 
     @GetMapping
@@ -66,13 +69,21 @@ public class WebhookEndpointController {
 
     @GetMapping("/{endpointId}/deliveries")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'READ')")
-    public ResponseEntity<List<WebhookDeliveryResponse>> listDeliveries(@PathVariable UUID merchantId,
-                                                                         @PathVariable UUID endpointId) {
-        List<WebhookDeliveryResponse> deliveries = webhookDeliveryRepository
-                .findTop50ByWebhookEndpointIdOrderByCreatedAtDesc(endpointId)
-                .stream()
-                .map(WebhookDeliveryResponse::from)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(deliveries);
+    public ResponseEntity<Page<WebhookDeliveryResponse>> listDeliveries(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID endpointId,
+            @RequestParam(required = false) WebhookDeliveryStatus status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(webhookDeliveryService.listDeliveries(merchantId, endpointId, status, pageable));
+    }
+
+    @PostMapping("/{endpointId}/deliveries/{deliveryId}/replay")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'UPDATE')")
+    public ResponseEntity<WebhookDeliveryResponse> replay(
+            @PathVariable UUID merchantId,
+            @PathVariable UUID endpointId,
+            @PathVariable UUID deliveryId) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(webhookDeliveryService.replay(merchantId, endpointId, deliveryId));
     }
 }

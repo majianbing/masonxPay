@@ -4,10 +4,13 @@ import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.domain.webhook.*;
+import com.masonx.paygateway.web.dto.WebhookDeliveryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -68,6 +71,35 @@ public class WebhookDeliveryService {
      *
      * HTTP delivery happens outside the transaction — failures are handled by retryPending().
      */
+    @Transactional(readOnly = true)
+    public Page<WebhookDeliveryResponse> listDeliveries(UUID merchantId, UUID endpointId,
+                                                         WebhookDeliveryStatus status, Pageable pageable) {
+        webhookEndpointRepository.findByIdAndMerchantId(endpointId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+        Page<WebhookDelivery> page = (status != null)
+                ? webhookDeliveryRepository.findByWebhookEndpointIdAndStatusOrderByCreatedAtDesc(endpointId, status, pageable)
+                : webhookDeliveryRepository.findByWebhookEndpointIdOrderByCreatedAtDesc(endpointId, pageable);
+        return page.map(WebhookDeliveryResponse::from);
+    }
+
+    public WebhookDeliveryResponse replay(UUID merchantId, UUID endpointId, UUID deliveryId) {
+        WebhookEndpoint endpoint = webhookEndpointRepository.findByIdAndMerchantId(endpointId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+        WebhookDelivery original = webhookDeliveryRepository.findById(deliveryId)
+                .filter(d -> d.getWebhookEndpointId().equals(endpointId))
+                .orElseThrow(() -> new IllegalArgumentException("Webhook delivery not found"));
+        String payload = gatewayEventRepository.findById(original.getGatewayEventId())
+                .map(GatewayEvent::getPayload).orElse("");
+
+        WebhookDelivery replayed = new WebhookDelivery();
+        replayed.setGatewayEventId(original.getGatewayEventId());
+        replayed.setWebhookEndpointId(endpointId);
+        webhookDeliveryRepository.save(replayed);
+
+        deliver(replayed, endpoint, payload);
+        return WebhookDeliveryResponse.from(replayed);
+    }
+
     @Scheduled(fixedDelay = 5_000)
     public void processOutbox() {
         if (!outboxPollerEnabled) {

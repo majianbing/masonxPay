@@ -38,6 +38,13 @@ interface WebhookDelivery {
   createdAt: string;
 }
 
+interface DeliveryPage {
+  content: WebhookDelivery[];
+  totalPages: number;
+  number: number;
+  totalElements: number;
+}
+
 const ALL_EVENTS = [
   'payment_intent.succeeded',
   'payment_intent.failed',
@@ -247,13 +254,36 @@ export default function WebhooksPage() {
 function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
   endpointId: string; merchantId: string; epCreatedAt: string; epId: string;
 }) {
-  const { data: deliveries = [], isLoading } = useQuery<WebhookDelivery[]>({
-    queryKey: ['webhook-deliveries', endpointId],
-    queryFn: () =>
-      apiFetch<WebhookDelivery[]>(
-        `/api/v1/merchants/${merchantId}/webhook-endpoints/${endpointId}/deliveries`,
-      ),
+  const qc = useQueryClient();
+  const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const { data, isLoading } = useQuery<DeliveryPage>({
+    queryKey: ['webhook-deliveries', endpointId, page, statusFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), size: '20' });
+      if (statusFilter) params.set('status', statusFilter);
+      return apiFetch<DeliveryPage>(
+        `/api/v1/merchants/${merchantId}/webhook-endpoints/${endpointId}/deliveries?${params}`,
+      );
+    },
   });
+
+  const replayMutation = useMutation({
+    mutationFn: (deliveryId: string) =>
+      apiFetch<WebhookDelivery>(
+        `/api/v1/merchants/${merchantId}/webhook-endpoints/${endpointId}/deliveries/${deliveryId}/replay`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['webhook-deliveries', endpointId] });
+      toast.success('Replayed');
+    },
+    onError: () => toast.error('Replay failed'),
+  });
+
+  const deliveries = data?.content ?? [];
+  const totalPages = data?.totalPages ?? 1;
 
   const statusColor: Record<string, string> = {
     SUCCEEDED: 'bg-green-100 text-green-700',
@@ -269,11 +299,24 @@ function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
         <span>Created: {format(new Date(epCreatedAt), 'MMM d, yyyy HH:mm')}</span>
       </div>
       <div>
-        <p className="font-medium text-foreground mb-2">Recent Deliveries</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="font-medium text-foreground">Recent Deliveries</p>
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
+            className="text-xs border rounded px-2 py-1 bg-white"
+          >
+            <option value="">All statuses</option>
+            <option value="FAILED">Failed</option>
+            <option value="RETRYING">Retrying</option>
+            <option value="PENDING">Pending</option>
+            <option value="SUCCEEDED">Succeeded</option>
+          </select>
+        </div>
         {isLoading ? (
           <p className="text-muted-foreground">Loading…</p>
         ) : deliveries.length === 0 ? (
-          <p className="text-muted-foreground italic">No deliveries yet</p>
+          <p className="text-muted-foreground italic">No deliveries found</p>
         ) : (
           <div className="space-y-1">
             {deliveries.map((d) => (
@@ -292,8 +335,34 @@ function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
                 <span className="text-muted-foreground ml-auto">
                   {format(new Date(d.createdAt), 'MMM d HH:mm:ss')}
                 </span>
+                <button
+                  onClick={() => replayMutation.mutate(d.id)}
+                  disabled={replayMutation.isPending}
+                  className="text-blue-600 hover:text-blue-800 disabled:opacity-50 shrink-0"
+                >
+                  Replay
+                </button>
               </div>
             ))}
+          </div>
+        )}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-end gap-2 mt-2">
+            <button
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+              className="px-2 py-1 border rounded disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <span className="text-muted-foreground">{page + 1} / {totalPages}</span>
+            <button
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+              className="px-2 py-1 border rounded disabled:opacity-40"
+            >
+              Next
+            </button>
           </div>
         )}
       </div>
