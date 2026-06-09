@@ -28,7 +28,7 @@ public class DisputeController {
     }
 
     @GetMapping
-    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'DISPUTE', 'READ')")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'READ')")
     public ResponseEntity<Page<DisputeResponse>> list(
             @PathVariable UUID merchantId,
             @RequestParam(required = false) DisputeStatus status,
@@ -37,7 +37,7 @@ public class DisputeController {
     }
 
     @GetMapping("/{disputeId}")
-    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'DISPUTE', 'READ')")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'READ')")
     public ResponseEntity<DisputeResponse> get(
             @PathVariable UUID merchantId,
             @PathVariable UUID disputeId) {
@@ -45,7 +45,7 @@ public class DisputeController {
     }
 
     @PostMapping(value = "/{disputeId}/evidence-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'DISPUTE', 'UPDATE')")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'UPDATE')")
     public ResponseEntity<DisputeEvidenceFileResponse> uploadEvidenceFile(
             @PathVariable UUID merchantId,
             @PathVariable UUID disputeId,
@@ -55,7 +55,7 @@ public class DisputeController {
     }
 
     @PostMapping("/{disputeId}/evidence")
-    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'DISPUTE', 'UPDATE')")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'UPDATE')")
     public ResponseEntity<DisputeResponse> submitEvidence(
             @PathVariable UUID merchantId,
             @PathVariable UUID disputeId,

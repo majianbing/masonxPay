@@ -50,7 +50,7 @@ public class DevDisputeSeedController {
     }
 
     @PostMapping("/seed")
-    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'DISPUTE', 'READ')")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'READ')")
     public ResponseEntity<DisputeResponse> seed(
             @PathVariable UUID merchantId,
             @RequestParam(defaultValue = "NEEDS_RESPONSE") DisputeStatus status,
