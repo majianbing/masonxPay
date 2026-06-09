@@ -55,7 +55,7 @@ Phase 4 (Merchant Operations) is now complete: 4.6 merchant audit log delivered.
 
 Next likely work:
 
-- Phase 5: platform maturity — rate limiting (5.2), platform admin UI (5.1), API versioning strategy (5.3), reconciliation (5.5).
+- Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy, reconciliation. Lower priority; deferred until core tracks mature.
 - H6: dashboard search/read projection hardening, search polish, and operational readiness around `payment_read_models`.
 - Phase O: O1-O5 and O3b routing UI consolidation are done; next orchestration work is O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 - Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.

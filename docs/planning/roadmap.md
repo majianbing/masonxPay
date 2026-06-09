@@ -74,16 +74,18 @@ What merchants need to run their business, not just process payments.
 
 ---
 
-## Phase 5 — Platform maturity
+## Phase 15 — Platform maturity
+
+Lower-priority platform hardening. These items are deferred until the core payment, orchestration, and billing tracks are more mature.
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| 5.1 | **Platform admin UI** | [ ] | `admin_users` table exists, zero endpoints or UI. Admin: merchant management, connector oversight, global event log. |
-| 5.2 | **Rate limiting** | [ ] | Per-merchant API rate limits. Without this, one runaway integration can starve others. Implemented at filter level (Bucket4j — no Redis needed at this scale). |
-| 5.3 | **API versioning strategy** | [ ] | All routes are `/v1/`. Define deprecation policy and version promotion path before breaking changes accumulate. |
-| 5.4 | **Mobile SDKs** | [ ] | iOS and Android native SDKs. Browser SDK is the model; same lifecycle pattern. |
-| 5.5 | **Reconciliation** | [ ] | Ingest provider settlement files / payout reports. Match against `payment_intents`. Expose discrepancies. |
-| 5.6 | **Subscription / recurring billing** | ✅ | Split into standalone Phase S and delivered through S1-S5: customers, payment methods, subscriptions, invoices, off-session execution, recurring retry/dunning, and dashboard operations. Remaining hardening is tracked in Phase S. |
+| 15.1 | **Platform admin UI** | [ ] | `admin_users` table exists, zero endpoints or UI. Admin: merchant management, connector oversight, global event log. |
+| 15.2 | **Rate limiting** | [ ] | Per-merchant API rate limits. Without this, one runaway integration can starve others. Implemented at filter level (Bucket4j — no Redis needed at this scale). |
+| 15.3 | **API versioning strategy** | [ ] | All routes are `/v1/`. Define deprecation policy and version promotion path before breaking changes accumulate. |
+| 15.4 | **Mobile SDKs** | [ ] | iOS and Android native SDKs. Browser SDK is the model; same lifecycle pattern. |
+| 15.5 | **Reconciliation** | [ ] | Ingest provider settlement files / payout reports. Match against `payment_intents`. Expose discrepancies. |
+| 15.6 | **Subscription / recurring billing** | ✅ | Split into standalone Phase S and delivered through S1-S5: customers, payment methods, subscriptions, invoices, off-session execution, recurring retry/dunning, and dashboard operations. Remaining hardening is tracked in Phase S. |
 
 ---
 
@@ -246,7 +248,7 @@ Phase 0 (done)
             │       ├── Phase 3.1/3.2 (smart routing needs success-rate data)
             │       └── Phase 4.1 (analytics needs metrics)
             ├── Phase 3 (orchestration — connector breadth + intelligence)
-            ├── Phase 4 (merchant ops — customer vault → Phase 5.6 subscriptions)
+            ├── Phase 4 (merchant ops — customer vault → Phase 15.6 subscriptions)
             └── Phase H (high-throughput core — sharding, Redis, Kafka, read projections)
                     ├── Phase O (advanced orchestration — instruments, route policies, fallback, retries)
                     └── Phase AI (later advisory ops control plane — recommendations, validator, approval)
