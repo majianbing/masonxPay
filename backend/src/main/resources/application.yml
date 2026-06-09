@@ -147,6 +147,16 @@ app:
       enabled: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:true}
       ttl-seconds: ${REDIS_PROVIDER_HEALTH_CACHE_TTL_SECONDS:600}
 
+  storage:
+    type: ${STORAGE_TYPE:local}           # local | s3
+    local:
+      base-dir: ${STORAGE_LOCAL_BASE_DIR:./uploads}
+    s3:
+      bucket: ${STORAGE_S3_BUCKET:}
+      region: ${STORAGE_S3_REGION:us-east-1}
+      prefix: ${STORAGE_S3_PREFIX:}       # optional key prefix, e.g. "masonxpay/"
+      presigned-url-expiry-seconds: ${STORAGE_S3_PRESIGNED_TTL:3600}
+
   provider-simulator:
     enabled: ${PROVIDER_SIMULATOR_ENABLED:false}
     base-latency-ms: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:25}

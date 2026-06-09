@@ -134,6 +134,13 @@
             <version>1.8.9</version>
         </dependency>
 
+        <!-- AWS S3 SDK (Phase 4.5 — dispute evidence file storage) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.25.16</version>
+        </dependency>
+
         <!-- Micrometer Prometheus registry (Phase 2.1 — /actuator/prometheus) -->
         <dependency>
             <groupId>io.micrometer</groupId>

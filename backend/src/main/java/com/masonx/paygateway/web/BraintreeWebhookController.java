@@ -3,17 +3,23 @@ package com.masonx.paygateway.web;
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.Environment;
 import com.braintreegateway.WebhookNotification;
+import com.masonx.paygateway.domain.dispute.DisputeReason;
+import com.masonx.paygateway.domain.dispute.DisputeStatus;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.webhook.ProcessedWebhookEvent;
 import com.masonx.paygateway.domain.webhook.ProcessedWebhookEventRepository;
+import com.masonx.paygateway.service.DisputeService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.Instant;
 
 import java.util.Optional;
 
@@ -42,6 +48,7 @@ public class BraintreeWebhookController {
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final ProcessedWebhookEventRepository processedEventRepository;
+    private final DisputeService disputeService;
 
     @Value("${app.braintree.merchant-id:}")
     private String merchantId;
@@ -53,9 +60,11 @@ public class BraintreeWebhookController {
     private boolean sandbox;
 
     public BraintreeWebhookController(PaymentIntentRepository paymentIntentRepository,
-                                       ProcessedWebhookEventRepository processedEventRepository) {
+                                       ProcessedWebhookEventRepository processedEventRepository,
+                                       DisputeService disputeService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.processedEventRepository = processedEventRepository;
+        this.disputeService = disputeService;
     }
 
     @PostMapping("/webhook")
@@ -113,6 +122,11 @@ public class BraintreeWebhookController {
             return;
         }
 
+        if (kind.startsWith("DISPUTE_")) {
+            handleDisputeNotification(kind, notification);
+            return;
+        }
+
         if (notification.getTransaction() == null) {
             log.debug("Braintree webhook {} has no transaction; skipping", kind);
             return;
@@ -130,6 +144,41 @@ public class BraintreeWebhookController {
         } else {
             log.debug("Unhandled Braintree webhook kind: {}", kind);
         }
+    }
+
+    private void handleDisputeNotification(String kind, WebhookNotification notification) {
+        com.braintreegateway.Dispute dispute = notification.getDispute();
+        if (dispute == null) {
+            log.debug("Braintree {} webhook has no dispute object; skipping", kind);
+            return;
+        }
+
+        String providerDisputeId = dispute.getId();
+        String providerPaymentId = (dispute.getTransaction() != null)
+                ? dispute.getTransaction().getId() : null;
+
+        DisputeStatus status = switch (kind) {
+            case "DISPUTE_OPENED" -> DisputeStatus.NEEDS_RESPONSE;
+            case "DISPUTE_WON"    -> DisputeStatus.WON;
+            case "DISPUTE_LOST"   -> DisputeStatus.LOST;
+            default               -> DisputeStatus.UNDER_REVIEW;
+        };
+
+        Instant resolvedAt = (status == DisputeStatus.WON || status == DisputeStatus.LOST)
+                ? Instant.now() : null;
+
+        // Braintree amounts are BigDecimal in currency units — convert to minor units (cents)
+        long amountCents = 0;
+        if (dispute.getDisputedAmount() != null) {
+            amountCents = dispute.getDisputedAmount()
+                    .multiply(BigDecimal.valueOf(100)).longValue();
+        }
+        String currency = dispute.getCurrencyIsoCode() != null
+                ? dispute.getCurrencyIsoCode() : "USD";
+
+        disputeService.ingestDispute(new DisputeService.IngestDisputeCommand(
+                "BRAINTREE", providerDisputeId, providerPaymentId, status,
+                DisputeReason.GENERAL, amountCents, currency, null, resolvedAt));
     }
 
     private void updateIntent(String providerPaymentId, PaymentIntentStatus newStatus, String kind) {

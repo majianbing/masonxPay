@@ -2,11 +2,14 @@ package com.masonx.paygateway.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.dispute.DisputeReason;
+import com.masonx.paygateway.domain.dispute.DisputeStatus;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.webhook.ProcessedWebhookEvent;
 import com.masonx.paygateway.domain.webhook.ProcessedWebhookEventRepository;
+import com.masonx.paygateway.service.DisputeService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +21,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.Optional;
 
@@ -51,6 +55,7 @@ public class SquareWebhookController {
 
     private final PaymentIntentRepository paymentIntentRepository;
     private final ProcessedWebhookEventRepository processedEventRepository;
+    private final DisputeService disputeService;
     private final ObjectMapper objectMapper;
 
     @Value("${app.square.webhook-signature-key:}")
@@ -61,9 +66,11 @@ public class SquareWebhookController {
 
     public SquareWebhookController(PaymentIntentRepository paymentIntentRepository,
                                    ProcessedWebhookEventRepository processedEventRepository,
+                                   DisputeService disputeService,
                                    ObjectMapper objectMapper) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.processedEventRepository = processedEventRepository;
+        this.disputeService = disputeService;
         this.objectMapper = objectMapper;
     }
 
@@ -103,7 +110,11 @@ public class SquareWebhookController {
                 }
             }
 
-            reconcile(type, paymentNode);
+            if (type != null && type.startsWith("dispute.")) {
+                handleDisputeEvent(type, root.path("data").path("object").path("dispute"));
+            } else {
+                reconcile(type, paymentNode);
+            }
         } catch (DataIntegrityViolationException e) {
             return ResponseEntity.ok().build();
         } catch (Exception e) {
@@ -127,6 +138,61 @@ public class SquareWebhookController {
             log.error("Square webhook signature computation failed: {}", e.getMessage());
             return false;
         }
+    }
+
+    private void handleDisputeEvent(String type, JsonNode dispute) {
+        String providerDisputeId = dispute.path("id").asText(null);
+        if (providerDisputeId == null) return;
+
+        String providerPaymentId = dispute.path("payment_id").asText(null);
+        String state = dispute.path("state").asText("");
+
+        DisputeStatus status = switch (state) {
+            case "EVIDENCE_REQUIRED",
+                 "INQUIRY_EVIDENCE_REQUIRED" -> DisputeStatus.NEEDS_RESPONSE;
+            case "PROCESSING",
+                 "INQUIRY_PROCESSING"        -> DisputeStatus.UNDER_REVIEW;
+            case "WON"                       -> DisputeStatus.WON;
+            case "LOST"                      -> DisputeStatus.LOST;
+            case "ACCEPTED"                  -> DisputeStatus.CHARGE_REFUNDED;
+            default                          -> DisputeStatus.NEEDS_RESPONSE;
+        };
+
+        DisputeReason reason = mapSquareDisputeReason(dispute.path("reason").asText(""));
+
+        long amountCents = 0;
+        JsonNode amountMoney = dispute.path("amount_money");
+        if (!amountMoney.isMissingNode()) {
+            amountCents = amountMoney.path("amount").asLong(0);
+        }
+        String currency = amountMoney.path("currency").asText("USD");
+
+        Instant evidenceDueBy = null;
+        String dueAt = dispute.path("evidence_due_at").asText(null);
+        if (dueAt != null && !dueAt.isBlank()) {
+            try { evidenceDueBy = Instant.parse(dueAt); } catch (Exception ignored) {}
+        }
+
+        Instant resolvedAt = (status == DisputeStatus.WON || status == DisputeStatus.LOST
+                || status == DisputeStatus.CHARGE_REFUNDED) ? Instant.now() : null;
+
+        disputeService.ingestDispute(new com.masonx.paygateway.service.DisputeService.IngestDisputeCommand(
+                "SQUARE", providerDisputeId, providerPaymentId, status, reason,
+                amountCents, currency, evidenceDueBy, resolvedAt));
+    }
+
+    private DisputeReason mapSquareDisputeReason(String r) {
+        return switch (r) {
+            case "DUPLICATE"                -> DisputeReason.DUPLICATE;
+            case "NOT_RECEIVED"             -> DisputeReason.PRODUCT_NOT_RECEIVED;
+            case "NOT_AS_DESCRIBED"         -> DisputeReason.PRODUCT_UNACCEPTABLE;
+            case "CANCELLED"                -> DisputeReason.SUBSCRIPTION_CANCELED;
+            case "CREDIT_NOT_PROCESSED",
+                 "CUSTOMER_REQUESTS_CREDIT" -> DisputeReason.CREDIT_NOT_PROCESSED;
+            case "NO_KNOWLEDGE",
+                 "EMV_LIABILITY_SHIFT"      -> DisputeReason.FRAUDULENT;
+            default                         -> DisputeReason.GENERAL;
+        };
     }
 
     private void reconcile(String type, JsonNode paymentNode) {

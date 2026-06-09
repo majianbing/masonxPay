@@ -71,6 +71,39 @@ function rejectAuthSession(status: number): never {
   throw new ApiError(status, 'Session expired');
 }
 
+export async function apiFetchForm<T>(
+  path: string,
+  options: RequestInit & { skipAuth?: boolean } = {},
+): Promise<T> {
+  const { skipAuth, ...init } = options;
+  if (!accessToken && !skipAuth) loadTokensFromStorage();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (!skipAuth && accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  if (isAuthRejected(res.status) && !skipAuth) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+      const retry = await fetch(`${API_BASE}${path}`, { ...init, headers });
+      if (isAuthRejected(retry.status)) rejectAuthSession(retry.status);
+      if (!retry.ok) {
+        const retryJson = await retry.json().catch(() => null);
+        throw new ApiError(retry.status, retryJson?.title ?? retry.statusText, retryJson?.detail);
+      }
+      if (retry.status === 204) return undefined as T;
+      return retry.json();
+    }
+    rejectAuthSession(res.status);
+  }
+  if (res.status === 204) return undefined as T;
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, json?.title ?? res.statusText, json?.detail);
+  return json as T;
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit & { skipAuth?: boolean } = {},
