@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
+import com.masonx.paygateway.domain.audit.AuditAction;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountCapability;
 import com.masonx.paygateway.domain.connector.ProviderAccountCapabilityRepository;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -28,15 +30,18 @@ public class ProviderAccountService {
     private final ProviderAccountCapabilityRepository capabilityRepository;
     private final CredentialsCodec codec;
     private final ProviderSimulatorProperties simulatorProperties;
+    private final MerchantAuditLogService auditLogService;
 
     public ProviderAccountService(ProviderAccountRepository repo,
                                   ProviderAccountCapabilityRepository capabilityRepository,
                                   CredentialsCodec codec,
-                                  ProviderSimulatorProperties simulatorProperties) {
+                                  ProviderSimulatorProperties simulatorProperties,
+                                  MerchantAuditLogService auditLogService) {
         this.repo = repo;
         this.capabilityRepository = capabilityRepository;
         this.codec = codec;
         this.simulatorProperties = simulatorProperties;
+        this.auditLogService = auditLogService;
     }
 
     @Transactional(readOnly = true)
@@ -71,6 +76,9 @@ public class ProviderAccountService {
 
         ProviderAccount saved = repo.save(account);
         seedDefaultCapabilities(saved);
+        auditLogService.record(merchantId, AuditAction.CONNECTOR_CREATED,
+                "CONNECTOR", saved.getId().toString(), provider.name() + " - " + req.label(),
+                Map.of("provider", provider.name(), "label", req.label(), "mode", mode.name()));
         return ProviderAccountResponse.from(saved, codec.clientKeyFor(saved));
     }
 
@@ -93,11 +101,20 @@ public class ProviderAccountService {
             account.setRateBps(req.rateBps());
         }
 
-        return ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
+        ProviderAccountResponse updated = ProviderAccountResponse.from(repo.save(account), codec.clientKeyFor(account));
+        auditLogService.record(merchantId, AuditAction.CONNECTOR_UPDATED,
+                "CONNECTOR", accountId.toString(), account.getProvider().name() + " - " + account.getLabel(),
+                Map.of("provider", account.getProvider().name(), "label", account.getLabel()));
+        return updated;
     }
 
     public void delete(UUID merchantId, UUID accountId) {
-        repo.delete(loadOwned(merchantId, accountId));
+        ProviderAccount account = loadOwned(merchantId, accountId);
+        String label = account.getProvider().name() + " - " + account.getLabel();
+        repo.delete(account);
+        auditLogService.record(merchantId, AuditAction.CONNECTOR_DELETED,
+                "CONNECTOR", accountId.toString(), label,
+                Map.of("provider", account.getProvider().name(), "label", account.getLabel()));
     }
 
     public ProviderAccountResponse setPrimary(UUID merchantId, UUID accountId) {

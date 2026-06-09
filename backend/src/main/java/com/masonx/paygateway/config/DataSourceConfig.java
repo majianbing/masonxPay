@@ -105,6 +105,7 @@ public class DataSourceConfig {
     private Collection<String> singleTables() {
         List<String> tables = new ArrayList<>(List.of(
                 "ds_0.admin_audit_logs",
+                "ds_0.merchant_audit_logs",
                 "ds_0.admin_users",
                 "ds_0.api_keys",
                 "ds_0.gateway_events",

@@ -33,12 +33,13 @@ class ProviderAccountServiceTest {
     @Mock ProviderAccountCapabilityRepository capabilityRepository;
     @Mock CredentialsCodec codec;
     @Mock ProviderSimulatorProperties simulatorProperties;
+    @Mock MerchantAuditLogService auditLogService;
 
     private ProviderAccountService service;
 
     @BeforeEach
     void setUp() {
-        service = new ProviderAccountService(repo, capabilityRepository, codec, simulatorProperties);
+        service = new ProviderAccountService(repo, capabilityRepository, codec, simulatorProperties, auditLogService);
         when(repo.save(any())).thenAnswer(inv -> {
             ProviderAccount account = inv.getArgument(0);
             if (account.getId() == null) {
