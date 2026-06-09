@@ -3,6 +3,7 @@ package com.masonx.paygateway.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.dispute.DisputeProviderAdapter;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
+import org.springframework.util.StringUtils;
 import com.masonx.paygateway.domain.dispute.*;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
@@ -112,11 +113,17 @@ public class DisputeService {
     // ── Queries ────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public Page<DisputeResponse> list(UUID merchantId, DisputeStatus status, Pageable pageable) {
+    public Page<DisputeResponse> list(UUID merchantId, String modeStr, DisputeStatus status, Pageable pageable) {
+        ApiKeyMode mode = parseMode(modeStr);
         Page<Dispute> page = (status != null)
-                ? disputeRepository.findByMerchantIdAndStatusOrderByCreatedAtDesc(merchantId, status, pageable)
-                : disputeRepository.findByMerchantIdOrderByCreatedAtDesc(merchantId, pageable);
+                ? disputeRepository.findByMerchantIdAndModeAndStatusOrderByCreatedAtDesc(merchantId, mode, status, pageable)
+                : disputeRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode, pageable);
         return page.map(d -> DisputeResponse.from(d, List.of()));
+    }
+
+    private ApiKeyMode parseMode(String modeStr) {
+        if (StringUtils.hasText(modeStr) && "TEST".equalsIgnoreCase(modeStr)) return ApiKeyMode.TEST;
+        return ApiKeyMode.LIVE;
     }
 
     @Transactional(readOnly = true)
