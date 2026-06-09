@@ -128,7 +128,7 @@ const PROVIDER_META: Record<Provider, {
     tagline: 'Synthetic PSP for benchmark and preview testing',
     description: 'TEST-only fake provider that exercises routing, confirm, capture, refund, and outbox flows without calling external PSP sandboxes.',
     methods: ['Cards', 'Synthetic latency', 'Synthetic failures'],
-    docsUrl: '/docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md',
+    docsUrl: '/docs/planning/high-throughput-payment-core-plan.md',
   },
 };
 

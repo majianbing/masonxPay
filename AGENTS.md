@@ -10,15 +10,21 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - `monitor/`: Prometheus, Grafana, Kafka JMX assets.
 - `bench/`: k6 benchmark scenarios.
 - `cloud-deploy/`: deployment assets.
-- `docs/`: roadmap, high-throughput plan, long development guide, and historical prompt/reference docs.
+- `docs/`: structured architecture, engineering guidance, active planning, and archived historical reference.
 
 ## Primary Docs
 
-- Product and phase roadmap: `docs/ROADMAP.md`
-- High-throughput payment core plan: `docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`
-- AI-assisted operations control-plane plan: `docs/AI_CONTROL_PLANE_PLAN.md`
-- Detailed development guide (connectors, SDK, MFA, implementation rules): `docs/DEVELOPMENT_GUIDE.md`
-- Full historical prompt/reference: `docs/payment-gateway-full-prompt.md`
+- Docs index: `docs/README.md`
+- Architecture overview: `docs/architecture/overview.md`
+- Security boundaries: `docs/architecture/security-boundaries.md`
+- Payment core invariants: `docs/architecture/payment-core.md`
+- Product and phase roadmap: `docs/planning/roadmap.md`
+- High-throughput payment core plan: `docs/planning/high-throughput-payment-core-plan.md`
+- AI-assisted operations control-plane plan: `docs/planning/ai-control-plane-plan.md`
+- Detailed development guide: `docs/engineering/development-guide.md`
+- Connector development guide: `docs/engineering/connector-development.md`
+- Testing strategy: `docs/engineering/testing-strategy.md`
+- Full historical prompt/reference: `docs/archive/payment-gateway-full-prompt.md`
 - Root README for setup and public project overview: `README.md`
 
 ## Architecture Snapshot
@@ -34,7 +40,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
 - High-throughput track H1-H5b and H7: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, and benchmark/simulator observability are done.
 - Next high-throughput work: H6 dashboard search/read projections.
-- Advanced orchestration Phase O: O1-O4 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, and outcome-action retry/fallback. Track exact progress in `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`.
+- Advanced orchestration Phase O: O1-O4 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, and outcome-action retry/fallback. Track exact progress in `docs/planning/payment-orchestration-routing-retry-plan.md`.
 - AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
@@ -75,7 +81,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Java: 4-space indentation, package root `com.masonx.paygateway`, constructor injection, DTOs at API boundaries.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
 - Keep business logic out of controllers.
-- Add clean, simple comments on classes and methods when they clarify intent, ownership, or non-obvious behavior. Explain what the code is doing without restating obvious implementation details.
+- Add comments only when intent is non-obvious: a hidden constraint, a subtle invariant, a workaround for a known bug, or behavior that would surprise a reader. Do not explain what the code does; well-named identifiers already do that.
 - Avoid broad `catch (Exception)` blocks unless there is a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
 - Do not claim tests passed unless they actually ran.

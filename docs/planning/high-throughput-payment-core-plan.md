@@ -1,5 +1,7 @@
 # High-Throughput Payment Core Upgrade Plan
 
+Stable architecture extracted from this tracker lives in [sharding, Kafka, and Redis](../architecture/sharding-kafka-redis.md) and [payment core](../architecture/payment-core.md). Keep this file focused on phase status, open decisions, and implementation notes.
+
 This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for interview discussion and staged implementation.
 
 The current system intentionally avoids Redis and Kafka/RabbitMQ for the MVP scale profile. This upgrade intentionally lifts that limitation for a new scale profile where write throughput, async event fan-out, and low-latency coordination justify additional infrastructure.
@@ -460,7 +462,7 @@ Follow-up hardening, not H7 blockers:
 
 The AI-assisted control plane is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
 
-See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
+See [AI-assisted operations control plane plan](ai-control-plane-plan.md).
 
 ## Open Decisions
 

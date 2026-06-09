@@ -37,7 +37,7 @@ sdk/browser/    TypeScript browser checkout SDK
 monitor/        Prometheus, Grafana, Kafka JMX, alerting
 bench/          k6 benchmark scenarios and results
 cloud-deploy/   AWS deployment references
-docs/           Roadmap and architecture plans
+docs/           Architecture, engineering guidance, planning, and archive
 ```
 
 ## Recommended Local Run
@@ -105,11 +105,16 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 
 ## Documentation
 
-- [Roadmap](docs/ROADMAP.md)
-- [High-throughput payment core plan](docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
-- [Payment orchestration, routing, retry, and instrument plan](docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md)
-- [AI-assisted operations control plane](docs/AI_CONTROL_PLANE_PLAN.md)
-- [Development guide](docs/DEVELOPMENT_GUIDE.md)
+- [Docs index](docs/README.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Security boundaries](docs/architecture/security-boundaries.md)
+- [Payment core](docs/architecture/payment-core.md)
+- [Roadmap](docs/planning/roadmap.md)
+- [High-throughput payment core plan](docs/planning/high-throughput-payment-core-plan.md)
+- [Payment orchestration, routing, retry, and instrument plan](docs/planning/payment-orchestration-routing-retry-plan.md)
+- [AI-assisted operations control plane](docs/planning/ai-control-plane-plan.md)
+- [Development guide](docs/engineering/development-guide.md)
+- [Connector development](docs/engineering/connector-development.md)
 - [Server SDK](sdk/server/README.md)
 
 ## Tech Stack

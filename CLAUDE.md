@@ -6,12 +6,18 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 
 - `README.md`: setup, product overview, Docker/local/preview instructions.
 - `AGENTS.md`: repository rules and agent operating constraints.
-- `docs/ROADMAP.md`: product phases and future tracks.
-- `docs/HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`: sharding, Kafka, Redis, projections, and preview design.
-- `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
-- `docs/AI_CONTROL_PLANE_PLAN.md`: AI-assisted payment operations control-plane design.
-- `docs/DEVELOPMENT_GUIDE.md`: detailed implementation guide and connector/SDK rules.
-- `docs/payment-gateway-full-prompt.md`: historical full project prompt/reference.
+- `docs/README.md`: structured documentation index.
+- `docs/architecture/overview.md`: durable system map and core invariants.
+- `docs/architecture/security-boundaries.md`: tenant/mode, PCI, provider, webhook, and AI data boundaries.
+- `docs/architecture/payment-core.md`: payment state, idempotency, transaction, and outbox invariants.
+- `docs/planning/roadmap.md`: product phases and future tracks.
+- `docs/planning/high-throughput-payment-core-plan.md`: sharding, Kafka, Redis, projections, and preview design.
+- `docs/planning/payment-orchestration-routing-retry-plan.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
+- `docs/planning/ai-control-plane-plan.md`: AI-assisted payment operations control-plane design.
+- `docs/engineering/development-guide.md`: engineering docs index.
+- `docs/engineering/connector-development.md`: connector implementation workflow.
+- `docs/engineering/testing-strategy.md`: test coverage and placement rules.
+- `docs/archive/payment-gateway-full-prompt.md`: historical full project prompt/reference.
 
 ## Modules
 
@@ -30,7 +36,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - Async propagation: transactional outbox in Postgres, Kafka publisher/consumers for high-throughput worker fan-out.
 - Search/read views: projection tables now; OpenSearch planned for dashboard/support search, not state authority.
 - Runtime routing: deterministic rules and service logic.
-- Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md` is the durable status tracker.
+- Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/planning/payment-orchestration-routing-retry-plan.md` is the durable status tracker.
 - AI control plane: planned advisory layer only. AI may investigate and propose; validators and humans approve; deterministic workers execute.
 
 ## Current Track
@@ -103,7 +109,7 @@ Keep tests modular:
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.
 - Keep external AI model calls outside the sensitive data boundary; use redacted, aggregated evidence only, and support a no-external-AI mode.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
-- Use `docs/DEVELOPMENT_GUIDE.md` for detailed connector, SDK, MFA, and implementation rules.
+- Use `docs/engineering/development-guide.md` as the engineering index; use the focused engineering docs for connector, SDK, MFA, testing, and database rules.
 
 ## Before Final Response
 

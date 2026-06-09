@@ -1,5 +1,7 @@
 # MasonXPay Payment Orchestration, Routing, Retry, and Instrument Plan
 
+Stable architecture extracted from this tracker lives in [routing and orchestration](../architecture/routing-orchestration.md). Keep this file focused on phase status, open decisions, and implementation notes.
+
 This plan reorganizes the Yuno-like orchestration discussion into a staged MasonXPay architecture. The near-term goal is a deterministic payment orchestration engine: route selection, provider fallback, retry control, provider health, and merchant-visible operations. The long-term goal is to leave a clean path toward portable card instruments, network tokens, or a PCI-scoped card vault without forcing MasonXPay to handle PAN now.
 
 ## Positioning
@@ -427,7 +429,7 @@ Follow-up hardening:
 
 Subscription and recurring billing has moved to standalone Phase S because it requires its own customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries before recurring retry can exist.
 
-See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN.md).
+See [subscription and recurring billing plan](subscription-recurring-billing-plan.md).
 
 ### O6: Optional Portable Card Support `[ ]`
 

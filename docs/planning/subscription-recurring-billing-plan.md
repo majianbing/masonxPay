@@ -1,5 +1,7 @@
 # MasonXPay Subscription and Recurring Billing Plan
 
+Stable architecture extracted from this tracker lives in [subscriptions and billing](../architecture/subscriptions-billing.md). Keep this file focused on phase status, open decisions, and implementation notes.
+
 This plan defines a separate product phase for subscription and recurring billing. It is intentionally separate from Phase O routing/retry work: subscriptions create invoices and off-session payment obligations; routing decides how eligible payment attempts execute; scheduled retries recover approved recurring invoice attempts only after the subscription domain exists.
 
 ## Current Boundary

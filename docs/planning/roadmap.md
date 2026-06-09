@@ -91,7 +91,7 @@ What merchants need to run their business, not just process payments.
 
 This is a new scale profile that intentionally evolves beyond the MVP constraints of a single Postgres-backed gateway. The design keeps Postgres shards as the financial source of truth, uses `payment_id` / `order_id` sharding to avoid hot merchants, adds Redis only for hot-path optimization, and adds Kafka for async event fan-out. H6 should continue with Postgres-backed dashboard read models; OpenSearch remains an optional future search index only if read-model search outgrows Postgres. Elasticsearch is intentionally out of scope for now.
 
-See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md).
+See [high-throughput payment core plan](high-throughput-payment-core-plan.md).
 
 | # | Item | Status | Detail |
 |---|---|---|---|
@@ -111,7 +111,7 @@ See [HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md](HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md)
 
 MasonXPay should prioritize Yuno-like deterministic orchestration before the AI control plane: richer routing context, payment-instrument abstraction, provider capability checks, route policy versioning, outcome-based fallback, and controlled retry orchestration.
 
-See [PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md](PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md).
+See [payment orchestration, routing, retry, and instrument plan](payment-orchestration-routing-retry-plan.md).
 
 Core boundary: MasonXPay does not need raw PAN to build the next orchestration layer. The near-term system should route on safe context and opaque instrument references. Future vault, network-token, or PCI-scoped card handling must plug into a separate instrument domain instead of leaking PAN/CVV into payment intents, logs, Kafka events, or read models.
 
@@ -131,7 +131,7 @@ Core boundary: MasonXPay does not need raw PAN to build the next orchestration l
 
 MasonXPay does not currently support subscription or recurring billing. This phase adds that product domain as a clean module before recurring retry/dunning is enabled. Recurring retry depends on subscriptions, invoices, reusable payment instruments, merchant retry policy, and customer notification hooks; it must remain separate from customer-present checkout retry, capture recovery, and refund handling.
 
-See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN.md).
+See [subscription and recurring billing plan](subscription-recurring-billing-plan.md).
 
 | # | Item | Status | Detail |
 |---|---|---|---|
@@ -148,7 +148,7 @@ See [SUBSCRIPTION_RECURRING_BILLING_PLAN.md](SUBSCRIPTION_RECURRING_BILLING_PLAN
 
 MasonXPay should eventually add an AI-assisted control plane, but this phase is lower priority than the deterministic orchestration engine. The AI layer should analyze, explain, and draft policy changes after routing, retry, telemetry, and instrument boundaries are mature.
 
-See [AI_CONTROL_PLANE_PLAN.md](AI_CONTROL_PLANE_PLAN.md).
+See [AI-assisted operations control plane plan](ai-control-plane-plan.md).
 
 Core safety rule: AI does not authorize, decline, or route payments directly. AI analyzes telemetry, explains incidents, recommends routing-policy changes, and can draft safe configuration updates. A deterministic validator and a human approval step remain between AI output and production routing changes. The runtime routing engine continues to execute explicit, versioned configuration only.
 

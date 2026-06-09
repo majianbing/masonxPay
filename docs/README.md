@@ -1,16 +1,30 @@
 # MasonXPay Docs
 
-This directory keeps the larger planning, architecture, and historical reference documents out of the repository root. Root `AGENTS.md` and `CLAUDE.md` are intentionally short skeletons that point here for detail.
+This directory separates durable architecture, engineering guidance, active planning, and historical reference material. Root `AGENTS.md` and `CLAUDE.md` stay concise and point here for detail.
 
-## Files
+## Start Here
 
-- `ROADMAP.md`: product roadmap, high-throughput phases, and AI-assisted operations control-plane milestones.
-- `HIGH_THROUGHPUT_PAYMENT_CORE_PLAN.md`: detailed H-track design for sharding, Kafka, Redis, projections, and preview runtime.
-- `PAYMENT_ORCHESTRATION_ROUTING_RETRY_PLAN.md`: Yuno-like routing, retry, fallback, payment-instrument, future tokenization architecture, and the Phase O implementation tracker.
-- `SUBSCRIPTION_RECURRING_BILLING_PLAN.md`: standalone subscription, invoice, off-session charging, and recurring retry/dunning phase plan.
-- `AI_CONTROL_PLANE_PLAN.md`: AI-assisted payment operations control-plane architecture, model-provider strategy, safety boundaries, workflow, and eval plan.
-- `DEVELOPMENT_GUIDE.md`: detailed engineering guide migrated from the old root `CLAUDE.md`, including connector, SDK, MFA, and implementation rules.
-- `payment-gateway-full-prompt.md`: historical full prompt/reference material.
+- [Architecture overview](architecture/overview.md): system map, ownership boundaries, and core invariants.
+- [Security boundaries](architecture/security-boundaries.md): tenant/mode isolation, PCI boundary, AI data policy, and secret handling.
+- [Payment core](architecture/payment-core.md): financial state ownership, idempotency, provider calls, and outbox rules.
+- [Development guide](engineering/development-guide.md): engineering docs index — connector, SDK, auth, testing, database, and anti-pattern guides.
+- [Connector development](engineering/connector-development.md): provider onboarding across backend, dashboard, SDK, and docs.
+- [Testing strategy](engineering/testing-strategy.md): expected coverage layers and test placement.
+- [Roadmap](planning/roadmap.md): product phases, current status, and future tracks.
+
+## Folders
+
+- `architecture/`: durable system design and invariants. These docs should change only when the architecture changes.
+- `engineering/`: how to build, test, and extend the system.
+- `planning/`: roadmap and phase trackers. These docs can be noisy and status-oriented.
+- `archive/`: historical source material that should not be treated as current guidance.
+
+## Planning Trackers
+
+- [High-throughput payment core plan](planning/high-throughput-payment-core-plan.md)
+- [Payment orchestration, routing, retry, and instrument plan](planning/payment-orchestration-routing-retry-plan.md)
+- [Subscription and recurring billing plan](planning/subscription-recurring-billing-plan.md)
+- [AI-assisted operations control plane plan](planning/ai-control-plane-plan.md)
 
 ## Root Docs
 

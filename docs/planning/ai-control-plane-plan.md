@@ -1,5 +1,7 @@
 # MasonXPay AI-Assisted Control Plane Plan
 
+Stable architecture extracted from this tracker lives in [AI control plane](../architecture/ai-control-plane.md). Keep this file focused on phase status, open decisions, and implementation notes.
+
 MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted control plane.
 
 ## Safety Boundary
