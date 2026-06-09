@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { format, differenceInDays } from 'date-fns';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface Dispute {
   id: string;
@@ -61,10 +62,25 @@ export default function DisputesPage() {
   const mode = useAuthStore((s) => s.mode);
   const router = useRouter();
 
+  const qc = useQueryClient();
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
+  const [seedStatus, setSeedStatus] = useState('NEEDS_RESPONSE');
+  const [seedProvider, setSeedProvider] = useState('STRIPE');
 
   useEffect(() => { setPage(0); }, [statusFilter]);
+
+  const seedMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/v1/merchants/${activeMerchantId}/dev/disputes/seed?status=${seedStatus}&provider=${seedProvider}`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['disputes', activeMerchantId] });
+      toast.success('Test dispute created');
+    },
+    onError: () => toast.error('Failed to seed dispute — is the backend running in non-preview mode?'),
+  });
 
   const { data, isLoading } = useQuery<PageResponse>({
     queryKey: ['disputes', activeMerchantId, mode, page, statusFilter],
@@ -86,6 +102,37 @@ export default function DisputesPage() {
           <p className="text-sm text-muted-foreground mt-1">
             Respond to chargebacks and inquiries from card networks.
           </p>
+        </div>
+        {/* Dev-only seed controls — hidden in production via backend @Profile("!preview") */}
+        <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-yellow-50 border-yellow-200">
+          <span className="text-xs font-medium text-yellow-700">Dev seed</span>
+          <select
+            value={seedStatus}
+            onChange={(e) => setSeedStatus(e.target.value)}
+            className="h-7 rounded border border-yellow-300 bg-white px-2 text-xs"
+          >
+            {['NEEDS_RESPONSE', 'UNDER_REVIEW', 'WON', 'LOST', 'WARNING_NEEDS_RESPONSE'].map((s) => (
+              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+          <select
+            value={seedProvider}
+            onChange={(e) => setSeedProvider(e.target.value)}
+            className="h-7 rounded border border-yellow-300 bg-white px-2 text-xs"
+          >
+            {['STRIPE', 'SQUARE', 'BRAINTREE'].map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-yellow-300 hover:bg-yellow-100"
+            onClick={() => seedMutation.mutate()}
+            disabled={seedMutation.isPending}
+          >
+            {seedMutation.isPending ? 'Creating…' : '+ Seed'}
+          </Button>
         </div>
       </div>
 
