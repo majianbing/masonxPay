@@ -2,6 +2,7 @@ package com.masonx.paygateway.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.paygateway.domain.audit.AuditAction;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
@@ -15,6 +16,8 @@ import com.masonx.paygateway.service.retry.ScheduledRetryRequest;
 import com.masonx.paygateway.service.retry.ScheduledRetryService;
 import com.masonx.paygateway.web.dto.CreateRefundRequest;
 import com.masonx.paygateway.web.dto.RefundResponse;
+
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +42,7 @@ public class RefundService {
     private final TransactionTemplate txTemplate;
     private final PaymentMetrics metrics;
     private final ScheduledRetryService scheduledRetryService;
+    private final MerchantAuditLogService auditLogService;
 
     @Value("${app.scheduled-retry.refund-delay-seconds:900}")
     private long refundRetryDelaySeconds;
@@ -57,7 +61,8 @@ public class RefundService {
                          ObjectMapper objectMapper,
                          PlatformTransactionManager txManager,
                          PaymentMetrics metrics,
-                         ScheduledRetryService scheduledRetryService) {
+                         ScheduledRetryService scheduledRetryService,
+                         MerchantAuditLogService auditLogService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
@@ -67,6 +72,7 @@ public class RefundService {
         this.txTemplate = new TransactionTemplate(txManager);
         this.metrics = metrics;
         this.scheduledRetryService = scheduledRetryService;
+        this.auditLogService = auditLogService;
     }
 
     /**
@@ -118,6 +124,11 @@ public class RefundService {
                 }
             }
             refund = refundRepository.save(refund);
+            auditLogService.record(merchantId, AuditAction.REFUND_ISSUED,
+                    "REFUND", refund.getId().toString(), paymentIntentId.toString(),
+                    Map.of("payment_intent_id", paymentIntentId.toString(),
+                            "amount", refund.getAmount(),
+                            "currency", refund.getCurrency()));
 
             ProviderCredentials creds = intent.getConnectorAccountId() != null
                     ? providerAccountService.loadCredentials(intent.getConnectorAccountId())

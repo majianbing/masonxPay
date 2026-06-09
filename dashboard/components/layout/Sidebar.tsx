@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch, UserRound,
-  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign, BarChart2, AlertTriangle,
+  Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign, BarChart2, AlertTriangle, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
@@ -43,6 +43,7 @@ const nav = [
     children: [
       { href: '/settings/merchant', label: 'Merchant', icon: Settings },
       { href: '/settings/security', label: 'Security', icon: ShieldCheck },
+      { href: '/settings/audit-log', label: 'Audit Log', icon: ClipboardList },
     ],
   },
 ];

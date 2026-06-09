@@ -1,11 +1,14 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.domain.apikey.*;
+import com.masonx.paygateway.domain.audit.AuditAction;
 import com.masonx.paygateway.web.dto.ApiKeyPairResponse;
 import com.masonx.paygateway.web.dto.ApiKeyResponse;
 import com.masonx.paygateway.web.dto.CreateApiKeyRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Map;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -21,9 +24,11 @@ import java.util.UUID;
 public class ApiKeyService {
 
     private final ApiKeyRepository apiKeyRepository;
+    private final MerchantAuditLogService auditLogService;
 
-    public ApiKeyService(ApiKeyRepository apiKeyRepository) {
+    public ApiKeyService(ApiKeyRepository apiKeyRepository, MerchantAuditLogService auditLogService) {
         this.apiKeyRepository = apiKeyRepository;
+        this.auditLogService = auditLogService;
     }
 
     /**
@@ -60,6 +65,9 @@ public class ApiKeyService {
         pk.setPlaintextKey(pkRaw);   // safe to persist — pk is a public identifier
         pk = apiKeyRepository.save(pk);
 
+        auditLogService.record(merchantId, AuditAction.API_KEY_CREATED,
+                "API_KEY", sk.getId().toString(), req.name(),
+                Map.of("name", req.name() != null ? req.name() : "", "mode", mode.name()));
         return new ApiKeyPairResponse(
                 ApiKeyResponse.from(sk, skRaw),   // skRaw returned once only
                 ApiKeyResponse.from(pk, null)      // pk plaintext is on the entity, always available
@@ -91,6 +99,9 @@ public class ApiKeyService {
         key.setStatus(ApiKeyStatus.REVOKED);
         key.setRevokedAt(Instant.now());
         apiKeyRepository.save(key);
+        auditLogService.record(merchantId, AuditAction.API_KEY_REVOKED,
+                "API_KEY", keyId.toString(), key.getName(),
+                Map.of("name", key.getName() != null ? key.getName() : "", "mode", key.getMode().name(), "type", key.getType().name()));
 
         // If revoking a sk, also revoke the paired pk (same name + mode)
         if (key.getType() == ApiKeyType.SECRET) {

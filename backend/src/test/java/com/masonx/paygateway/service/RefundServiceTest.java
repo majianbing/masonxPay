@@ -187,7 +187,8 @@ class RefundServiceTest {
                 new ObjectMapper().findAndRegisterModules(),
                 new LockingTransactionManager(paymentIntents),
                 new PaymentMetrics(new SimpleMeterRegistry()),
-                mock(ScheduledRetryService.class));
+                mock(ScheduledRetryService.class),
+                mock(MerchantAuditLogService.class));
     }
 
     private RefundService service(LockingPaymentIntentRepository paymentIntents,
@@ -203,7 +204,8 @@ class RefundServiceTest {
                 new ObjectMapper().findAndRegisterModules(),
                 new LockingTransactionManager(paymentIntents),
                 new PaymentMetrics(new SimpleMeterRegistry()),
-                mock(ScheduledRetryService.class));
+                mock(ScheduledRetryService.class),
+                mock(MerchantAuditLogService.class));
     }
 
     private static PaymentIntent succeededIntent(long amount) {
@@ -406,7 +408,7 @@ class RefundServiceTest {
 
     private static final class FakeProviderAccountService extends ProviderAccountService {
         private FakeProviderAccountService() {
-            super(null, null, null, new com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties());
+            super(null, null, null, new com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties(), null);
         }
 
         @Override
