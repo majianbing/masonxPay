@@ -2,27 +2,22 @@
 
 Stable architecture extracted from this tracker lives in [subscriptions and billing](../architecture/subscriptions-billing.md). Keep this file focused on phase status, open decisions, and implementation notes.
 
-This plan defines a separate product phase for subscription and recurring billing. It is intentionally separate from Phase O routing/retry work: subscriptions create invoices and off-session payment obligations; routing decides how eligible payment attempts execute; scheduled retries recover approved recurring invoice attempts only after the subscription domain exists.
+This plan defines a separate product phase for subscription and recurring billing. It is intentionally separate from Phase O routing/retry work: subscriptions create invoices and off-session payment obligations; routing decides how eligible payment attempts execute; billing owns invoice retry/dunning instead of reusing customer-present checkout retry.
 
 ## Current Boundary
 
-MasonXPay does not currently support subscription or recurring billing.
+MasonXPay now supports the core subscription and recurring billing workflow: merchant-scoped customers, reusable payment-method references, subscriptions, checkout links, invoices, off-session invoice payment execution, recurring retry/dunning, and dashboard operations.
 
-Existing systems that this phase can reuse:
+Systems this phase reuses:
 
 - `PaymentInstrument`: opaque payment reference with source and portability metadata.
 - `PaymentIntent`: authoritative payment execution record.
 - `RoutingEngine`: deterministic provider/account selection.
-- `scheduled_retry_jobs`: delayed recovery infrastructure, currently used for capture recovery.
+- `scheduled_retry_jobs`: delayed recovery infrastructure, used for capture/refund recovery. Billing has its own invoice retry/dunning worker and does not rely on customer-present checkout retries.
 - Outbox/webhook infrastructure for lifecycle events.
 - Mason Simulator for local/offline test flows.
 
-Systems that do not exist yet:
-
-- recurring invoice payment attempts
-- dunning and customer notification workflows
-
-Systems that now have a foundation but are not complete:
+Implemented foundation:
 
 - customer records
 - customer default payment methods
@@ -31,6 +26,16 @@ Systems that now have a foundation but are not complete:
 - subscription plans/items
 - public subscription checkout links
 - invoices and invoice payment-attempt storage
+- off-session invoice payment execution
+- recurring retry and dunning worker
+- dashboard customer, subscription, checkout-link, and invoice operations
+
+Remaining gaps:
+
+- merchant-configurable dunning/retry policy UI
+- customer notification workflows
+- Mollie mandate completion and recurring charge support
+- promotions/coupons
 
 Current E2E checkpoints:
 
@@ -142,17 +147,17 @@ billing/web
 
 Cross-module calls should go through services or events. Billing should not shortcut into provider adapters; it should call payment services using normal payment intent and instrument abstractions.
 
-## Stage S0: Architecture and State Model `[ ]`
+## Stage S0: Architecture and State Model `[x]`
 
-Goal: lock the domain model before writing runtime code.
+Goal: lock the domain model before writing runtime code. The runtime model now exists through S1-S5; remaining work here is documentation polish, not a blocker for the implemented billing foundation.
 
 Deliverables:
 
 - [ ] Add lifecycle diagrams for customers, subscriptions, invoices, and invoice payment attempts.
-- [ ] Define status enums and legal state transitions.
-- [ ] Define tenant and RBAC permissions for billing resources.
-- [ ] Define webhook event names and payload boundaries.
-- [ ] Define how recurring billing uses `PaymentInstrument` without expanding PCI scope.
+- [x] Define status enums and legal state transitions.
+- [x] Define tenant and RBAC permissions for billing resources.
+- [x] Define webhook event names and payload boundaries.
+- [x] Define how recurring billing uses `PaymentInstrument` without expanding PCI scope.
 
 Suggested status models:
 
@@ -534,13 +539,12 @@ POST   /api/v1/merchants/{merchantId}/invoices/{invoiceId}/mark-uncollectible
 
 ## Recommended Next Implementation Slice
 
-Continue from the S1/S2 foundation toward the merchant subscription-link workflow:
+The core S1-S5 workflow is implemented. Continue with focused hardening rather than another broad billing expansion:
 
-- [ ] Add dashboard subscription list/detail and create subscription link from a customer.
-- [ ] Add public `/subscribe/{token}` lookup API/page that shows customer, items, price, interval, and trial terms.
-- [ ] Wire customer-present first payment/payment-method authorization through the normal checkout SDK/provider flow.
-- [ ] Activate subscription only after first payment/authorization succeeds.
-- [ ] Add invoices and idempotent period generation after activation semantics are tested.
-- [ ] Do not add recurring retry execution until invoice state and activation are stable.
+- [ ] Add merchant-configurable dunning/retry policy settings.
+- [ ] Complete Mollie mandate confirmation and recurring charge support.
+- [ ] Add customer notification hooks for failed invoices, upcoming renewals, and final dunning outcomes.
+- [ ] Add promotions/coupons after invoice totals and proration rules are explicitly modeled.
+- [ ] Expand billing failure-mode tests around worker restarts, provider timeouts, and concurrent invoice payment attempts.
 
-This keeps the workflow testable without introducing background money movement before invoice/payment state transitions are explicit.
+Keep recurring retry scoped to invoices generated by active subscriptions. Do not merge it with customer-present checkout retry, capture recovery, or refund retry.

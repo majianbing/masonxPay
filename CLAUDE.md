@@ -34,7 +34,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - Financial source of truth: Postgres payment tables and logical shards.
 - Idempotency: DB-backed reservation/route records, with Redis as a post-commit hot-path cache.
 - Async propagation: transactional outbox in Postgres, Kafka publisher/consumers for high-throughput worker fan-out.
-- Search/read views: projection tables now; OpenSearch planned for dashboard/support search, not state authority.
+- Search/read views: Postgres projection tables now; OpenSearch remains an optional future adapter if search outgrows Postgres, not state authority.
 - Runtime routing: deterministic rules and service logic.
 - Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/planning/payment-orchestration-routing-retry-plan.md` is the durable status tracker.
 - AI control plane: planned advisory layer only. AI may investigate and propose; validators and humans approve; deterministic workers execute.
@@ -53,8 +53,8 @@ High-throughput H1-H5b and H7 are complete:
 
 Next likely work:
 
-- H6: dashboard search/read projections.
-- Phase O: continue advanced payment orchestration. O1-O4 and O3b routing UI consolidation are done; next work starts at O5 scheduled retry orchestration unless defects are found in the route-policy dashboard/audit/validation surface.
+- H6: dashboard search/read projection hardening, search polish, and operational readiness around `payment_read_models`.
+- Phase O: O1-O5 and O3b routing UI consolidation are done; next orchestration work is O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 - Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.
 
 ## Key Commands
@@ -103,7 +103,7 @@ Keep tests modular:
 - Every action that moves funds — charge, capture, refund, recurring invoice payment — must have an idempotency guarantee: a deterministic key derived from stable identifiers (never random UUIDs) sent to the provider, and an idempotent DB state check before executing so retries and concurrent workers cannot double-charge or double-refund.
 - Keep provider calls outside DB transactions.
 - Keep webhook/outbox writes atomic with payment state.
-- Keep Redis/Kafka/OpenSearch out of the authoritative payment-state path.
+- Keep Redis/Kafka/read projections/OpenSearch out of the authoritative payment-state path.
 - Keep the backend as a clean modular monolith; cross-module calls go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
 - Every merchant-facing list API that can grow beyond 50 items must use Spring Data `Pageable` with `@PageableDefault(size=20)` and return `Page<T>`. Frontend list components must bind a `page` state to the query key and render prev/next controls. Unbounded `List<T>` responses are only acceptable for small, bounded sets (e.g. items on a single record).
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.

@@ -405,7 +405,7 @@ Boundary:
 
 - This phase covers delayed recovery for safe asynchronous operations: manual capture and refund.
 - It is not a payment-success optimization feature for customer-present checkout failures, lower-cost reattempts, or cross-provider card retries.
-- MasonXPay does not currently support subscription/recurring billing. Scheduled retry support for recurring operations is a future phase that depends on a subscription domain and saved/portable payment instruments.
+- Subscription/recurring billing now has its own invoice retry/dunning worker. Phase O scheduled retry remains scoped to capture/refund recovery and should not absorb billing retry or customer-present checkout retry.
 - Funds-safety boundary: MasonXPay must not deduct merchant funds through automatic background retries without explicit approval. Failed refunds are marked for review by default; automatic refund retry is disabled unless a future provider-specific, idempotency-safe, merchant-approved policy enables it.
 
 Done:
@@ -427,7 +427,7 @@ Follow-up hardening:
 
 ### Subscription and Recurring Billing
 
-Subscription and recurring billing has moved to standalone Phase S because it requires its own customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries before recurring retry can exist.
+Subscription and recurring billing has moved to standalone Phase S because it owns customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries. Phase S now provides its own invoice retry/dunning worker; Phase O scheduled retry remains focused on payment capture/refund recovery.
 
 See [subscription and recurring billing plan](subscription-recurring-billing-plan.md).
 

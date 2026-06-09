@@ -30,7 +30,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 ## Architecture Snapshot
 
 - Financial source of truth: Postgres payment tables and logical shards. Redis is a post-commit hot-path cache only, never authoritative.
-- Idempotency: DB-backed reservation/route records. Kafka/OpenSearch are supporting systems, not payment-state authorities.
+- Idempotency: DB-backed reservation/route records. Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
 - Backend: clean modular monolith — package boundaries are module boundaries; cross-module calls go through services/interfaces or outbox events.
 - AI control plane: advisory only. AI investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
@@ -39,8 +39,8 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 
 - MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
 - High-throughput track H1-H5b and H7: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, and benchmark/simulator observability are done.
-- Next high-throughput work: H6 dashboard search/read projections.
-- Advanced orchestration Phase O: O1-O4 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, and outcome-action retry/fallback. Track exact progress in `docs/planning/payment-orchestration-routing-retry-plan.md`.
+- Next high-throughput work: H6 dashboard search/read projection hardening around Postgres-backed `payment_read_models`.
+- Advanced orchestration Phase O: O1-O5 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, outcome-action retry/fallback, and scheduled retry visibility for capture recovery. Track exact progress in `docs/planning/payment-orchestration-routing-retry-plan.md`.
 - AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
@@ -69,7 +69,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument or explicit customer re-authorization.
 - Raw PAN, track data, and CVV must never enter MasonXPay core services at any phase — including future direct-acquiring phases. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that may cross the MasonXPay service boundary. Any future PCI-scoped component must be a separately deployed, isolated service.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
-- Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, and OpenSearch are supporting systems, not payment-state authorities.
+- Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Prefer mature infrastructure components for Redis, Kafka, database access, mapping, retries, rate limiting, and similar cross-cutting behavior.
 - Keep submodules clean and focused; avoid turning one module into a catch-all.
 - Keep the backend as a clean modular monolith. Treat package boundaries as module boundaries: payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, and dashboard/API entrypoints should each own one concern. Cross-module calls should go through services/interfaces or outbox events, not direct shortcuts into another module's internals.

@@ -13,13 +13,13 @@ The current system intentionally avoids Redis and Kafka/RabbitMQ for the MVP sca
 - Scale payment writes without concentrating load on hot merchants.
 - Move dashboard search, analytics, webhook delivery, and operational views off the transactional payment path.
 - Keep Postgres as the financial source of truth.
-- Use Redis, Kafka, and OpenSearch/Elasticsearch only where they have clear ownership.
+- Use Redis, Kafka, Postgres read models, and optional future OpenSearch only where they have clear ownership.
 - Implement the upgrade in small, reviewable phases.
 
 ## Non-Goals
 
 - Do not make Redis authoritative for payment state.
-- Do not use OpenSearch/Elasticsearch for payment state checks.
+- Do not use read projections or search indexes for payment state checks.
 - Do not introduce distributed transactions across Postgres, Kafka, Redis, and providers.
 - Do not split into many microservices before the boundaries are proven.
 - Do not weaken tenant isolation, webhook verification, request tracing, or log redaction.
@@ -51,9 +51,9 @@ Spring Boot payment core
            Kafka
              |
              +--> webhook delivery workers
-             +--> OpenSearch projection workers
-             +--> reconciliation workers
              +--> dashboard/read model workers
+             +--> reconciliation workers
+             +--> optional future OpenSearch indexing workers
 ```
 
 ## Data Ownership
@@ -68,8 +68,9 @@ Spring Boot payment core
 | Redis idempotency cache | Redis | Best-effort optimization |
 | Rate limit counters | Redis | Eventually consistent enough for throttling |
 | Provider health/routing hints | Redis | Eventually consistent |
-| Merchant dashboard search | OpenSearch/Elasticsearch | Eventually consistent |
-| Merchant analytics/read views | Kafka-fed projection tables/indexes | Eventually consistent |
+| Merchant dashboard search | Kafka-fed Postgres read models | Eventually consistent |
+| Merchant analytics/read views | Kafka-fed projection tables | Eventually consistent |
+| Future support/search scale-out | Optional OpenSearch adapter | Eventually consistent |
 
 ## Sharding Strategy
 
@@ -170,8 +171,8 @@ Dashboard/search reads:
 
 - Do not fan out to all payment shards for normal dashboard screens.
 - Publish payment lifecycle events through the outbox and Kafka.
-- Build OpenSearch/Elasticsearch documents for merchant search, filters, support views, and payment timelines.
-- Keep OpenSearch/Elasticsearch out of the correctness path.
+- Build Postgres-backed `payment_read_models` for merchant search, filters, payment lists, and dashboard views.
+- Keep read models and any future OpenSearch adapter out of the correctness path.
 
 ## Consistency Rules
 
@@ -196,7 +197,7 @@ Use the owning Postgres shard for these guarantees:
 
 Provider calls must stay outside database transactions.
 
-Kafka provides durable async propagation, not correctness. Redis provides latency and coordination help, not correctness. OpenSearch/Elasticsearch provides dashboard and support views, not authority.
+Kafka provides durable async propagation, not correctness. Redis provides latency and coordination help, not correctness. Postgres read models provide dashboard and support views, not authority. OpenSearch remains an optional future adapter if read-model search outgrows Postgres.
 
 ## Distributed Locks
 
@@ -227,7 +228,7 @@ Kafka responsibilities:
 
 - payment lifecycle event fan-out
 - webhook delivery work queue
-- OpenSearch/Elasticsearch projection updates
+- Postgres read-model projection updates
 - reconciliation events
 - merchant notification events
 - durable worker status for failed async processing
@@ -245,7 +246,7 @@ Rationale:
 - Consumer groups fit webhook delivery, projections, reconciliation, and analytics fan-out.
 - Per-payment ordering can be preserved by keying events with `payment_id`.
 - Backpressure and lag are visible operational signals.
-- Replay is valuable for rebuilding OpenSearch projections and aggregate read models.
+- Replay is valuable for rebuilding Postgres read models, aggregate projections, and any future search indexes.
 
 The transactional outbox remains mandatory:
 
@@ -271,7 +272,7 @@ Event/log lifecycle:
 - `outbox_events`: cleanup is safe only when `published = TRUE` and `kafka_published = TRUE`.
 - `gateway_events` and `webhook_deliveries`: keep longer than outbox rows because merchants may need delivery history and replay.
 - `gateway_logs`: remains a side-flow audit/observability table and should keep its existing partition/retention policy.
-- Projection/search history belongs in OpenSearch or purpose-built read models, not in the payment state check path.
+- Projection/search history belongs in purpose-built read models or optional future search indexes, not in the payment state check path.
 
 ## Redis Usage
 
@@ -292,17 +293,17 @@ Every Redis-backed path must define:
 
 ## Search and Read Projections
 
-Decision: use OpenSearch for dashboard/search projections.
+Decision: use Postgres-backed `payment_read_models` for H6 dashboard/search projections. Keep OpenSearch as an optional future adapter only if dashboard/support search outgrows Postgres. Elasticsearch is intentionally out of scope for now.
 
-OpenSearch responsibilities:
+Postgres read-model responsibilities:
 
 - merchant payment search
 - payment list views
 - support filters
-- payment event timelines
-- dashboard-facing denormalized documents
+- dashboard-facing denormalized rows
+- projection backfill and repair visibility
 
-OpenSearch must not be used for:
+Read models and future search indexes must not be used for:
 
 - payment status authority
 - confirm/capture/refund decisions
@@ -311,9 +312,10 @@ OpenSearch must not be used for:
 
 Reasoning:
 
-- OpenSearch is practical for local/self-hosted demos and avoids depending on Elastic's licensing and managed-service assumptions.
-- The projection can lag; UI should tolerate eventual consistency.
+- Postgres read models keep local/preview operations simpler and match the current implementation.
+- The projection can lag; UI should tolerate eventual consistency and expose lag/failure signals where useful.
 - Direct payment status checks still route to the owning Postgres shard.
+- OpenSearch can be added later behind the projection boundary without changing payment correctness semantics.
 
 Merchant aggregate limits are eventually consistent by default. If a future product requirement needs hard real-time merchant limits, design a separate authoritative aggregate path keyed by merchant and time bucket rather than overloading the payment shard model.
 
@@ -331,7 +333,7 @@ Add metrics before claiming throughput improvements:
 - Kafka publish latency
 - Kafka consumer lag
 - outbox backlog and oldest unpublished event age
-- OpenSearch indexing lag
+- payment projection lag and failed projection event count
 - webhook retry and worker failure counts
 
 Keep `X-Request-Id` propagation across API, outbox, Kafka, workers, and provider calls.
@@ -395,7 +397,7 @@ Current H3 status:
 
 - Move webhook delivery work behind Kafka consumers. Done for the webhook fan-out worker.
 - Add payment read projection worker. Done.
-- Add OpenSearch/Elasticsearch projection worker later for dashboard search scale-out.
+- Keep OpenSearch out of H4/H6 unless Postgres read-model search proves insufficient.
 - Keep all workers idempotent.
 - Defer reconciliation worker split and notification worker until there is a concrete production requirement.
 
@@ -434,10 +436,11 @@ Current H4 progress:
 
 ### Phase H6: Dashboard Read Models
 
-- Add OpenSearch/Elasticsearch index mappings for payment search.
-- Build merchant payment list/search from the projection.
+- Harden merchant payment list/search on Postgres-backed `payment_read_models`.
+- Polish search filters, pagination, and dashboard query ergonomics.
 - Add projection lag indicators where needed.
 - Keep payment detail/status checks routed to authoritative shards.
+- Keep OpenSearch as an optional future adapter only if read-model search outgrows Postgres.
 
 ### Phase H7: Benchmarks and Interview Narrative — Done
 
@@ -455,7 +458,7 @@ Follow-up hardening, not H7 blockers:
   - Kafka unavailable
   - Redis unavailable
   - one shard degraded
-  - OpenSearch lagging
+  - payment projection lagging
   - provider timeout/retry storm
 
 ### Related Track: AI-Assisted Operations Control Plane
@@ -473,7 +476,7 @@ Closed decisions:
 - Route by hashed `payment_id`; use merchant `order_id` only when it is stable and unique for that flow.
 - Preserve existing IDs initially if they are already part of the public API; prefer UUIDv7 plus hash routing for new ID generation.
 - Use Kafka for the high-throughput event backbone.
-- Use OpenSearch for dashboard/search projections.
+- Use Postgres-backed `payment_read_models` for H6 dashboard/search projections; keep OpenSearch as optional future scale-out only.
 - Treat merchant aggregate limits as eventually consistent unless a future hard-limit requirement appears.
 
 Migration decision:
@@ -497,7 +500,7 @@ Spring Boot
 + Spring Data Redis
 + Resilience4j
 + Actuator/Micrometer/Prometheus
-+ OpenSearch later for dashboard/search projections
++ optional OpenSearch adapter later only if dashboard/support search outgrows Postgres
 ```
 
 Keep the implementation staged. The first code phase should be sharding foundation and tests, not Kafka or Redis.

@@ -6,7 +6,7 @@ Avoid these shortcuts unless a concrete design change has been accepted and docu
 
 - Do not add Redis to an authority path. Redis is hot-path cache and soft coordination only.
 - Do not make Kafka, RocketMQ, or another broker the source of payment correctness.
-- Do not use OpenSearch/Elasticsearch for payment state checks.
+- Do not use read projections or search indexes for payment state checks.
 - Do not add Caffeine L1 cache for routing rules or API keys without measured need and a clear invalidation plan.
 
 ## Database

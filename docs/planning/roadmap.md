@@ -30,9 +30,9 @@
 
 ---
 
-## Phase 2 — Observability ← next
+## Phase 2 — Observability ✅ (complete)
 
-No metrics, no tracing, no alerting today. Foundation that Phases 3 and 4 depend on — smart routing needs success-rate data; merchant analytics needs aggregated metrics; connector health needs measurement before it can be acted on.
+Foundation that Phases 3 and 4 depend on — smart routing needs success-rate data; merchant analytics needs aggregated metrics; connector health needs measurement before it can be acted on.
 
 | # | Item | Status | Detail |
 |---|---|---|---|
@@ -83,7 +83,7 @@ What merchants need to run their business, not just process payments.
 | 5.3 | **API versioning strategy** | [ ] | All routes are `/v1/`. Define deprecation policy and version promotion path before breaking changes accumulate. |
 | 5.4 | **Mobile SDKs** | [ ] | iOS and Android native SDKs. Browser SDK is the model; same lifecycle pattern. |
 | 5.5 | **Reconciliation** | [ ] | Ingest provider settlement files / payout reports. Match against `payment_intents`. Expose discrepancies. |
-| 5.6 | **Subscription / recurring billing** | [ ] | Split into standalone Phase S because it requires its own customer, payment-method, subscription, invoice, off-session execution, and dunning boundaries. |
+| 5.6 | **Subscription / recurring billing** | ✅ | Split into standalone Phase S and delivered through S1-S5: customers, payment methods, subscriptions, invoices, off-session execution, recurring retry/dunning, and dashboard operations. Remaining hardening is tracked in Phase S. |
 
 ---
 
@@ -102,7 +102,7 @@ See [high-throughput payment core plan](high-throughput-payment-core-plan.md).
 | H4 | **Async workers** | ✅ | Webhook fan-out and payment read-model projection run from independent Kafka consumer groups in Docker and the local Maven profile. Projection has controlled backfill, dashboard list/search cutover, DB idempotency/failure ledger, metrics, and alerts. Reconciliation worker split and notifications are deferred until there is a concrete production requirement. |
 | H5 | **Redis hot path** | ✅ | Added Redis local/Docker service, Redisson-backed merchant/API rate limiting, payment-create idempotency route cache, provider health cache, and fail-open outage fallback metrics. Postgres remains authoritative for payment state and idempotency. |
 | H5b | **Preview runtime hardening** | ✅ | Added `application-preview.yml`, `.env.preview`, and `docker-compose.preview.yml` for a production-like local stack before H6: Kafka workers and Redis hot path enabled, webhook DB poller off, projection backfill opt-in, health details hidden, and preview consumer groups. |
-| H6 | **Dashboard search/read projections** | [ ] | Use Postgres-backed `payment_read_models` for merchant dashboard search and views. Keep OpenSearch as an optional future adapter if dashboard/support search outgrows Postgres; keep Elasticsearch out of scope. |
+| H6 | **Dashboard read-model hardening** | [ ] | `payment_read_models` already powers dashboard list/search when Kafka projections are enabled. H6 should harden search/filter ergonomics, projection lag visibility, backfill/repair workflow, and operational docs. Keep OpenSearch as an optional future adapter if dashboard/support search outgrows Postgres; keep Elasticsearch out of scope. |
 | H7 | **Benchmarks and failure-mode docs** | ✅ | k6 now compares Postgres-only vs optional Kafka/Redis infra, covers create/confirm/refund/get/list/idempotency flows, creates a TEST-only Mason Simulator connector through the normal provider path, supports configurable simulator PSP success rates, and feeds Prometheus/Grafana bench/payment dashboards. Fresh numeric baselines and deeper failure-mode playbooks remain follow-up hardening, not H7 blockers. |
 
 ---
@@ -129,13 +129,13 @@ Core boundary: MasonXPay does not need raw PAN to build the next orchestration l
 
 ## Phase S — Subscription and Recurring Billing
 
-MasonXPay does not currently support subscription or recurring billing. This phase adds that product domain as a clean module before recurring retry/dunning is enabled. Recurring retry depends on subscriptions, invoices, reusable payment instruments, merchant retry policy, and customer notification hooks; it must remain separate from customer-present checkout retry, capture recovery, and refund handling.
+MasonXPay now has a merchant-owned subscription and recurring billing foundation. The module owns customers, payment-method references, subscriptions, invoices, off-session invoice execution, retry/dunning state, and dashboard operations while preserving the normal payment-core boundaries. Remaining work is product hardening such as configurable dunning policy, Mollie mandate completion, and promotions/coupons.
 
 See [subscription and recurring billing plan](subscription-recurring-billing-plan.md).
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| S0 | **Architecture and state model** | [ ] | Define customer, subscription, invoice, invoice payment attempt, permission, webhook, and payment-instrument boundaries before runtime code. |
+| S0 | **Architecture and state model** | ✅ | Defined customer, payment-method, subscription, invoice, invoice payment attempt, permission, webhook, and payment-instrument boundaries as the foundation for S1-S5. |
 | S1 | **Customer and payment method foundation** | ✅ | Merchant-scoped TEST/LIVE-isolated customers, payment-method references backed by safe `PaymentInstrument` rows, backend APIs, service tests, controller integration tests (tenant isolation, mode filtering, instrument ownership), and dashboard customer management. |
 | S2 | **Subscription and invoice foundation** | ✅ | Mode-aware subscriptions, subscription items, trial-aware creation, checkout-link tokens, public checkout-link lookup, TEST-mode simulator activation, reusable payment-method setup for Stripe/Square/Braintree/Simulator, invoice storage with mode isolation, idempotent period invoice generation, period advancement worker, controller integration tests, and state transition guards. Promotions/coupons deferred until after S3. Mollie mandate completion remains pending. |
 | S3 | **Off-session invoice payment execution** | ✅ | InvoicePaymentService charges open invoices off-session via saved vault tokens. Two-phase transaction discipline (provider call outside DB transaction). requiresAction treated as failure. Idempotent for already-paid invoices. InvoiceController with flat list/get/pay endpoints. 8 unit + 6 integration tests. |
