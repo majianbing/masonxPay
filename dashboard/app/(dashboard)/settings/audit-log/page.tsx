@@ -84,8 +84,8 @@ export default function AuditLogPage() {
     enabled: !!activeMerchantId,
   });
 
-  function handleFilterChange(value: string) {
-    setActionFilter(value);
+  function handleFilterChange(value: string | null) {
+    setActionFilter(value ?? ALL_ACTIONS);
     setPage(0);
   }
 
