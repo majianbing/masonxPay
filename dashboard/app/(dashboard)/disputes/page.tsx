@@ -103,7 +103,7 @@ export default function DisputesPage() {
             Respond to chargebacks and inquiries from card networks.
           </p>
         </div>
-        {/* Dev-only seed controls — hidden in production via backend @Profile("!preview") */}
+        {mode === 'TEST' && (
         <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-yellow-50 border-yellow-200">
           <span className="text-xs font-medium text-yellow-700">Dev seed</span>
           <select
@@ -134,6 +134,7 @@ export default function DisputesPage() {
             {seedMutation.isPending ? 'Creating…' : '+ Seed'}
           </Button>
         </div>
+        )}
       </div>
 
       <div className="flex gap-2 items-center">
