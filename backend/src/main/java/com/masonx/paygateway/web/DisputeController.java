@@ -31,9 +31,10 @@ public class DisputeController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'READ')")
     public ResponseEntity<Page<DisputeResponse>> list(
             @PathVariable UUID merchantId,
+            @RequestParam(required = false) String mode,
             @RequestParam(required = false) DisputeStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(disputeService.list(merchantId, status, pageable));
+        return ResponseEntity.ok(disputeService.list(merchantId, mode, status, pageable));
     }
 
     @GetMapping("/{disputeId}")

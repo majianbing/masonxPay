@@ -1,5 +1,6 @@
 package com.masonx.paygateway.domain.dispute;
 
+import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,7 +14,7 @@ public interface DisputeRepository extends JpaRepository<Dispute, UUID> {
 
     Optional<Dispute> findByIdAndMerchantId(UUID id, UUID merchantId);
 
-    Page<Dispute> findByMerchantIdOrderByCreatedAtDesc(UUID merchantId, Pageable pageable);
+    Page<Dispute> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, Pageable pageable);
 
-    Page<Dispute> findByMerchantIdAndStatusOrderByCreatedAtDesc(UUID merchantId, DisputeStatus status, Pageable pageable);
+    Page<Dispute> findByMerchantIdAndModeAndStatusOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, DisputeStatus status, Pageable pageable);
 }
