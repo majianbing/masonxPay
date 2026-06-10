@@ -474,6 +474,18 @@ Decision order when these signals fire, cheapest fix first:
    — specifically the GIN-backed search path, not the simple list/filter
    queries — is OpenSearch worth the operational cost of a second store.
 
+`postgres-exporter` runs in the default profile (alongside `prometheus`/
+`grafana`, no `profiles: ["infra"]`), since it only depends on `postgres`
+and the read-model size/scan metrics are meaningful with or without Kafka
+projections enabled.
+
+Validated locally with `docker compose --profile infra up`: all 8 services
+(`postgres`, `postgres-exporter`, `kafka`, `redis`, `backend`, `dashboard`,
+`prometheus`, `grafana`) start healthy, Prometheus scrapes
+`postgres-exporter:9187` and reports the new alert rules with `health: ok`,
+and the Grafana "Read Model Observability (H6)" panels render
+`pg_read_model_*` metrics and the merchant payment list p95/p99 latency.
+
 ### Phase H7: Benchmarks and Interview Narrative — Done
 
 - Added k6 scenarios for create, confirm, refund, idempotency replay, get-by-id, and dashboard list flows.
