@@ -2,7 +2,7 @@
 
 Stable architecture extracted from this tracker lives in [sharding, Kafka, and Redis](../architecture/sharding-kafka-redis.md) and [payment core](../architecture/payment-core.md). Keep this file focused on phase status, open decisions, and implementation notes.
 
-This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for interview discussion and staged implementation.
+This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for discussion and staged implementation.
 
 The current system intentionally avoids Redis and Kafka/RabbitMQ for the MVP scale profile. This upgrade intentionally lifts that limitation for a new scale profile where write throughput, async event fan-out, and low-latency coordination justify additional infrastructure.
 
@@ -113,7 +113,7 @@ Initial shard count: 64 logical shards.
 
 Rationale:
 
-- Large enough to flatten write distribution for benchmark and interview-scale demos.
+- Large enough to flatten write distribution for benchmark demos.
 - Small enough to keep local Flyway migrations, schema inspection, and operational overhead manageable.
 - Can map multiple logical shards to one physical database today and redistribute them across physical databases later.
 - Avoids premature complexity from hundreds or thousands of tables before the workload proves it.
@@ -486,7 +486,7 @@ Validated locally with `docker compose --profile infra up`: all 8 services
 and the Grafana "Read Model Observability (H6)" panels render
 `pg_read_model_*` metrics and the merchant payment list p95/p99 latency.
 
-### Phase H7: Benchmarks and Interview Narrative — Done
+### Phase H7: Benchmarks — Done
 
 - Added k6 scenarios for create, confirm, refund, idempotency replay, get-by-id, and dashboard list flows.
 - Added a TEST-only Mason Simulator provider as a normal connector/provider adapter so benchmarks exercise routing, provider credential loading, retry orchestration, payment request writes, state transitions, refund guards, and outbox writes without calling external PSP sandboxes.
