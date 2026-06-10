@@ -187,7 +187,7 @@ Resources:
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:
-            VolumeSize: 30      # Maven build cache + Docker layers need space
+            VolumeSize: 40      # Maven build cache + Docker layers (incl. Prometheus/Grafana) + TSDB growth
             VolumeType: gp3
       Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-instance'}]
       UserData:
@@ -274,3 +274,10 @@ Outputs:
   AppLogsCommand:
     Description: Watch running container logs
     Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP} "docker compose -f /app/docker-compose.yml logs -f"'
+
+  GrafanaTunnelCommand:
+    Description: >
+      Grafana and Prometheus (ports 3001/9090) are not exposed in the security
+      group. Open this SSH tunnel, then browse http://localhost:3001
+      (user: admin, password: the GrafanaPassword parameter).
+    Value: !Sub 'ssh -i ${KeyPairName}.pem -L 3001:localhost:3001 -L 9090:localhost:9090 ec2-user@${ElasticIP}'
