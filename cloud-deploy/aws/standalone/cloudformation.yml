@@ -211,7 +211,7 @@ Resources:
               | grep '"tag_name"' | head -1 | cut -d'"' -f4)
             mkdir -p /usr/local/lib/docker/cli-plugins
             curl -fsSL \
-              "https://github.com/docker/compose/releases/download/$${COMPOSE_VER}/docker-compose-linux-$${ARCH}" \
+              "https://github.com/docker/compose/releases/download/${!COMPOSE_VER}/docker-compose-linux-${!ARCH}" \
               -o /usr/local/lib/docker/cli-plugins/docker-compose
             chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
