@@ -36,6 +36,7 @@ export interface CheckoutResult {
   failureCode?: string;
   failureMessage?: string;
   providerAction?: ProviderAction;
+  subscriptionId?: string;
 }
 
 type EventMap = {
@@ -53,12 +54,31 @@ interface CheckoutSession {
   amount: number | null;
   currency: string | null;
   title: string | null;
+  submitLabel?: string;
 }
 
 interface ProviderOption {
   provider: string;
   clientKey: string;
   clientConfig: Record<string, string>;
+  accountId?: string;
+}
+
+interface PublicSubscriptionCheckoutInfo {
+  token: string;
+  subscriptionId: string;
+  merchantName: string;
+  customerName: string;
+  customerEmail: string;
+  mode: string;
+  status: string;
+  currency: string;
+  intervalUnit: string;
+  intervalCount: number;
+  trialEndsAt: string | null;
+  active: boolean;
+  items: { id: string; description: string; amount: number; quantity: number }[];
+  connectors: { provider: string; accountId: string; clientKey: string; clientConfig: Record<string, string> }[];
 }
 
 declare global {
@@ -146,6 +166,8 @@ export class GatewayEmbedded {
   private checkoutOnSuccess: ((r: CheckoutResult) => void) | null = null;
   private checkoutOnError: ((e: Error) => void) | null = null;
   private isHostedMode = false;
+  private isSubscriptionMode = false;
+  private pendingPiId: string | null = null;
 
   constructor(publishableKey: string, options: GatewayEmbeddedOptions = {}) {
     this.pk = publishableKey;
@@ -223,6 +245,64 @@ export class GatewayEmbedded {
     return this;
   }
 
+  /**
+   * Mounts a subscription payment-method checkout (billing checkout link).
+   * Saves a reusable payment method via /pub/subscription-checkout/{token}/checkout.
+   * If the subscription is INCOMPLETE, this also runs the first charge and may return
+   * a 3DS/SCA challenge, handled the same way as the payment-link flow.
+   */
+  async mountSubscriptionCheckout(
+    selector: string | HTMLElement,
+    options: {
+      token: string;
+      onSuccess: (result: CheckoutResult) => void;
+      onError?: (err: Error) => void;
+    }
+  ): Promise<this> {
+    injectStyles();
+
+    const el = typeof selector === 'string'
+      ? document.querySelector<HTMLElement>(selector)
+      : selector;
+    if (!el) throw new Error(`GatewayEmbedded: element not found: ${selector}`);
+    this.container = el;
+    this.isHostedMode = true;
+    this.isSubscriptionMode = true;
+    this.checkoutLinkToken = options.token;
+    this.checkoutOnSuccess = options.onSuccess;
+    this.checkoutOnError = options.onError ?? null;
+
+    const res = await fetch(
+      `${this.baseUrl}/pub/subscription-checkout/${encodeURIComponent(options.token)}`
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(err.detail ?? `Failed to load subscription checkout (${res.status})`);
+    }
+    const info = await res.json() as PublicSubscriptionCheckoutInfo;
+
+    const amount = info.items.reduce((sum, item) => sum + item.amount * item.quantity, 0);
+
+    this.session = {
+      merchantName: info.merchantName,
+      mode: info.mode,
+      providers: info.connectors.map(c => ({
+        provider: c.provider,
+        clientKey: c.clientKey,
+        clientConfig: c.clientConfig,
+        accountId: c.accountId,
+      })),
+      amount,
+      currency: info.currency,
+      title: info.merchantName,
+      submitLabel: info.status === 'INCOMPLETE' ? undefined : 'Save payment method',
+    };
+
+    this.render();
+    this.fire('ready', undefined as unknown as void);
+    return this;
+  }
+
   // ── Embedded SDK mode ──────────────────────────────────────────────────────
 
   async mount(selector: string | HTMLElement): Promise<this> {
@@ -266,6 +346,8 @@ export class GatewayEmbedded {
     this.session = null;
     this.selectedProvider = null;
     this.stripeClientSecret = null;
+    this.isSubscriptionMode = false;
+    this.pendingPiId = null;
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -305,9 +387,10 @@ export class GatewayEmbedded {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'gw-submit';
-    btn.textContent = this.session.amount
-      ? `Pay ${this.fmt(this.session.amount, this.session.currency ?? 'USD')}`
-      : 'Pay';
+    btn.textContent = this.session.submitLabel
+      ?? (this.session.amount
+        ? `Pay ${this.fmt(this.session.amount, this.session.currency ?? 'USD')}`
+        : 'Pay');
     btn.addEventListener('click', () => this.submit());
     this.container.appendChild(btn);
     this.submitBtn = btn;
@@ -340,7 +423,7 @@ export class GatewayEmbedded {
     try {
       if (provider === 'STRIPE') await this.buildStripeForm(opt, slot);
       else if (provider === 'SQUARE') await this.buildSquareForm(opt, slot);
-      else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot);
+      else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot, opt);
       else if (provider === 'MOLLIE') this.buildMollieForm(slot);
       else if (provider === 'SIMULATOR') this.buildSimulatorForm(slot);
     } catch (e) {
@@ -366,7 +449,7 @@ export class GatewayEmbedded {
 
     this.stripe = window.Stripe(opt.clientKey);
 
-    if (this.isHostedMode) {
+    if (this.isHostedMode && !this.isSubscriptionMode) {
       // Lazy-create the Stripe PaymentIntent — cached so switching providers and back reuses it
       if (!this.stripeClientSecret) {
         const prepRes = await fetch(
@@ -470,13 +553,21 @@ export class GatewayEmbedded {
 
   // ── Braintree ──────────────────────────────────────────────────────────────
 
-  private async buildBraintreeForm(container: HTMLElement): Promise<void> {
-    const tokenUrl = this.checkoutLinkToken
-      ? `${this.baseUrl}/pub/braintree-client-token?linkToken=${encodeURIComponent(this.checkoutLinkToken)}`
-      : `${this.baseUrl}/pub/braintree-client-token`;
-    const headers: Record<string, string> = this.checkoutLinkToken
-      ? {}
-      : { 'Authorization': `Bearer ${this.pk}` };
+  private async buildBraintreeForm(container: HTMLElement, opt?: ProviderOption): Promise<void> {
+    let tokenUrl: string;
+    let headers: Record<string, string>;
+    if (this.isSubscriptionMode) {
+      tokenUrl = `${this.baseUrl}/pub/subscription-checkout/braintree-client-token` +
+        `?accountId=${encodeURIComponent(opt?.accountId ?? '')}` +
+        `&subscriptionToken=${encodeURIComponent(this.checkoutLinkToken ?? '')}`;
+      headers = {};
+    } else if (this.checkoutLinkToken) {
+      tokenUrl = `${this.baseUrl}/pub/braintree-client-token?linkToken=${encodeURIComponent(this.checkoutLinkToken)}`;
+      headers = {};
+    } else {
+      tokenUrl = `${this.baseUrl}/pub/braintree-client-token`;
+      headers = { 'Authorization': `Bearer ${this.pk}` };
+    }
 
     const res = await fetch(tokenUrl, { headers });
     if (!res.ok) throw new Error('Failed to get Braintree client token');
@@ -538,7 +629,7 @@ export class GatewayEmbedded {
   private async submitStripe(): Promise<void> {
     if (!this.stripe) throw new Error('Stripe not ready');
 
-    if (this.isHostedMode && this.stripeElements) {
+    if (this.isHostedMode && !this.isSubscriptionMode && this.stripeElements) {
       // confirmPayment handles all method types:
       // - Card/wallets: completes in-place (redirect: 'if_required' stays on page)
       // - Redirect methods (iDEAL, Amazon Pay, etc.): navigates to provider, returns via return_url
@@ -566,7 +657,11 @@ export class GatewayEmbedded {
       if (!this.stripeCard) throw new Error('Stripe card not ready');
       const { paymentMethod, error } = await this.stripe.createPaymentMethod({ type: 'card', card: this.stripeCard });
       if (error || !paymentMethod) throw new Error(error?.message ?? 'Card error');
-      await this.tokenizeGateway('STRIPE', paymentMethod.id);
+      if (this.isSubscriptionMode) {
+        await this.tokenizeAndSubmit('STRIPE', paymentMethod.id);
+      } else {
+        await this.tokenizeGateway('STRIPE', paymentMethod.id);
+      }
     }
   }
 
@@ -641,6 +736,7 @@ export class GatewayEmbedded {
       const result = await this.submitCheckout(gwToken);
       if (result.status === 'REQUIRES_ACTION' && result.providerAction) {
         // 3DS / SCA challenge — present inline overlay; resolves after auth completes
+        this.pendingPiId = result.paymentIntentId;
         await this.handleProviderAction(result.providerAction);
       } else if (result.success && result.redirectUrl) {
         window.location.href = result.redirectUrl;
@@ -656,7 +752,13 @@ export class GatewayEmbedded {
     const res = await fetch(`${this.baseUrl}/pub/tokenize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, providerPmId, linkToken: this.checkoutLinkToken }),
+      body: JSON.stringify({
+        provider,
+        providerPmId,
+        ...(this.isSubscriptionMode
+          ? { subscriptionToken: this.checkoutLinkToken }
+          : { linkToken: this.checkoutLinkToken }),
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { detail?: string };
@@ -666,7 +768,8 @@ export class GatewayEmbedded {
   }
 
   private async submitCheckout(gatewayToken: string): Promise<CheckoutResult> {
-    const res = await fetch(`${this.baseUrl}/pub/pay/${this.checkoutLinkToken}/checkout`, {
+    const path = this.isSubscriptionMode ? 'subscription-checkout' : 'pay';
+    const res = await fetch(`${this.baseUrl}/pub/${path}/${this.checkoutLinkToken}/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ gatewayToken }),
@@ -818,6 +921,7 @@ export class GatewayEmbedded {
   private async poll3dsStatus(): Promise<void> {
     const MAX_POLLS = 30;
     const INTERVAL_MS = 2000;
+    const path = this.isSubscriptionMode ? 'subscription-checkout' : 'pay';
 
     for (let i = 0; i < MAX_POLLS; i++) {
       await new Promise<void>(r => setTimeout(r, INTERVAL_MS));
@@ -825,7 +929,8 @@ export class GatewayEmbedded {
       let data: CheckoutResult;
       try {
         const res = await fetch(
-          `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken!)}/payment-status`
+          `${this.baseUrl}/pub/${path}/${encodeURIComponent(this.checkoutLinkToken!)}/payment-status` +
+          `?piId=${encodeURIComponent(this.pendingPiId!)}`
         );
         if (!res.ok) continue; // transient error — keep polling
         data = await res.json() as CheckoutResult;
@@ -837,6 +942,7 @@ export class GatewayEmbedded {
       if (data.status === 'REQUIRES_ACTION' || data.status === 'PROCESSING') continue;
 
       // Terminal state reached
+      this.pendingPiId = null;
       if (data.success && data.redirectUrl) {
         window.location.href = data.redirectUrl;
         return;
@@ -853,14 +959,18 @@ export class GatewayEmbedded {
 
   /** Signals the backend to cancel the parked REQUIRES_ACTION intent (best-effort). */
   private async cancel3ds(): Promise<void> {
-    if (!this.checkoutLinkToken) return;
+    if (!this.checkoutLinkToken || !this.pendingPiId) return;
+    const path = this.isSubscriptionMode ? 'subscription-checkout' : 'pay';
     try {
       await fetch(
-        `${this.baseUrl}/pub/pay/${encodeURIComponent(this.checkoutLinkToken)}/cancel-3ds`,
+        `${this.baseUrl}/pub/${path}/${encodeURIComponent(this.checkoutLinkToken)}/cancel-3ds` +
+        `?piId=${encodeURIComponent(this.pendingPiId)}`,
         { method: 'POST' }
       );
     } catch {
       // best-effort — stale job will eventually clean up if this fails
+    } finally {
+      this.pendingPiId = null;
     }
   }
 
@@ -930,7 +1040,7 @@ export class GatewayEmbedded {
   }
 
   private brandName(provider: string): string {
-    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree', MOLLIE: 'Mollie' } as Record<string, string>)[provider] ?? provider;
+    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree', MOLLIE: 'Mollie', SIMULATOR: 'Mason Simulator' } as Record<string, string>)[provider] ?? provider;
   }
 
   private loadScript(src: string): Promise<void> {

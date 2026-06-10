@@ -11,14 +11,18 @@ import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
+import com.masonx.paygateway.domain.instrument.InstrumentSource;
 import com.masonx.paygateway.domain.merchant.Merchant;
 import com.masonx.paygateway.domain.merchant.MerchantRepository;
+import com.masonx.paygateway.domain.payment.CaptureMethod;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.BraintreePaymentProviderService;
 import com.masonx.paygateway.provider.credentials.BraintreeCredentials;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+import com.masonx.paygateway.service.RoutingEngine;
 import com.masonx.paygateway.service.billing.SubscriptionCheckoutPaymentService;
+import com.masonx.paygateway.service.routing.RoutingContext;
 import com.masonx.paygateway.web.dto.CheckoutConnectorInfo;
 import com.masonx.paygateway.web.dto.PublicSubscriptionCheckoutInfo;
 import com.masonx.paygateway.web.dto.PublicSubscriptionCheckoutRequest;
@@ -37,10 +41,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/pub/subscription-checkout")
@@ -55,6 +61,7 @@ public class PublicSubscriptionCheckoutController {
     private final MerchantRepository merchantRepository;
     private final ProviderAccountRepository providerAccountRepository;
     private final CredentialsCodec credentialsCodec;
+    private final RoutingEngine routingEngine;
     private final BraintreePaymentProviderService braintreeService;
     private final SubscriptionCheckoutPaymentService paymentService;
 
@@ -65,6 +72,7 @@ public class PublicSubscriptionCheckoutController {
                                                 MerchantRepository merchantRepository,
                                                 ProviderAccountRepository providerAccountRepository,
                                                 CredentialsCodec credentialsCodec,
+                                                RoutingEngine routingEngine,
                                                 BraintreePaymentProviderService braintreeService,
                                                 SubscriptionCheckoutPaymentService paymentService) {
         this.checkoutLinkRepository = checkoutLinkRepository;
@@ -74,6 +82,7 @@ public class PublicSubscriptionCheckoutController {
         this.merchantRepository = merchantRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
+        this.routingEngine = routingEngine;
         this.braintreeService = braintreeService;
         this.paymentService = paymentService;
     }
@@ -99,7 +108,7 @@ public class PublicSubscriptionCheckoutController {
                 .map(SubscriptionItemResponse::from)
                 .toList();
 
-        List<CheckoutConnectorInfo> connectors = buildConnectorList(link.getMerchantId(), subscription.getMode());
+        List<CheckoutConnectorInfo> connectors = buildConnectorList(subscription);
 
         return ResponseEntity.ok(new PublicSubscriptionCheckoutInfo(
                 link.getToken(),
@@ -124,6 +133,30 @@ public class PublicSubscriptionCheckoutController {
             @PathVariable String token,
             @Valid @RequestBody PublicSubscriptionCheckoutRequest request) {
         return ResponseEntity.ok(paymentService.checkout(token, request.gatewayToken()));
+    }
+
+    /**
+     * Polls the current status of a subscription's first-charge payment intent after 3DS
+     * completes. Called by the SDK after receiving the gw:3ds_complete postMessage from the
+     * /subscribe/3ds-return page, or after stripe.handleNextAction() resolves.
+     */
+    @GetMapping("/{token}/payment-status")
+    public ResponseEntity<PublicSubscriptionCheckoutResponse> paymentStatus(
+            @PathVariable String token,
+            @RequestParam UUID piId) {
+        return ResponseEntity.ok(paymentService.resumeAfter3ds(token, piId));
+    }
+
+    /**
+     * Cancels a REQUIRES_ACTION payment intent when the customer cancels the 3DS overlay.
+     * Releases the subscription checkout link back to ACTIVE so the customer can retry.
+     */
+    @PostMapping("/{token}/cancel-3ds")
+    public ResponseEntity<Void> cancel3ds(
+            @PathVariable String token,
+            @RequestParam UUID piId) {
+        paymentService.cancel3ds(token, piId);
+        return ResponseEntity.ok().build();
     }
 
     /**
@@ -153,28 +186,69 @@ public class PublicSubscriptionCheckoutController {
         return ResponseEntity.ok(Map.of("clientToken", clientToken));
     }
 
-    private List<CheckoutConnectorInfo> buildConnectorList(UUID merchantId,
-                                                            com.masonx.paygateway.domain.apikey.ApiKeyMode mode) {
-        List<ProviderAccount> accounts = providerAccountRepository
-                .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
-                        merchantId, mode, ProviderAccountStatus.ACTIVE);
+    private List<CheckoutConnectorInfo> buildConnectorList(Subscription subscription) {
+        UUID merchantId = subscription.getMerchantId();
+        com.masonx.paygateway.domain.apikey.ApiKeyMode mode = subscription.getMode();
+        long amount = subscriptionAmount(subscription);
+        RoutingContext context = amount > 0
+                ? new RoutingContext(
+                        merchantId,
+                        mode,
+                        amount,
+                        subscription.getCurrency(),
+                        null,
+                        "card",
+                        CaptureMethod.AUTOMATIC,
+                        null,
+                        null,
+                        Map.of(),
+                        null,
+                        InstrumentSource.PROVIDER_TOKEN,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null)
+                : null;
 
-        List<CheckoutConnectorInfo> result = new ArrayList<>();
-        for (ProviderAccount account : accounts) {
-            try {
-                ProviderCredentials creds = credentialsCodec.decode(account);
-                String clientKey = creds.clientKey();
-                if (clientKey == null || clientKey.isBlank()) continue;
-                result.add(new CheckoutConnectorInfo(
-                        account.getProvider().name(),
-                        account.getId(),
-                        clientKey,
-                        creds.clientConfig()));
-            } catch (Exception e) {
-                log.warn("Skipping connector {} — could not decode credentials: {}",
-                        account.getId(), e.getMessage());
-            }
-        }
-        return result;
+        // Fetch all active accounts sorted by displayOrder, then deduplicate by provider brand
+        // (first account per brand wins — brand position = its lowest displayOrder account).
+        return providerAccountRepository
+                .findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
+                        merchantId, mode, ProviderAccountStatus.ACTIVE)
+                .stream()
+                .filter(account -> context == null || routingEngine.supportsCapabilities(account, context))
+                .collect(Collectors.toMap(
+                        ProviderAccount::getProvider, a -> a,
+                        (existing, dupe) -> existing,
+                        LinkedHashMap::new))
+                .values().stream()
+                .map(account -> {
+                    try {
+                        ProviderCredentials creds = credentialsCodec.decode(account);
+                        String clientKey = creds.clientKey();
+                        if (clientKey == null || clientKey.isBlank()) return null;
+                        return new CheckoutConnectorInfo(
+                                account.getProvider().name(),
+                                account.getId(),
+                                clientKey,
+                                creds.clientConfig());
+                    } catch (Exception e) {
+                        log.warn("Skipping connector {} — could not decode credentials: {}",
+                                account.getId(), e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private long subscriptionAmount(Subscription subscription) {
+        return itemRepository
+                .findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(subscription.getMerchantId(), subscription.getId())
+                .stream()
+                .mapToLong(item -> item.getAmount() * item.getQuantity())
+                .sum();
     }
 }

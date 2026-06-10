@@ -14,6 +14,9 @@ public interface ProviderAccountRepository extends JpaRepository<ProviderAccount
 
     List<ProviderAccount> findAllByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode);
 
+    /** All accounts for the connectors list, ordered by the merchant's saved display order. */
+    List<ProviderAccount> findAllByMerchantIdAndModeOrderByDisplayOrderAscCreatedAtDesc(UUID merchantId, ApiKeyMode mode);
+
     Optional<ProviderAccount> findByIdAndMerchantId(UUID id, UUID merchantId);
 
     Optional<ProviderAccount> findByMerchantIdAndProviderAndModeAndPrimaryTrueAndStatus(

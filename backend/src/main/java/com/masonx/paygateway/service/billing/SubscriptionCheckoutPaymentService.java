@@ -41,6 +41,7 @@ import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.web.dto.PublicSubscriptionCheckoutResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -64,6 +65,9 @@ public class SubscriptionCheckoutPaymentService {
     private final CustomerPaymentMethodRepository customerPaymentMethodRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PaymentMetrics metrics;
+
+    @Value("${app.pay-base-url:http://localhost:3000}")
+    private String payBaseUrl;
 
     public SubscriptionCheckoutPaymentService(SubscriptionCheckoutLinkRepository checkoutLinkRepository,
                                               SubscriptionRepository subscriptionRepository,
@@ -144,7 +148,8 @@ public class SubscriptionCheckoutPaymentService {
                     setupResult.failureCode() != null ? setupResult.failureCode() : setupResult.actionType(),
                     setupResult.failureMessage() != null
                             ? setupResult.failureMessage()
-                            : "Provider requires a hosted reusable payment method setup flow before activation");
+                            : "Provider requires a hosted reusable payment method setup flow before activation",
+                    null);
         }
 
         PaymentInstrument reusableInstrument = storeReusablePaymentInstrument(subscription, paymentToken, setupResult, account);
@@ -156,7 +161,7 @@ public class SubscriptionCheckoutPaymentService {
             makeDefaultPaymentMethod(subscription, reusableInstrument);
             markLinkUsed(link);
             return new PublicSubscriptionCheckoutResponse(
-                    true, subscription.getStatus().name(), subscription.getId(), null, null, null);
+                    true, subscription.getStatus().name(), subscription.getId(), null, null, null, null);
         }
 
         long amount = subscriptionAmount(subscription);
@@ -175,6 +180,10 @@ public class SubscriptionCheckoutPaymentService {
         intent.setMetadata("{\"subscriptionId\":\"" + subscription.getId() + "\"}");
         PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
+        // 3DS return URL: /subscribe/3ds-return?subscriptionToken={token}
+        // Stripe appends payment_intent_client_secret and redirect_status automatically.
+        String returnUrl = payBaseUrl + "/subscribe/3ds-return?subscriptionToken=" + token;
+
         long chargeStart = System.currentTimeMillis();
         ChargeResult result = dispatcher.charge(provider, new ChargeRequest(
                 savedIntent.getId(),
@@ -187,9 +196,25 @@ public class SubscriptionCheckoutPaymentService {
                 billingDetails(customer),
                 null,
                 null,
-                null
+                returnUrl
         ), credentials);
         metrics.recordChargeLatency(provider.name(), System.currentTimeMillis() - chargeStart);
+
+        // 3DS / SCA required — park the intent and let the SDK handle the challenge
+        if (result.requiresAction()) {
+            savedIntent.setStatus(PaymentIntentStatus.REQUIRES_ACTION);
+            savedIntent.setProviderPaymentId(result.providerPaymentId());
+            savedIntent.setActionType(result.actionType());
+            savedIntent.setActionUrl(result.actionUrl());
+            paymentIntentRepository.save(savedIntent);
+            // Link stays claimed during 3DS to prevent a parallel checkout attempt.
+            // It will be released on cancel (/cancel-3ds) or stay used on success.
+            return new PublicSubscriptionCheckoutResponse(
+                    false, "REQUIRES_ACTION", subscription.getId(), savedIntent.getId(),
+                    null, null,
+                    new PublicSubscriptionCheckoutResponse.ProviderAction(
+                            result.actionType(), result.actionUrl(), result.clientSecret()));
+        }
 
         savedIntent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
         savedIntent.setProviderPaymentId(result.providerPaymentId());
@@ -215,9 +240,90 @@ public class SubscriptionCheckoutPaymentService {
             checkoutLinkRepository.releaseLink(token);
             return new PublicSubscriptionCheckoutResponse(
                     false, "FAILED", subscription.getId(), savedIntent.getId(),
-                    result.failureCode(), result.failureMessage());
+                    result.failureCode(), result.failureMessage(), null);
         }
 
+        activateSubscription(subscription, link, reusableInstrument, savedIntent);
+
+        return new PublicSubscriptionCheckoutResponse(
+                true, "ACTIVE", subscription.getId(), savedIntent.getId(), null, null, null);
+    }
+
+    /**
+     * Resumes a subscription checkout after a 3DS / SCA challenge completes.
+     * Idempotent: if the activation has already been recorded for this intent, returns the
+     * existing result without re-running side effects.
+     */
+    public PublicSubscriptionCheckoutResponse resumeAfter3ds(String token, UUID piId) {
+        SubscriptionCheckoutLink link = checkoutLinkRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("Subscription checkout link not found"));
+        Subscription subscription = loadSubscription(link);
+
+        PaymentIntent intent = paymentIntentRepository.findById(piId)
+                .filter(pi -> pi.getMerchantId().equals(subscription.getMerchantId()))
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        boolean success = intent.getStatus() == PaymentIntentStatus.SUCCEEDED;
+
+        if (success && paymentRequestRepository.findByPaymentIntentId(piId).isEmpty()) {
+            PaymentRequest attempt = new PaymentRequest();
+            attempt.setPaymentIntentId(piId);
+            attempt.setAmount(intent.getAmount());
+            attempt.setCurrency(intent.getCurrency());
+            attempt.setPaymentMethodType("card");
+            attempt.setStatus(PaymentRequestStatus.SUCCEEDED);
+            attempt.setProviderRequestId(intent.getProviderPaymentId());
+            attempt.setConnectorAccountId(intent.getConnectorAccountId());
+            paymentRequestRepository.save(attempt);
+
+            PaymentInstrument reusableInstrument = paymentInstrumentRepository
+                    .findFirstByMerchantIdAndCustomerIdAndProviderAndProviderAccountIdAndProviderCustomerReferenceIsNotNullOrderByCreatedAtDesc(
+                            subscription.getMerchantId(), subscription.getCustomerId(),
+                            intent.getResolvedProvider(), intent.getConnectorAccountId())
+                    .orElseThrow(() -> new IllegalStateException("Reusable payment instrument not found"));
+            activateSubscription(subscription, link, reusableInstrument, intent);
+
+            metrics.recordIntentConfirmed(
+                    intent.getResolvedProvider() != null ? intent.getResolvedProvider().name() : "unknown",
+                    PaymentIntentStatus.SUCCEEDED.name(),
+                    null);
+        }
+
+        return new PublicSubscriptionCheckoutResponse(
+                success, intent.getStatus().name(), subscription.getId(), intent.getId(), null, null, null);
+    }
+
+    /**
+     * Cancels a REQUIRES_ACTION payment intent when the customer cancels the 3DS challenge.
+     * Releases the checkout link back to ACTIVE so the customer can retry.
+     */
+    public void cancel3ds(String token, UUID piId) {
+        SubscriptionCheckoutLink link = checkoutLinkRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("Subscription checkout link not found"));
+        Subscription subscription = loadSubscription(link);
+
+        PaymentIntent intent = paymentIntentRepository.findById(piId)
+                .filter(pi -> pi.getMerchantId().equals(subscription.getMerchantId()))
+                .filter(pi -> pi.getStatus() == PaymentIntentStatus.REQUIRES_ACTION)
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found or not awaiting authentication"));
+
+        if (intent.getProviderPaymentId() != null && intent.getConnectorAccountId() != null) {
+            try {
+                ProviderCredentials creds = credentialsCodec.decode(
+                        providerAccountRepository.findById(intent.getConnectorAccountId()).orElseThrow());
+                dispatcher.cancelAtProvider(intent.getResolvedProvider(), intent.getProviderPaymentId(), creds);
+            } catch (Exception e) {
+                // best-effort — the PI may already be expired at the provider's side
+            }
+        }
+
+        intent.setStatus(PaymentIntentStatus.CANCELED);
+        paymentIntentRepository.save(intent);
+        checkoutLinkRepository.releaseLink(token);
+    }
+
+    private void activateSubscription(Subscription subscription, SubscriptionCheckoutLink link,
+                                       PaymentInstrument reusableInstrument, PaymentIntent savedIntent) {
         makeDefaultPaymentMethod(subscription, reusableInstrument);
         subscription.setStatus(SubscriptionStatus.ACTIVE);
         subscriptionRepository.save(subscription);
@@ -228,9 +334,6 @@ public class SubscriptionCheckoutPaymentService {
                 subscription.getId(),
                 "{\"subscriptionId\":\"" + subscription.getId()
                         + "\",\"paymentIntentId\":\"" + savedIntent.getId() + "\"}"));
-
-        return new PublicSubscriptionCheckoutResponse(
-                true, "ACTIVE", subscription.getId(), savedIntent.getId(), null, null);
     }
 
     private SubscriptionCheckoutLink loadUsableLink(String token) {

@@ -11,6 +11,7 @@ import com.masonx.paygateway.provider.credentials.SimulatorCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.masonx.paygateway.provider.simulator.ProviderSimulatorProperties;
 import com.masonx.paygateway.web.dto.CreateProviderAccountRequest;
+import com.masonx.paygateway.web.dto.ProviderAccountResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,10 +20,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,7 +43,7 @@ class ProviderAccountServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProviderAccountService(repo, capabilityRepository, codec, simulatorProperties, auditLogService);
-        when(repo.save(any())).thenAnswer(inv -> {
+        lenient().when(repo.save(any())).thenAnswer(inv -> {
             ProviderAccount account = inv.getArgument(0);
             if (account.getId() == null) {
                 ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
@@ -93,6 +96,37 @@ class ProviderAccountServiceTest {
         assertThat(capability.isSupportsManualCapture()).isTrue();
         assertThat(capability.isSupports3ds()).isTrue();
         assertThat(capability.isSupportsRedirect()).isFalse();
+    }
+
+    @Test
+    void list_returnsAccountsInSavedDisplayOrder_withDisplayOrderInResponse() {
+        UUID merchantId = UUID.randomUUID();
+
+        ProviderAccount square = new ProviderAccount();
+        square.setMerchantId(merchantId);
+        square.setProvider(PaymentProvider.SQUARE);
+        square.setMode(ApiKeyMode.TEST);
+        square.setLabel("Square");
+        square.setDisplayOrder(0);
+
+        ProviderAccount stripe = new ProviderAccount();
+        stripe.setMerchantId(merchantId);
+        stripe.setProvider(PaymentProvider.STRIPE);
+        stripe.setMode(ApiKeyMode.TEST);
+        stripe.setLabel("Stripe");
+        stripe.setDisplayOrder(1);
+
+        // Repository contract is to return rows already ordered by displayOrder.
+        when(repo.findAllByMerchantIdAndModeOrderByDisplayOrderAscCreatedAtDesc(merchantId, ApiKeyMode.TEST))
+                .thenReturn(List.of(square, stripe));
+        when(codec.clientKeyFor(any())).thenReturn(null);
+
+        List<ProviderAccountResponse> result = service.list(merchantId, ApiKeyMode.TEST);
+
+        assertThat(result).extracting(ProviderAccountResponse::provider)
+                .containsExactly("SQUARE", "STRIPE");
+        assertThat(result).extracting(ProviderAccountResponse::displayOrder)
+                .containsExactly(0, 1);
     }
 
     private CreateProviderAccountRequest stripeRequest() {
