@@ -12,11 +12,17 @@ import com.masonx.paygateway.domain.billing.SubscriptionItem;
 import com.masonx.paygateway.domain.billing.SubscriptionItemRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
+import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
+import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
 import com.masonx.paygateway.domain.merchant.Merchant;
 import com.masonx.paygateway.domain.merchant.MerchantRepository;
+import com.masonx.paygateway.domain.payment.PaymentProvider;
 import com.masonx.paygateway.provider.BraintreePaymentProviderService;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
+import com.masonx.paygateway.provider.credentials.SimulatorCredentials;
+import com.masonx.paygateway.provider.credentials.StripeCredentials;
+import com.masonx.paygateway.service.RoutingEngine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -33,6 +39,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -73,6 +80,9 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
     private CredentialsCodec credentialsCodec;
 
     @MockBean
+    private RoutingEngine routingEngine;
+
+    @MockBean
     private BraintreePaymentProviderService braintreePaymentProviderService;
 
     @Test
@@ -111,6 +121,67 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
                 .andExpect(jsonPath("$.items", hasSize(1)))
                 .andExpect(jsonPath("$.items[0].description").value("Pro plan"))
                 .andExpect(jsonPath("$.items[0].amount").value(2900));
+    }
+
+    @Test
+    void connectorListDedupesByProviderAndAppliesCapabilityFilter() throws Exception {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        String token = "sub_connectors";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+        Subscription subscription = subscription(merchantId, customerId, subscriptionId);
+        BillingCustomer customer = customer(merchantId, customerId);
+        Merchant merchant = merchant(merchantId);
+        SubscriptionItem item = item(merchantId, subscriptionId);
+
+        // Two STRIPE accounts (should dedup to the lower-displayOrder one), one SQUARE account
+        // excluded by the capability filter, and one SIMULATOR account that passes through.
+        ProviderAccount stripePrimary = providerAccount(merchantId, PaymentProvider.STRIPE, 1);
+        ProviderAccount stripeSecondary = providerAccount(merchantId, PaymentProvider.STRIPE, 2);
+        ProviderAccount squareFiltered = providerAccount(merchantId, PaymentProvider.SQUARE, 3);
+        ProviderAccount simulator = providerAccount(merchantId, PaymentProvider.SIMULATOR, 4);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST)).thenReturn(Optional.of(customer));
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(merchant));
+        when(itemRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(merchantId, subscriptionId))
+                .thenReturn(List.of(item));
+        when(providerAccountRepository.findAllByMerchantIdAndModeAndStatusOrderByDisplayOrderAsc(
+                merchantId, ApiKeyMode.TEST, ProviderAccountStatus.ACTIVE))
+                .thenReturn(List.of(stripePrimary, stripeSecondary, squareFiltered, simulator));
+
+        when(routingEngine.supportsCapabilities(eq(stripePrimary), any())).thenReturn(true);
+        when(routingEngine.supportsCapabilities(eq(stripeSecondary), any())).thenReturn(true);
+        when(routingEngine.supportsCapabilities(eq(squareFiltered), any())).thenReturn(false);
+        when(routingEngine.supportsCapabilities(eq(simulator), any())).thenReturn(true);
+
+        when(credentialsCodec.decode(stripePrimary)).thenReturn(new StripeCredentials("sk_test_x", "pk_test_x"));
+        when(credentialsCodec.decode(simulator)).thenReturn(new SimulatorCredentials(true, 1.0));
+
+        mockMvc.perform(get("/pub/subscription-checkout/{token}", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connectors", hasSize(2)))
+                .andExpect(jsonPath("$.connectors[0].provider").value("STRIPE"))
+                .andExpect(jsonPath("$.connectors[0].accountId").value(stripePrimary.getId().toString()))
+                .andExpect(jsonPath("$.connectors[0].clientKey").value("pk_test_x"))
+                .andExpect(jsonPath("$.connectors[1].provider").value("SIMULATOR"))
+                .andExpect(jsonPath("$.connectors[1].accountId").value(simulator.getId().toString()))
+                .andExpect(jsonPath("$.connectors[1].clientKey").value("mason-simulator"));
+    }
+
+    private ProviderAccount providerAccount(UUID merchantId, PaymentProvider provider, int displayOrder) {
+        ProviderAccount account = new ProviderAccount();
+        ReflectionTestUtils.setField(account, "id", UUID.randomUUID());
+        account.setMerchantId(merchantId);
+        account.setProvider(provider);
+        account.setMode(ApiKeyMode.TEST);
+        account.setStatus(ProviderAccountStatus.ACTIVE);
+        account.setDisplayOrder(displayOrder);
+        account.setLabel(provider.name());
+        return account;
     }
 
     private SubscriptionCheckoutLink checkoutLink(UUID merchantId, UUID customerId, UUID subscriptionId, String token) {

@@ -24,8 +24,11 @@ import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
+import com.masonx.paygateway.domain.payment.PaymentIntentStatus;
 import com.masonx.paygateway.domain.payment.PaymentProvider;
+import com.masonx.paygateway.domain.payment.PaymentRequest;
 import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
+import com.masonx.paygateway.domain.payment.PaymentRequestStatus;
 import com.masonx.paygateway.domain.payment.PaymentToken;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.provider.ChargeResult;
@@ -49,8 +52,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,6 +75,8 @@ class SubscriptionCheckoutPaymentServiceTest {
     private ReusablePaymentMethodDispatcher reusablePaymentMethodDispatcher;
     private PaymentIntentRepository paymentIntentRepository;
     private PaymentRequestRepository paymentRequestRepository;
+    private OutboxEventRepository outboxEventRepository;
+    private PaymentMetrics metrics;
     private SubscriptionCheckoutPaymentService service;
 
     @BeforeEach
@@ -86,8 +94,8 @@ class SubscriptionCheckoutPaymentServiceTest {
         paymentRequestRepository = mock(PaymentRequestRepository.class);
         paymentInstrumentRepository = mock(PaymentInstrumentRepository.class);
         customerPaymentMethodRepository = mock(CustomerPaymentMethodRepository.class);
-        OutboxEventRepository outboxEventRepository = mock(OutboxEventRepository.class);
-        PaymentMetrics metrics = mock(PaymentMetrics.class);
+        outboxEventRepository = mock(OutboxEventRepository.class);
+        metrics = mock(PaymentMetrics.class);
 
         service = new SubscriptionCheckoutPaymentService(
                 checkoutLinkRepository,
@@ -288,6 +296,171 @@ class SubscriptionCheckoutPaymentServiceTest {
         verify(dispatcher).charge(any(), any(), any());
         verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
         verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
+    }
+
+    @Test
+    void incompleteCheckout_requiresAction_returnsProviderActionAndKeepsLinkClaimed() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID instrumentId = UUID.randomUUID();
+        String token = "sub_3ds";
+        String gatewayToken = "gw_tok_3ds";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+        Subscription subscription = subscription(merchantId, customerId, subscriptionId);
+        subscription.setStatus(SubscriptionStatus.INCOMPLETE);
+        subscription.setTrialEndsAt(null);
+        PaymentToken paymentToken = paymentToken(merchantId, instrumentId);
+        PaymentInstrument instrument = instrument(merchantId, instrumentId);
+        ProviderAccount account = providerAccount(merchantId, paymentToken.getAccountId());
+        BillingCustomer customer = customer(merchantId, customerId);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(checkoutLinkRepository.claimLink(token)).thenReturn(1);
+        when(paymentTokenService.consume(gatewayToken)).thenReturn(paymentToken);
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
+        when(providerAccountRepository.findById(paymentToken.getAccountId())).thenReturn(Optional.of(account));
+        when(credentialsCodec.decode(account)).thenReturn(new SimulatorCredentials(true, 1.0));
+        when(customerRepository.findByIdAndMerchantIdAndMode(customerId, merchantId, ApiKeyMode.TEST))
+                .thenReturn(Optional.of(customer));
+        when(reusablePaymentMethodDispatcher.setup(any(), any(), any()))
+                .thenReturn(ReusablePaymentMethodSetupResult.succeeded(
+                        "sim_cus_" + customerId, "sim_pm_reusable_" + customerId, "{}"));
+        when(paymentInstrumentRepository.findByIdAndMerchantId(instrumentId, merchantId)).thenReturn(Optional.of(instrument));
+        when(paymentInstrumentRepository.save(instrument)).thenReturn(instrument);
+        when(itemRepository.findByMerchantIdAndSubscriptionIdOrderByCreatedAtAsc(merchantId, subscriptionId))
+                .thenReturn(List.of(subscriptionItem(merchantId, subscriptionId)));
+        when(paymentIntentRepository.save(any(PaymentIntent.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(dispatcher.charge(any(), any(), any()))
+                .thenReturn(ChargeResult.actionRequired("sim_pay_pending", "{}", "stripe_sdk", null, "pi_secret_abc"));
+
+        var response = service.checkout(token, gatewayToken);
+
+        assertThat(response.success()).isFalse();
+        assertThat(response.status()).isEqualTo("REQUIRES_ACTION");
+        assertThat(response.subscriptionId()).isEqualTo(subscriptionId);
+        assertThat(response.providerAction()).isNotNull();
+        assertThat(response.providerAction().type()).isEqualTo("stripe_sdk");
+        assertThat(response.providerAction().clientSecret()).isEqualTo("pi_secret_abc");
+
+        // Subscription is not activated and the link stays claimed for the duration of the challenge.
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.INCOMPLETE);
+        assertThat(link.getStatus()).isEqualTo(SubscriptionCheckoutLinkStatus.ACTIVE);
+        verify(checkoutLinkRepository, never()).releaseLink(token);
+        verify(checkoutLinkRepository, never()).save(link);
+        verify(paymentRequestRepository, never()).save(any());
+        verify(customerPaymentMethodRepository, never()).save(any(CustomerPaymentMethod.class));
+    }
+
+    @Test
+    void resumeAfter3ds_onSuccess_activatesSubscriptionIdempotently() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID piId = UUID.randomUUID();
+        String token = "sub_resume";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+        Subscription subscription = subscription(merchantId, customerId, subscriptionId);
+        subscription.setStatus(SubscriptionStatus.INCOMPLETE);
+        subscription.setTrialEndsAt(null);
+
+        PaymentIntent intent = new PaymentIntent();
+        ReflectionTestUtils.setField(intent, "id", piId);
+        intent.setMerchantId(merchantId);
+        intent.setMode(ApiKeyMode.TEST);
+        intent.setAmount(1_000);
+        intent.setCurrency("usd");
+        intent.setIdempotencyKey("idem-" + piId);
+        intent.setResolvedProvider(PaymentProvider.SIMULATOR);
+        intent.setConnectorAccountId(accountId);
+        intent.setProviderPaymentId("sim_pay_ok");
+        intent.setStatus(PaymentIntentStatus.SUCCEEDED);
+
+        PaymentInstrument reusableInstrument = instrument(merchantId, UUID.randomUUID());
+        reusableInstrument.setProviderCustomerReference("sim_cus_resume");
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
+        when(paymentIntentRepository.findById(piId)).thenReturn(Optional.of(intent));
+        when(paymentRequestRepository.findByPaymentIntentId(piId)).thenReturn(List.of());
+        when(paymentInstrumentRepository
+                .findFirstByMerchantIdAndCustomerIdAndProviderAndProviderAccountIdAndProviderCustomerReferenceIsNotNullOrderByCreatedAtDesc(
+                        merchantId, customerId, PaymentProvider.SIMULATOR, accountId))
+                .thenReturn(Optional.of(reusableInstrument));
+        when(customerPaymentMethodRepository.findByMerchantIdAndCustomerIdAndPaymentInstrumentId(
+                merchantId, customerId, reusableInstrument.getId())).thenReturn(Optional.empty());
+
+        var response = service.resumeAfter3ds(token, piId);
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.subscriptionId()).isEqualTo(subscriptionId);
+        assertThat(response.paymentIntentId()).isEqualTo(piId);
+        assertThat(response.providerAction()).isNull();
+        assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(link.getStatus()).isEqualTo(SubscriptionCheckoutLinkStatus.USED);
+
+        ArgumentCaptor<PaymentRequest> attemptCaptor = ArgumentCaptor.forClass(PaymentRequest.class);
+        verify(paymentRequestRepository).save(attemptCaptor.capture());
+        assertThat(attemptCaptor.getValue().getStatus()).isEqualTo(PaymentRequestStatus.SUCCEEDED);
+        assertThat(attemptCaptor.getValue().getPaymentIntentId()).isEqualTo(piId);
+        verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
+        verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
+        verify(outboxEventRepository).save(any());
+        verify(metrics).recordIntentConfirmed(eq("SIMULATOR"), eq("SUCCEEDED"), isNull());
+
+        // A second resume call (e.g. duplicate poll/postMessage) must not re-activate.
+        when(paymentRequestRepository.findByPaymentIntentId(piId)).thenReturn(List.of(attemptCaptor.getValue()));
+
+        var secondResponse = service.resumeAfter3ds(token, piId);
+
+        assertThat(secondResponse.success()).isTrue();
+        verify(paymentRequestRepository, times(1)).save(any());
+        verify(subscriptionRepository, times(1)).save(any());
+    }
+
+    @Test
+    void cancel3ds_cancelsAtProviderAndReleasesLink() {
+        UUID merchantId = UUID.randomUUID();
+        UUID customerId = UUID.randomUUID();
+        UUID subscriptionId = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        UUID piId = UUID.randomUUID();
+        String token = "sub_cancel_3ds";
+
+        SubscriptionCheckoutLink link = checkoutLink(merchantId, customerId, subscriptionId, token);
+        Subscription subscription = subscription(merchantId, customerId, subscriptionId);
+        subscription.setStatus(SubscriptionStatus.INCOMPLETE);
+        subscription.setTrialEndsAt(null);
+
+        PaymentIntent intent = new PaymentIntent();
+        ReflectionTestUtils.setField(intent, "id", piId);
+        intent.setMerchantId(merchantId);
+        intent.setMode(ApiKeyMode.TEST);
+        intent.setResolvedProvider(PaymentProvider.SIMULATOR);
+        intent.setConnectorAccountId(accountId);
+        intent.setProviderPaymentId("sim_pay_pending");
+        intent.setStatus(PaymentIntentStatus.REQUIRES_ACTION);
+
+        ProviderAccount account = providerAccount(merchantId, accountId);
+
+        when(checkoutLinkRepository.findByToken(token)).thenReturn(Optional.of(link));
+        when(subscriptionRepository.findByIdAndMerchantId(subscriptionId, merchantId)).thenReturn(Optional.of(subscription));
+        when(paymentIntentRepository.findById(piId)).thenReturn(Optional.of(intent));
+        when(providerAccountRepository.findById(accountId)).thenReturn(Optional.of(account));
+        when(credentialsCodec.decode(account)).thenReturn(new SimulatorCredentials(true, 1.0));
+        when(dispatcher.cancelAtProvider(eq(PaymentProvider.SIMULATOR), eq("sim_pay_pending"), any()))
+                .thenReturn(true);
+
+        service.cancel3ds(token, piId);
+
+        assertThat(intent.getStatus()).isEqualTo(PaymentIntentStatus.CANCELED);
+        verify(paymentIntentRepository).save(intent);
+        verify(dispatcher).cancelAtProvider(eq(PaymentProvider.SIMULATOR), eq("sim_pay_pending"), any());
+        verify(checkoutLinkRepository).releaseLink(token);
     }
 
     @Test
