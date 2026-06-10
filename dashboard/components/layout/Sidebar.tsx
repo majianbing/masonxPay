@@ -37,11 +37,11 @@ const nav = [
       { href: '/developers/logs', label: 'Logs', icon: FileText },
     ],
   },
-  { href: '/team', label: 'Team', icon: Users },
   {
     label: 'Settings', icon: Settings,
     children: [
       { href: '/settings/merchant', label: 'Merchant', icon: Settings },
+      { href: '/team', label: 'Team', icon: Users },
       { href: '/settings/security', label: 'Security', icon: ShieldCheck },
       { href: '/settings/audit-log', label: 'Audit Log', icon: ClipboardList },
     ],
@@ -53,7 +53,7 @@ export default function Sidebar() {
   const [open, setOpen] = useState<Record<string, boolean>>({
     Billing: pathname.startsWith('/customers') || pathname.startsWith('/subscriptions') || pathname.startsWith('/invoices'),
     Developers: pathname.startsWith('/developers'),
-    Settings: pathname.startsWith('/settings'),
+    Settings: pathname.startsWith('/settings') || pathname.startsWith('/team'),
   });
 
   function toggle(label: string) {
