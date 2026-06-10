@@ -7,6 +7,10 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PREVIEW_DB_USERNAME:-pay_preview_user} -d ${PREVIEW_DB_NAME:-paygateway_preview}"]
 
+  postgres-exporter:
+    environment:
+      DATA_SOURCE_NAME: postgresql://${PREVIEW_DB_USERNAME:-pay_preview_user}:${PREVIEW_DB_PASSWORD:-preview_password_123}@postgres:5432/${PREVIEW_DB_NAME:-paygateway_preview}?sslmode=disable
+
   kafka:
     environment:
       KAFKA_HEAP_OPTS: -Xms512m -Xmx1g

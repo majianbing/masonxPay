@@ -2,7 +2,7 @@
   "uid": "masonxpay-payments",
   "title": "MasonXPay — Payments",
   "schemaVersion": 38,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -953,6 +953,244 @@
         }
       ],
       "description": "Kafka broker byte throughput from JMX exporter. Uses broker counters plus producer client byte-rate fallback for local sparse traffic."
+    },
+    {
+      "id": 24,
+      "type": "row",
+      "title": "Read Model Observability (H6)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "collapsed": false
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "payment_read_models Size (table vs indexes)",
+      "description": "Heap, index, and search-index size for payment_read_models. Sustained growth in the GIN search index relative to table size is an early signal that full-text search may be approaching the point where Postgres alone is no longer the right tool (see H6 decision criteria).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 57
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pg_read_model_relation_size_bytes_table_bytes{relation=\"payment_read_models\"} or vector(0)",
+          "legendFormat": "table heap"
+        },
+        {
+          "expr": "pg_read_model_relation_size_bytes_index_bytes{relation=\"payment_read_models\"} or vector(0)",
+          "legendFormat": "all indexes"
+        },
+        {
+          "expr": "pg_read_model_index_size_bytes_size_bytes{index_name=\"idx_payment_read_models_search\"} or vector(0)",
+          "legendFormat": "search GIN index"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "payment_read_models Sequential vs Index Scans",
+      "description": "Sequential scan rate climbing relative to index scans means a query/filter combination isn't using the existing indexes — usually fixable with a targeted index before reaching for partitioning or OpenSearch.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 57
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rate(pg_read_model_table_stats_seq_scan{relation=\"payment_read_models\"}[5m]) or vector(0)",
+          "legendFormat": "seq scans/s"
+        },
+        {
+          "expr": "rate(pg_read_model_table_stats_idx_scan{relation=\"payment_read_models\"}[5m]) or vector(0)",
+          "legendFormat": "index scans/s"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "payment_read_models Row Count",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 65
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pg_read_model_table_stats_n_live_tup{relation=\"payment_read_models\"} or vector(0)",
+          "legendFormat": "rows"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "payment_read_models Dead Tuple Ratio",
+      "description": "High dead-tuple ratio on this upsert-heavy table indicates autovacuum is falling behind, which degrades both index efficiency and query latency.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 69
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "(pg_read_model_table_stats_n_dead_tup{relation=\"payment_read_models\"} / clamp_min(pg_read_model_table_stats_n_dead_tup{relation=\"payment_read_models\"} + pg_read_model_table_stats_n_live_tup{relation=\"payment_read_models\"}, 1)) or vector(0)",
+          "legendFormat": "dead tuple ratio"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Merchant Payment List Latency (p95 / p99)",
+      "description": "Latency of GET /api/v1/merchants/{merchantId}/payment-intents — the primary dashboard query against payment_read_models. This is the user-facing signal for the H6 ceiling: if this stays high after indexing/partitioning fixes, consider OpenSearch.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri=\"/api/v1/merchants/{merchantId}/payment-intents\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri=\"/api/v1/merchants/{merchantId}/payment-intents\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
     }
   ]
 }

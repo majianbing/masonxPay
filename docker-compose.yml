@@ -18,6 +18,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── Postgres Exporter (H6 read-model observability) ─────────────────────────
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: postgresql://${DB_USERNAME:-pay_app_user}:${DB_PASSWORD:-password123}@postgres:5432/${DB_NAME:-paygateway}?sslmode=disable
+    volumes:
+      - ./monitor/postgres-exporter:/etc/postgres-exporter:ro
+    command:
+      - --config.file=/etc/postgres-exporter/postgres_exporter.yml
+      - --extend.query-path=/etc/postgres-exporter/queries.yaml
+    ports:
+      - "9187:9187"
+
   # ── Kafka ──────────────────────────────────────────────────────────────────
   kafka:
     profiles: ["infra"]

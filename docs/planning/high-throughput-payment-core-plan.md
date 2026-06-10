@@ -2,7 +2,7 @@
 
 Stable architecture extracted from this tracker lives in [sharding, Kafka, and Redis](../architecture/sharding-kafka-redis.md) and [payment core](../architecture/payment-core.md). Keep this file focused on phase status, open decisions, and implementation notes.
 
-This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for interview discussion and staged implementation.
+This document records the planned evolution of MasonXPay from a single-node payment gateway into a high-throughput, low-latency payment core suitable for discussion and staged implementation.
 
 The current system intentionally avoids Redis and Kafka/RabbitMQ for the MVP scale profile. This upgrade intentionally lifts that limitation for a new scale profile where write throughput, async event fan-out, and low-latency coordination justify additional infrastructure.
 
@@ -113,7 +113,7 @@ Initial shard count: 64 logical shards.
 
 Rationale:
 
-- Large enough to flatten write distribution for benchmark and interview-scale demos.
+- Large enough to flatten write distribution for benchmark demos.
 - Small enough to keep local Flyway migrations, schema inspection, and operational overhead manageable.
 - Can map multiple logical shards to one physical database today and redistribute them across physical databases later.
 - Avoids premature complexity from hundreds or thousands of tables before the workload proves it.
@@ -442,7 +442,51 @@ Current H4 progress:
 - Keep payment detail/status checks routed to authoritative shards.
 - Keep OpenSearch as an optional future adapter only if read-model search outgrows Postgres.
 
-### Phase H7: Benchmarks and Interview Narrative — Done
+#### Read-Model Observability and the Postgres-vs-OpenSearch Decision
+
+`payment_read_models` is a single non-sharded table (`ds_0`), which trades the
+cross-shard scatter-gather problem for a standard single-table scaling problem.
+To know when (if ever) that table approaches a ceiling, three layers are monitored:
+
+- **App-level**: p95/p99 latency of `GET /api/v1/merchants/{merchantId}/payment-intents`,
+  via the existing `http_server_requests_seconds_bucket` histogram.
+- **DB-level**: table/index size and sequential-vs-index scan rates for
+  `payment_read_models`, via a `postgres-exporter` service with custom queries
+  in `monitor/postgres-exporter/queries.yaml`. The GIN full-text search index
+  (`idx_payment_read_models_search`) is tracked separately, since it is the
+  most likely first casualty at scale.
+- **Pipeline-level**: existing projection lag metrics
+  (`payment.projection.read_model.count`, `payment.projection.failed.count`,
+  `payment.projection.oldest_failed.age.seconds`).
+
+Grafana panels and Prometheus alerts (`PaymentListLatencyHigh`,
+`PaymentReadModelSeqScansHigh`, `PaymentReadModelDeadTupleRatioHigh`) live in
+`monitor/grafana/dashboards/payments.json` and `monitor/prometheus/alert_rules.yml`.
+
+Decision order when these signals fire, cheapest fix first:
+
+1. Check `pg_stat_statements`/`EXPLAIN ANALYZE` for the offending query — a
+   missing composite index is the most common cause and the cheapest fix.
+2. If table/index size is the issue, consider Postgres native partitioning of
+   `payment_read_models` by `merchant_id` range or `source_created_at` — still
+   one logical table to the app, no architecture change.
+3. Only if full-text search latency stays high after partitioning and indexing
+   — specifically the GIN-backed search path, not the simple list/filter
+   queries — is OpenSearch worth the operational cost of a second store.
+
+`postgres-exporter` runs in the default profile (alongside `prometheus`/
+`grafana`, no `profiles: ["infra"]`), since it only depends on `postgres`
+and the read-model size/scan metrics are meaningful with or without Kafka
+projections enabled.
+
+Validated locally with `docker compose --profile infra up`: all 8 services
+(`postgres`, `postgres-exporter`, `kafka`, `redis`, `backend`, `dashboard`,
+`prometheus`, `grafana`) start healthy, Prometheus scrapes
+`postgres-exporter:9187` and reports the new alert rules with `health: ok`,
+and the Grafana "Read Model Observability (H6)" panels render
+`pg_read_model_*` metrics and the merchant payment list p95/p99 latency.
+
+### Phase H7: Benchmarks — Done
 
 - Added k6 scenarios for create, confirm, refund, idempotency replay, get-by-id, and dashboard list flows.
 - Added a TEST-only Mason Simulator provider as a normal connector/provider adapter so benchmarks exercise routing, provider credential loading, retry orchestration, payment request writes, state transitions, refund guards, and outbox writes without calling external PSP sandboxes.

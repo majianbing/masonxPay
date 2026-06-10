@@ -29,6 +29,14 @@ scrape_configs:
           application: masonxpay
           component: kafka
 
+  - job_name: postgres-exporter
+    static_configs:
+      - targets:
+          - postgres-exporter:9187
+        labels:
+          application: masonxpay
+          component: postgres
+
   # ── AWS EC2 multi-node (production) ────────────────────────────────────────
   # Uncomment this block and remove the static_configs block above when deploying
   # to multiple EC2 instances. Prometheus queries the EC2 API to discover all
