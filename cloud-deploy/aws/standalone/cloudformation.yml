@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  pay.masonx Standalone — Full stack (PostgreSQL + Spring Boot + Next.js dashboard)
-  on a single EC2 instance via Docker Compose. Ideal for quick evaluation and demos.
-  First boot takes ~10-15 min while Maven and Next.js build the images.
+  pay.masonx Standalone — Full stack (PostgreSQL + Spring Boot + Next.js dashboard,
+  plus Prometheus/Grafana/postgres-exporter observability) on a single EC2 instance
+  via Docker Compose. Ideal for quick evaluation and demos. First boot takes
+  ~10-15 min while Maven and Next.js build the images.
 
 # ─────────────────────────────────────────────────────────────────────────────
 Metadata:
@@ -14,6 +15,8 @@ Metadata:
         Parameters: [GitRepoUrl, GitBranch]
       - Label: {default: "Secrets (required)"}
         Parameters: [JwtSecret, DBPassword, EncryptionKey]
+      - Label: {default: "Observability"}
+        Parameters: [GrafanaPassword]
       - Label: {default: "Stripe (optional)"}
         Parameters: [StripeSecretKey, StripeWebhookSecret]
       - Label: {default: "Email / SMTP (optional)"}
@@ -28,9 +31,12 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t3.small
-    AllowedValues: [t3.small, t3.medium, t3.large]
-    Description: "t3.small = 2 vCPU / 2 GB — minimum for Java 21 + Postgres + Next.js."
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large, t3.xlarge]
+    Description: >
+      t3.medium = 2 vCPU / 4 GB — minimum for Java 21 + Postgres + Next.js +
+      Prometheus + Grafana + postgres-exporter, with headroom for the Maven
+      and Next.js builds on first boot.
 
   GitRepoUrl:
     Type: String
@@ -88,6 +94,15 @@ Parameters:
     NoEcho: true
     MinLength: 32
     Description: "AES-256 encryption key for connector credentials and MFA secrets — generate with: openssl rand -base64 32"
+
+  GrafanaPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: >
+      Admin password for the bundled Grafana instance (port 3001, not exposed
+      in the security group — access via SSH tunnel). Without this, Grafana
+      would fall back to the insecure "admin" default.
 
 # ─────────────────────────────────────────────────────────────────────────────
 Resources:
@@ -209,6 +224,7 @@ Resources:
             DB_USERNAME=pay_app_user
             DB_PASSWORD=${DBPassword}
             JWT_SECRET=${JwtSecret}
+            GRAFANA_PASSWORD=${GrafanaPassword}
             APP_BASE_URL=http://${ElasticIP}:8080
             PAY_BASE_URL=http://${ElasticIP}:3000
             NEXT_PUBLIC_API_URL=http://${ElasticIP}:8080
