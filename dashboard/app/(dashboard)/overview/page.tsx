@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +25,7 @@ interface PageResponse {
 }
 
 export default function OverviewPage() {
+  const router = useRouter();
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
   const accessToken = useAuthStore((s) => s.accessToken);
   const mode = useAuthStore((s) => s.mode);
@@ -107,7 +109,11 @@ export default function OverviewPage() {
             </thead>
             <tbody>
               {payments.slice(0, 10).map((p) => (
-                <tr key={p.id} className="border-b last:border-0">
+                <tr
+                  key={p.id}
+                  className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
+                  onClick={() => router.push(`/payments/${p.id}`)}
+                >
                   <td className="py-2 font-mono text-xs">{p.id.slice(0, 8)}…</td>
                   <td className="py-2">{(p.amount / 100).toFixed(2)} {p.currency}</td>
                   <td className="py-2"><StatusBadge status={p.status} /></td>
