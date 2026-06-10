@@ -47,6 +47,7 @@ interface ProviderAccount {
   primary: boolean;
   weight: number;
   status: string;
+  displayOrder: number;
   createdAt: string;
 }
 
@@ -607,6 +608,21 @@ export default function ConnectorsPage() {
 
   const activeProviders = PROVIDERS.filter((p) => connectors.some((c) => c.provider === p));
   const [brandOrder, setBrandOrder] = useState<Provider[]>([]);
+
+  // Server returns connectors pre-sorted by displayOrder; key on that order so we
+  // only resync brandOrder when the saved order actually changes (avoids re-running
+  // on every render while `connectors` defaults to a fresh `[]`).
+  const savedOrderKey = connectors.map((c) => c.provider).join(',');
+
+  useEffect(() => {
+    const order: Provider[] = [];
+    for (const c of connectors) {
+      const provider = c.provider as Provider;
+      if (!order.includes(provider)) order.push(provider);
+    }
+    setBrandOrder(order);
+  }, [savedOrderKey]);
+
   const orderedProviders = (() => {
     const known = brandOrder.filter((p) => activeProviders.includes(p));
     const added = activeProviders.filter((p) => !known.includes(p));

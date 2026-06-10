@@ -46,7 +46,7 @@ public class ProviderAccountService {
 
     @Transactional(readOnly = true)
     public List<ProviderAccountResponse> list(UUID merchantId, ApiKeyMode mode) {
-        return repo.findAllByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode)
+        return repo.findAllByMerchantIdAndModeOrderByDisplayOrderAscCreatedAtDesc(merchantId, mode)
                 .stream()
                 .map(a -> ProviderAccountResponse.from(a, codec.clientKeyFor(a)))
                 .toList();

@@ -18,6 +18,7 @@ public record ProviderAccountResponse(
         String status,
         int fixedFeeCents,        // Phase 3.5: flat per-transaction fee in smallest currency unit
         int rateBps,              // Phase 3.5: percentage rate in basis points
+        int displayOrder,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -36,6 +37,7 @@ public record ProviderAccountResponse(
                 a.getStatus().name(),
                 a.getFixedFeeCents(),
                 a.getRateBps(),
+                a.getDisplayOrder(),
                 a.getCreatedAt(),
                 a.getUpdatedAt()
         );
