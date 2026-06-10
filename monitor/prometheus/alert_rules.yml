@@ -157,3 +157,51 @@ groups:
           description: >
             More than 0.5 failovers/s in the last 10 minutes. Primary connectors may be
             degraded. Check connector success rates and provider status pages.
+
+      # ── H6 read-model ceiling signals ───────────────────────────────────────
+      # These don't mean "switch to OpenSearch now" — they mean "go look at
+      # pg_stat_statements / EXPLAIN for the merchant payment list query."
+      # See docs/planning/high-throughput-payment-core-plan.md Phase H6.
+      - alert: PaymentListLatencyHigh
+        expr: >
+          histogram_quantile(0.95,
+            sum(rate(http_server_requests_seconds_bucket{uri="/api/v1/merchants/{merchantId}/payment-intents"}[5m])) by (le)
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Merchant payment list p95 latency is high ({{ $value | humanizeDuration }})"
+          description: >
+            p95 latency for the dashboard payment list endpoint has exceeded 500ms for
+            10 minutes. Check pg_stat_statements and EXPLAIN ANALYZE for the
+            payment_read_models query before considering partitioning or OpenSearch.
+
+      - alert: PaymentReadModelSeqScansHigh
+        expr: >
+          rate(pg_read_model_table_stats_seq_scan{relation="payment_read_models"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "payment_read_models is being sequentially scanned"
+          description: >
+            payment_read_models is seeing sequential scans, which is unexpected at
+            normal dashboard query volume. A filter/sort combination likely isn't
+            covered by an existing index — check pg_stat_statements for the
+            offending query before adding a new index.
+
+      - alert: PaymentReadModelDeadTupleRatioHigh
+        expr: >
+          (pg_read_model_table_stats_n_dead_tup{relation="payment_read_models"}
+            / clamp_min(pg_read_model_table_stats_n_dead_tup{relation="payment_read_models"}
+              + pg_read_model_table_stats_n_live_tup{relation="payment_read_models"}, 1)) > 0.2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "payment_read_models dead tuple ratio is high ({{ $value | humanizePercentage }})"
+          description: >
+            More than 20% of rows in payment_read_models are dead tuples. Autovacuum
+            may be falling behind on this upsert-heavy table, degrading index
+            efficiency and query latency.

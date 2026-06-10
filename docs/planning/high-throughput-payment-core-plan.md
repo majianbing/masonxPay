@@ -442,6 +442,38 @@ Current H4 progress:
 - Keep payment detail/status checks routed to authoritative shards.
 - Keep OpenSearch as an optional future adapter only if read-model search outgrows Postgres.
 
+#### Read-Model Observability and the Postgres-vs-OpenSearch Decision
+
+`payment_read_models` is a single non-sharded table (`ds_0`), which trades the
+cross-shard scatter-gather problem for a standard single-table scaling problem.
+To know when (if ever) that table approaches a ceiling, three layers are monitored:
+
+- **App-level**: p95/p99 latency of `GET /api/v1/merchants/{merchantId}/payment-intents`,
+  via the existing `http_server_requests_seconds_bucket` histogram.
+- **DB-level**: table/index size and sequential-vs-index scan rates for
+  `payment_read_models`, via a `postgres-exporter` service with custom queries
+  in `monitor/postgres-exporter/queries.yaml`. The GIN full-text search index
+  (`idx_payment_read_models_search`) is tracked separately, since it is the
+  most likely first casualty at scale.
+- **Pipeline-level**: existing projection lag metrics
+  (`payment.projection.read_model.count`, `payment.projection.failed.count`,
+  `payment.projection.oldest_failed.age.seconds`).
+
+Grafana panels and Prometheus alerts (`PaymentListLatencyHigh`,
+`PaymentReadModelSeqScansHigh`, `PaymentReadModelDeadTupleRatioHigh`) live in
+`monitor/grafana/dashboards/payments.json` and `monitor/prometheus/alert_rules.yml`.
+
+Decision order when these signals fire, cheapest fix first:
+
+1. Check `pg_stat_statements`/`EXPLAIN ANALYZE` for the offending query — a
+   missing composite index is the most common cause and the cheapest fix.
+2. If table/index size is the issue, consider Postgres native partitioning of
+   `payment_read_models` by `merchant_id` range or `source_created_at` — still
+   one logical table to the app, no architecture change.
+3. Only if full-text search latency stays high after partitioning and indexing
+   — specifically the GIN-backed search path, not the simple list/filter
+   queries — is OpenSearch worth the operational cost of a second store.
+
 ### Phase H7: Benchmarks and Interview Narrative — Done
 
 - Added k6 scenarios for create, confirm, refund, idempotency replay, get-by-id, and dashboard list flows.
