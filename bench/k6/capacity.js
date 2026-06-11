@@ -47,7 +47,7 @@ const PEAK_RATE      = Number(__ENV.PEAK_RATE || '1000');
 const RAMP_TO        = Number(__ENV.RAMP_TO || '1200');
 const DURATION       = __ENV.DURATION || '30m';
 const MERCHANT_COUNT = Number(__ENV.MERCHANT_COUNT || '20');
-const SIM_SUCCESS_PCT = Number(__ENV.SIMULATOR_SUCCESS_RATE_PERCENT || '97.3');
+const SIM_SUCCESS_PCT = Number(__ENV.SIMULATOR_SUCCESS_RATE_PERCENT || '91.37');
 
 // VU pool sizing (Little's law: concurrency ≈ rate × per-charge seconds).
 // A charge ≈ create + confirm ≈ ~0.5s end-to-end, so ~rate/2 in-flight; size up.
