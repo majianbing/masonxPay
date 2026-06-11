@@ -78,7 +78,8 @@ for R in $RATES; do
   # system-error rate from the CUSTOM rate line (the one with "out of")
   err=$(grep 'cap_system_errors' "$log" | grep 'out of' | grep -oE '[0-9.]+%' | head -1)
   dropped=$(grep 'dropped_iterations' "$log" | grep -oE '[0-9]+' | head -1)
-  ach=$(grep -E 'iterations\.+:' "$log" | grep -oE '[0-9.]+/s' | head -1)
+  # anchor to the line that STARTS with "iterations" so we don't match "dropped_iterations"
+  ach=$(grep -E '^[[:space:]]*iterations\.+:' "$log" | grep -oE '[0-9.]+/s' | head -1)
 
   dropped="${dropped:-0}"
   # gate = k6 thresholds passed (create p99<100ms + errors<0.1%) AND no dropped iters
