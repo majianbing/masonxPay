@@ -113,15 +113,40 @@ public class MasonSimulatorPaymentProviderService
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    // Standard-normal 99th percentile (z-score), used to fit the log-normal sigma.
+    private static final double Z_99 = 2.326347874;
+
     private void simulateLatencyAndTimeout() {
         double random = ThreadLocalRandom.current().nextDouble();
         if (random < properties.getTimeoutRate()) {
             sleep(properties.getTimeoutLatencyMs());
             throw new RuntimeException("Mason Simulator synthetic timeout");
         }
+        sleep(nextLatencyMs());
+    }
+
+    /**
+     * Samples one synthetic connector think-time.
+     *
+     * LOGNORMAL fits a right-skewed distribution to the configured p50/p99 so the
+     * benchmark sees a realistic PSP tail (the tail is what fills connection/thread
+     * pools). For a log-normal, median = exp(mu) and p99 = exp(mu + sigma·z99), so:
+     *   mu    = ln(p50)
+     *   sigma = (ln(p99) − ln(p50)) / z99
+     * UNIFORM keeps the legacy base + uniform[0, jitter] behaviour.
+     */
+    private long nextLatencyMs() {
+        if (properties.getLatencyModel() == ProviderSimulatorProperties.LatencyModel.LOGNORMAL) {
+            double mu = Math.log(properties.getLatencyP50Ms());
+            double sigma = (Math.log(properties.getLatencyP99Ms()) - mu) / Z_99;
+            if (sigma < 0) sigma = 0; // guard against p99 <= p50 misconfiguration
+            double sampled = Math.exp(mu + sigma * ThreadLocalRandom.current().nextGaussian());
+            long ms = Math.round(sampled);
+            return Math.max(1, Math.min(properties.getMaxLatencyMs(), ms));
+        }
         long jitter = properties.getJitterMs() > 0
                 ? ThreadLocalRandom.current().nextLong(properties.getJitterMs() + 1) : 0;
-        sleep(properties.getBaseLatencyMs() + jitter);
+        return properties.getBaseLatencyMs() + jitter;
     }
 
     private boolean shouldFail(SimulatorCredentials creds) {
