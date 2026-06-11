@@ -55,18 +55,42 @@ jump well past 190/s (next wall: backend CPU or PG).
 
 ---
 
-## AFTER fix (OSIV off) — TODO
+## Attempt 1 — OSIV off — REGRESSED, reverted
 
-Re-run after `up -d --build`. Capture the same sweep + the @load bottleneck sample.
-Watch for: (a) higher knee, (b) Hikari pending → ~0, (c) PG idle-in-transaction → ~0,
-(d) **no new LazyInitializationException** surfacing as system errors (OSIV-off risk).
+`spring.jpa.open-in-view: false`, rebuilt. Result was **worse**, not better:
 
-| backends | rate | create p99 | confirm p99 | sys_err | dropped | achieved | verdict |
-|---|---|---|---|---|---|---|---|
-| 2 CPU ea | … | | | | | | |
+| rate | create p99 | sys_err | achieved | note |
+|---|---|---|---|---|
+| 200/s | 4.01s | 19.9% | 112/s | (cold JVM, no warmup) |
+| 400/s | 2.53s | 4.9% | 194/s | |
+| 600/s | 2.28s | 2.5% | 224/s | |
 
----
+New errors = **`HikariPool-1 Connection is not available, timed out after 10s`**, thrown from
+`ApiKeyAuthFilter → findByKeyHash → ShardingSphere DriverDatabaseConnectionManager → Hikari`.
+OSIV-off did **not** release connections during the connector call; it added connection-
+acquisition churn through ShardingSphere under virtual-thread overload → pool timeouts.
+**Reverted.**
 
-## Notes / next
-- Then repeat **with Redis + Kafka (`infra` mode)** for the production-shaped comparison.
-- Clean, publishable numbers still require the **wired** M2 link (off-box load gen).
+## Corrected diagnosis
+
+**Ceiling = pool_size ÷ request_duration.** Little's law: 80 connections ÷ ~0.42s mean
+request (dominated by the 120–380ms connector call) ≈ **190/s** — matches exactly. A DB
+connection is held for the *whole* request including the connector sleep, and the hold is
+entangled with ShardingSphere's connection manager / the EntityManager lifecycle (OSIV-off
+alone did not break it). Backend CPU (151%/200%) and PG (272%/400%) both have headroom.
+
+**Levers:**
+1. **Brute force (matches the documented scale path):** raise the pool + PG `max_connections`
+   so `pool_size` rises → throughput should scale ~linearly until PG connection overhead/CPU
+   binds. Beyond that, **PgBouncer** (transaction pooling) is the documented next step.
+2. **Proper fix (deeper):** ensure no DB connection is held across `dispatcher.charge()` —
+   requires untangling ShardingSphere's connection handling (connection mode / releasing the
+   logical connection around the orchestrator). Higher effort; would lift the ceiling ~10×.
+
+## Next experiment
+Raise `CAPACITY_HIKARI_MAX_POOL` (e.g. 80/node = 160) **and** PG `max_connections` (e.g. 250)
+together; re-sweep with a warm-up. Expect throughput to track the larger pool — confirming
+the pool ÷ hold-time model — until PG becomes the wall.
+
+Then repeat with Redis + Kafka (`infra` mode). Clean publishable numbers still need the
+**wired** M2 link.

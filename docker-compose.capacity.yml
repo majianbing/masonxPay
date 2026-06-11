@@ -22,6 +22,14 @@ services:
   postgres-capacity:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Raise max_connections so the app pool can grow past the default 100
+    # (2 nodes × pool size). shared_buffers scaled toward the 8g cap.
+    command:
+      - postgres
+      - -c
+      - max_connections=${CAPACITY_PG_MAX_CONNECTIONS:-250}
+      - -c
+      - shared_buffers=${CAPACITY_PG_SHARED_BUFFERS:-2GB}
     environment:
       POSTGRES_DB: ${CAPACITY_DB_NAME:-paygateway_capacity}
       POSTGRES_USER: ${DB_USERNAME:-pay_app_user}
@@ -38,8 +46,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '${CAPACITY_DB_CPU:-2.0}'
-          memory: ${CAPACITY_DB_MEM:-4g}
+          cpus: '${CAPACITY_DB_CPU:-4.0}'
+          memory: ${CAPACITY_DB_MEM:-8g}
 
   # ── Backend node 1 → capacity profile + isolated DB ─────────────────────────
   # Reuses the always-on base `backend` service (so we run exactly 2 nodes, not 3).
@@ -67,8 +75,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '${CAPACITY_BACKEND_CPU:-1.0}'
-          memory: ${CAPACITY_BACKEND_MEM:-2g}
+          cpus: '${CAPACITY_BACKEND_CPU:-2.0}'
+          memory: ${CAPACITY_BACKEND_MEM:-4g}
 
   # ── Backend node 2 ──────────────────────────────────────────────────────────
   # Explicit second node. Environment MIRRORS the base `backend` service so the
@@ -137,8 +145,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '${CAPACITY_BACKEND_CPU:-1.0}'
-          memory: ${CAPACITY_BACKEND_MEM:-2g}
+          cpus: '${CAPACITY_BACKEND_CPU:-2.0}'
+          memory: ${CAPACITY_BACKEND_MEM:-4g}
 
   # ── nginx ALB → load-balances the two backend nodes ─────────────────────────
   nginx:
