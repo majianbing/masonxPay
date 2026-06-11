@@ -110,8 +110,8 @@ The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired li
    ipconfig getifaddr en0 ; ipconfig getifaddr en6 ; ipconfig getifaddr en7
    networksetup -listallhardwareports   # confirm that iface is "Ethernet", not "Wi-Fi"
    ```
-   Substitute that address for `192.168.50.10` (M1) in every command below.
-2. **Record idle RTT** (disclose it next to p99). From the M2: `ping -c 20 192.168.50.10`.
+   Substitute that address for `192.168.50.31` (M1) in every command below.
+2. **Record idle RTT** (disclose it next to p99). From the M2: `ping -c 20 192.168.50.31`.
    If you see ms-level jitter / variance here, you're on WiFi — switch to wire before
    trusting any p99.
 3. **On the M2:** `brew install k6`, then clone this repo / `perf/capacity-proof` branch
@@ -143,16 +143,17 @@ stack (only 8088/5433/9090/3001 are published). `dashboard` is intentionally not
 ### Phase 2 — drive load (Air M2)
 
 ```bash
-export BASE_URL=http://192.168.50.10:8088                    # nginx ALB on the M1 (your M1 IP)
+export BASE_URL=http://192.168.50.31:8088                    # nginx ALB on the M1 (your M1 IP)
 export RUN_MODE=postgres_only                                # or: infra
-export K6_PROMETHEUS_RW_SERVER_URL=http://192.168.50.10:9090/api/v1/write
+export K6_PROMETHEUS_RW_SERVER_URL=http://192.168.50.31:9090/api/v1/write
 export K6_PROMETHEUS_RW_TREND_STATS="p(50),p(95),p(99),p(99.9),avg,max"
-RW="-o experimental-prometheus-rw"
 
-SCENARIO=warmup k6 run $RW bench/k6/capacity.js                       # a) DISCARD (JVM/JIT)
-SCENARIO=ramp   RAMP_TO=1200 k6 run $RW bench/k6/capacity.js          # b) find the knee
-SCENARIO=soak   TARGET_RATE=100 DURATION=2h k6 run $RW bench/k6/capacity.js  # c) HEADLINE
-SCENARIO=spike  PEAK_RATE=1000 DURATION=5m k6 run $RW bench/k6/capacity.js   # d) peak
+# NOTE: the -o flag is passed INLINE. zsh does not word-split an unquoted `$RW`
+# variable (bash does), so `k6 run $RW` would pass it as one bad argument.
+SCENARIO=warmup k6 run -o experimental-prometheus-rw bench/k6/capacity.js                       # a) DISCARD (JVM/JIT)
+SCENARIO=ramp   RAMP_TO=1200 k6 run -o experimental-prometheus-rw bench/k6/capacity.js          # b) find the knee
+SCENARIO=soak   TARGET_RATE=100 DURATION=2h k6 run -o experimental-prometheus-rw bench/k6/capacity.js  # c) HEADLINE
+SCENARIO=spike  PEAK_RATE=1000 DURATION=5m k6 run -o experimental-prometheus-rw bench/k6/capacity.js   # d) peak
 ```
 **Finding capacity:** in the ramp, the **knee** is the arrival rate where `cap_confirm_ms`
 p99 first crosses **500ms** or `cap_system_errors` lifts off zero (watch the k6 line or the
