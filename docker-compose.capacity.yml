@@ -187,5 +187,21 @@ services:
       - --web.enable-lifecycle
       - --web.enable-remote-write-receiver
 
+  # ── infra-mode services (start with --profile infra): cap them so the JVM
+  #    broker + Redis can't starve the SUT on a single 8-CPU VM ────────────────
+  kafka:
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_KAFKA_CPU:-1.0}'
+          memory: ${CAPACITY_KAFKA_MEM:-1500m}
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_REDIS_CPU:-0.5}'
+          memory: ${CAPACITY_REDIS_MEM:-512m}
+
 volumes:
   postgres_capacity_data:
