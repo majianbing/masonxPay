@@ -23,10 +23,10 @@ snapshot() {
   idletx=$(pg "select count(*) from pg_stat_activity where datname='paygateway_capacity' and state='idle in transaction'")
   dbsize=$(pg "select pg_size_pretty(pg_database_size('paygateway_capacity'))")
   m=$(prom)
-  heap=$(echo "$m" | awk '/jvm_memory_used_bytes\{.*area="heap"/ {s+=$2} END{printf "%.0f", s/1048576}')
-  gc=$(echo "$m"   | awk '/^jvm_gc_pause_seconds_count\{/ {s+=$2} END{printf "%.0f", s}')
-  hk_act=$(echo "$m"  | awk '/^hikaricp_connections_active\{/ {print $2; exit}')
-  hk_pend=$(echo "$m" | awk '/^hikaricp_connections_pending\{/ {print $2; exit}')
+  heap=$(echo "$m" | awk '/^jvm_memory_used_bytes\{/ && /area="heap"/ {s+=$NF} END{printf "%.0f", s/1048576}')
+  gc=$(echo "$m"   | awk '/^jvm_gc_pause_seconds_count\{/ {s+=$NF} END{printf "%.0f", s}')
+  hk_act=$(echo "$m"  | awk '/^hikaricp_connections_active\{/ {print $NF; exit}')
+  hk_pend=$(echo "$m" | awk '/^hikaricp_connections_pending\{/ {print $NF; exit}')
   printf '%s | pi=%s pr=%s readmodels=%s dead=%s outbox_unpub=%s | conns=%s idle_in_tx=%s db=%s | node1: heapMB=%s gc_count=%s hikari_active=%s pending=%s\n' \
     "$ts" "$pi" "$pr" "$rm" "$dead" "$outbox" "$conns" "$idletx" "$dbsize" "$heap" "$gc" "$hk_act" "$hk_pend"
 }
