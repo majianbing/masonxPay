@@ -2,10 +2,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Step capacity test — find the knee.
 #
-# Runs fixed-rate open-model soaks at increasing arrival rates and reports the
-# steady-state confirm p99 + system-error rate at each, so the KNEE is the highest
-# rate that still holds the gate:
-#     confirm p99 ≤ 500ms  AND  system errors ≤ 0.1%  AND  zero dropped iterations
+# Runs fixed-rate open-model soaks at increasing arrival rates. The KNEE is the
+# highest rate that still holds the SYSTEM-health gate:
+#     create p99 ≤ 100ms  AND  system errors ≤ 0.1%  AND  zero dropped iterations
+#
+# create_p99 is the clean signal: create makes NO connector call, so its p99 reflects
+# only the platform (pool / PG / CPU). confirm_p99 is shown too but is connector-
+# latency-bound (≈ 380ms connector p99 + platform) and is NOT the gate.
 #
 # Run from the REPO ROOT on the M2 (where k6 is installed natively):
 #     BASE_URL=http://192.168.50.31:8088 ./bench/step-test.sh
@@ -24,7 +27,7 @@ set -u
 
 BASE_URL="${BASE_URL:-http://192.168.50.31:8088}"
 RUN_MODE="${RUN_MODE:-postgres_only}"
-RATES="${RATES:-50 100 150 200 300 400}"
+RATES="${RATES:-100 200 400 600 800 1000}"
 DURATION="${DURATION:-3m}"
 MERCHANT_COUNT="${MERCHANT_COUNT:-20}"
 SKIP_WARMUP="${SKIP_WARMUP:-0}"
@@ -57,8 +60,9 @@ if [ "$SKIP_WARMUP" != "1" ]; then
   echo
 fi
 
-printf '%-7s %-12s %-10s %-9s %-12s %s\n' rate confirm_p99 sys_err dropped achieved/s gate | tee "$summary"
-printf '%-7s %-12s %-10s %-9s %-12s %s\n' ------ ----------- ------- ------- ----------- ---- | tee -a "$summary"
+hdr='%-7s %-11s %-11s %-9s %-8s %-12s %s\n'
+printf "$hdr" rate create_p99 confirm_p99 sys_err dropped achieved/s gate | tee "$summary"
+printf "$hdr" ------ ---------- ----------- ------- ------- ----------- ---- | tee -a "$summary"
 
 knee=""
 for R in $RATES; do
@@ -68,18 +72,20 @@ for R in $RATES; do
     k6 run "$SCRIPT" >"$log" 2>&1
   code=$?
 
-  # confirm p99 from the CUSTOM trend line (summaryTrendStats includes p(99))
-  p99=$(grep 'cap_confirm_ms' "$log" | grep -oE 'p\(99\)=[0-9.]+(ms|s|µs)' | head -1 | cut -d= -f2)
+  # p99s from the CUSTOM trend lines (summaryTrendStats includes p(99))
+  crp99=$(grep 'cap_create_ms'  "$log" | grep -oE 'p\(99\)=[0-9.]+(ms|s|µs)' | head -1 | cut -d= -f2)
+  cfp99=$(grep 'cap_confirm_ms' "$log" | grep -oE 'p\(99\)=[0-9.]+(ms|s|µs)' | head -1 | cut -d= -f2)
   # system-error rate from the CUSTOM rate line (the one with "out of")
   err=$(grep 'cap_system_errors' "$log" | grep 'out of' | grep -oE '[0-9.]+%' | head -1)
   dropped=$(grep 'dropped_iterations' "$log" | grep -oE '[0-9]+' | head -1)
   ach=$(grep -E 'iterations\.+:' "$log" | grep -oE '[0-9.]+/s' | head -1)
 
   dropped="${dropped:-0}"
+  # gate = k6 thresholds passed (create p99<100ms + errors<0.1%) AND no dropped iters
   if [ "$code" -eq 0 ] && [ "$dropped" = "0" ]; then gate="PASS"; else gate="FAIL"; fi
 
-  printf '%-7s %-12s %-10s %-9s %-12s %s\n' \
-    "$R" "${p99:-?}" "${err:-?}" "$dropped" "${ach:-?}" "$gate" | tee -a "$summary"
+  printf "$hdr" \
+    "$R" "${crp99:-?}" "${cfp99:-?}" "${err:-?}" "$dropped" "${ach:-?}" "$gate" | tee -a "$summary"
 
   if [ "$gate" = "PASS" ]; then knee="$R"; fi
   if [ "$gate" = "FAIL" ] && [ "$STOP_ON_FAIL" = "1" ]; then
@@ -91,7 +97,7 @@ done
 
 echo
 if [ -n "$knee" ]; then
-  echo "KNEE ≈ ${knee}/s  (highest rate that held the gate: p99≤500ms, errors≤0.1%, 0 dropped)"
+  echo "KNEE ≈ ${knee}/s  (highest rate that held the gate: create p99≤100ms, errors≤0.1%, 0 dropped)"
 else
   echo "No rate passed the gate — step down (try RATES=\"20 30 40\")"
 fi

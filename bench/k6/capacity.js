@@ -47,7 +47,7 @@ const PEAK_RATE      = Number(__ENV.PEAK_RATE || '1000');
 const RAMP_TO        = Number(__ENV.RAMP_TO || '1200');
 const DURATION       = __ENV.DURATION || '30m';
 const MERCHANT_COUNT = Number(__ENV.MERCHANT_COUNT || '20');
-const SIM_SUCCESS_PCT = Number(__ENV.SIMULATOR_SUCCESS_RATE_PERCENT || '100');
+const SIM_SUCCESS_PCT = Number(__ENV.SIMULATOR_SUCCESS_RATE_PERCENT || '97.3');
 
 // VU pool sizing (Little's law: concurrency ≈ rate × per-charge seconds).
 // A charge ≈ create + confirm ≈ ~0.5s end-to-end, so ~rate/2 in-flight; size up.
@@ -92,8 +92,16 @@ function buildScenario() {
 export const options = {
   scenarios: buildScenario(),
   // Gate only the soak (the headline). ramp/spike are exploratory; warmup is discarded.
+  //
+  // Capacity gate = SYSTEM health, NOT merchant-view latency:
+  //   • cap_create_ms is pure platform/DB (create makes NO connector call), so its
+  //     p99 is the clean saturation signal — it climbs only when the platform itself
+  //     (pool / PG / CPU) is under pressure.
+  //   • cap_system_errors catches confirm-path failures.
+  // The merchant-view confirm p99 is connector-latency-bound (≈ connector p99 380ms +
+  // platform), so it is REPORTED via summaryTrendStats — never gated here.
   thresholds: SCENARIO === 'soak' ? {
-    'cap_confirm_ms{scenario:soak}': ['p(99)<500'],
+    'cap_create_ms': ['p(99)<100'],
     'cap_system_errors': ['rate<0.001'],
   } : {
     // Keep the run alive but record everything for the other phases.
