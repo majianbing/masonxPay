@@ -91,7 +91,8 @@ docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml down -v
 ```
 
-Stop the normal dev stack first — the capacity stack reuses host ports (8080, 9090, 3001).
+Stop the normal dev stack first — the capacity stack publishes host ports 9090 and 3001
+(Prometheus/Grafana), plus 8088 (ALB) and 5433 (capacity DB).
 
 ## Runbook (step-by-step)
 
@@ -99,12 +100,20 @@ The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired li
 
 ### Phase 0 — one-time setup
 
-1. **Wire the Macs** (Thunderbolt/USB-C cable, or USB-C→Ethernet + cable). Give each a
-   static IP on that interface (System Settings → Network → the bridge → TCP/IP →
-   Configure IPv4 *Manually*):
-   - **M1 (SUT):** `10.10.0.1` / `255.255.255.0`
-   - **Air M2 (load gen):** `10.10.0.2` / `255.255.255.0`
-2. **Record idle RTT** (disclose it next to p99). From the M2: `ping -c 20 10.10.0.1`.
+1. **Connect both Macs by wire.** Either a direct Thunderbolt/USB-C cable, or (simpler)
+   both plugged into the same **gigabit switch/router via Ethernet** (USB-C→Ethernet
+   adapters). On a shared router they share your LAN, e.g. `192.168.50.x`.
+   **Use Ethernet, not WiFi** — WiFi jitter lands directly in the p99 you gate on.
+   Find the M1's address on its *wired* interface:
+   ```bash
+   # try each until one returns a 192.168.50.x address; note which iface is Ethernet
+   ipconfig getifaddr en0 ; ipconfig getifaddr en6 ; ipconfig getifaddr en7
+   networksetup -listallhardwareports   # confirm that iface is "Ethernet", not "Wi-Fi"
+   ```
+   Substitute that address for `192.168.50.10` (M1) in every command below.
+2. **Record idle RTT** (disclose it next to p99). From the M2: `ping -c 20 192.168.50.10`.
+   If you see ms-level jitter / variance here, you're on WiFi — switch to wire before
+   trusting any p99.
 3. **On the M2:** `brew install k6`, then clone this repo / `perf/capacity-proof` branch
    (k6 runs `bench/k6/capacity.js` locally there).
 4. **On the M1:** stop other compose stacks that publish `8088/9090/3001/5433`
@@ -116,21 +125,27 @@ The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired li
 **Minimal baseline (Postgres-only):**
 ```bash
 cd ~/Desktop/masonxPay
+
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d --build \
   nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter
+
 docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml ps
 ```
 The capacity stack is **collision-free** — node-1 doesn't publish 8080 and the base
 `postgres` is dropped (`!override`/`!reset`), so it stands up alongside a running dev
 stack (only 8088/5433/9090/3001 are published). `dashboard` is intentionally not started.
 
+> **No dashboard needed.** k6's `setup()` provisions everything over the API before load
+> starts — it registers the synthetic merchants, creates their API keys, and adds the
+> SIMULATOR connector. The Next.js dashboard is a human UI only and is excluded from the SUT.
+
 ### Phase 2 — drive load (Air M2)
 
 ```bash
-export BASE_URL=http://10.10.0.1:8088                       # nginx ALB on the M1
+export BASE_URL=http://192.168.50.10:8088                    # nginx ALB on the M1 (your M1 IP)
 export RUN_MODE=postgres_only                                # or: infra
-export K6_PROMETHEUS_RW_SERVER_URL=http://10.10.0.1:9090/api/v1/write
+export K6_PROMETHEUS_RW_SERVER_URL=http://192.168.50.10:9090/api/v1/write
 export K6_PROMETHEUS_RW_TREND_STATS="p(50),p(95),p(99),p(99.9),avg,max"
 RW="-o experimental-prometheus-rw"
 
