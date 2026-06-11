@@ -35,8 +35,8 @@ public class ProviderSimulatorProperties {
     private long maxLatencyMs = 5_000;
 
     // ── Faults ────────────────────────────────────────────────────────────────
-    private double failureRate = 0.0;
-    private double timeoutRate = 0.01;
+    private double failureRate = 3.1;
+    private double timeoutRate = 0.007;
     private long timeoutLatencyMs = 2_000;
 
     public boolean isEnabled() { return enabled; }

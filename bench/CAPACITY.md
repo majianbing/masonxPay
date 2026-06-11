@@ -126,6 +126,8 @@ The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired li
 ```bash
 cd ~/Desktop/masonxPay
 
+docker compose -p masonxpay stop
+
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d --build \
   nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter
