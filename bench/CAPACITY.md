@@ -130,13 +130,34 @@ docker compose -p masonxpay stop
 
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d --build \
-  nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter
+  nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter redis kafka
+
+# Important after any backend rebuild/recreate: force nginx to recreate too.
+# Backend containers receive new Docker IPs; an old nginx process may keep stale
+# upstream state and send most traffic to one surviving backend. This is visible
+# as one backend CPU >100% while the other is nearly idle.
+docker compose -p masonxpay-cap \
+  -f docker-compose.yml -f docker-compose.capacity.yml \
+  up -d --force-recreate nginx
+
+docker compose -p masonxpay-cap \
+  -f docker-compose.yml -f docker-compose.capacity.yml \
+  exec nginx nginx -T
 
 docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml ps
 ```
 The capacity stack is **collision-free** — node-1 doesn't publish 8080 and the base
 `postgres` is dropped (`!override`/`!reset`), so it stands up alongside a running dev
 stack (only 8088/5433/9090/3001 are published). `dashboard` is intentionally not started.
+
+After the first warmup starts, check that both backend nodes receive traffic. If CPU is
+lopsided, inspect nginx logs for stale upstream IPs:
+
+```bash
+docker compose -p masonxpay-cap \
+  -f docker-compose.yml -f docker-compose.capacity.yml \
+  logs --since=2m nginx | rg 'connect\\(\\) failed|upstream server temporarily disabled'
+```
 
 > **No dashboard needed.** k6's `setup()` provisions everything over the API before load
 > starts — it registers the synthetic merchants, creates their API keys, and adds the
