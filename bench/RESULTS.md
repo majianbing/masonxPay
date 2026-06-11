@@ -87,10 +87,38 @@ alone did not break it). Backend CPU (151%/200%) and PG (272%/400%) both have he
    requires untangling ShardingSphere's connection handling (connection mode / releasing the
    logical connection around the orchestrator). Higher effort; would lift the ceiling ~10×.
 
-## Next experiment
-Raise `CAPACITY_HIKARI_MAX_POOL` (e.g. 80/node = 160) **and** PG `max_connections` (e.g. 250)
-together; re-sweep with a warm-up. Expect throughput to track the larger pool — confirming
-the pool ÷ hold-time model — until PG becomes the wall.
+## Attempt 2 — pool 80/node (160 total) + PG max_connections=250
 
-Then repeat with Redis + Kafka (`infra` mode). Clean publishable numbers still need the
-**wired** M2 link.
+Confirms the pool ÷ hold-time model AND that raising the pool is the wrong lever:
+
+| config | max throughput | create p99 @200/s | bottleneck @load |
+|---|---|---|---|
+| pool 40/node (80) | ~190/s | **470ms** | Hikari pool (PG 272%/400%) |
+| pool 80/node (160) | ~273/s | **4.4s** | **PG CPU 412%/400% (pegged)** |
+
+@ pool 80, 400/s: PG **412%** (pegged), Hikari 78–80 active + **~1,800 pending**, PG
+**106 idle-in-transaction** / only **10 active queries**. Throughput rose 190→273/s but
+latency collapsed — 160 connections thrash PG's 4 cores while 106 sit idle-in-transaction
+(still held across the connector call). **Net: worse for the latency SLO.**
+
+## Conclusion
+
+The single-node ceiling on this footprint is **~190/s clean (pool 40) / ~270/s thrashing
+(pool 80)**, and it is fundamentally set by **DB connections held across the connector
+call** (`idle-in-transaction`). Raising the pool just moves the wall to PG-connection
+overhead — it does **not** fix the root cause. Gate-passing (create p99 ≤ 100ms) knee is
+~130/s and pool 80 makes it *worse*, not better → **revert to pool 40** for clean operation.
+
+**To actually scale past this, two real levers (neither is "more pool"):**
+1. **PgBouncer (transaction pooling)** — the documented scale path. Big app-side pool
+   multiplexed onto a few real PG backends; the real backend is released between the short
+   txTemplate blocks (during the connector call), so the connector-call hold stops tying up
+   a PG backend. Breaks the pool ÷ hold-time ceiling without thrashing PG.
+2. **Eliminate the connection hold across `dispatcher.charge()`** (untangle ShardingSphere/
+   EM connection lifecycle) — then hold-time drops ~20× and a small pool serves high
+   throughput. Higher-effort code change.
+
+## Next
+- Decide: PgBouncer vs connection-hold fix (both → re-measure).
+- Repeat the chosen winner with Redis + Kafka (`infra` mode).
+- Clean publishable numbers still need the **wired** M2 link.
