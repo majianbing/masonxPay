@@ -118,7 +118,46 @@ overhead — it does **not** fix the root cause. Gate-passing (create p99 ≤ 10
    EM connection lifecycle) — then hold-time drops ~20× and a small pool serves high
    throughput. Higher-effort code change.
 
-## Next
-- Decide: PgBouncer vs connection-hold fix (both → re-measure).
-- Repeat the chosen winner with Redis + Kafka (`infra` mode).
-- Clean publishable numbers still need the **wired** M2 link.
+---
+
+## Both-topologies comparison (pool 40, 2-CPU backends, co-located)
+
+| rate | postgres-only create p99 | infra create p99 | infra sys_err / dropped |
+|---|---|---|---|
+| 100/s | 44ms | 46ms | 0% / 0 |
+| 150/s | — | 232ms | 0% / 0 |
+| 200/s | 470ms (edge) | **314ms** | 0% / 0 |
+| 250/s | (collapsed by 300) | **395ms** | 0% / 0 |
+| 300/s | collapse (11.7s) | 4.47s | 0.02% / 976 |
+
+| | postgres-only | infra (Redis + Kafka) |
+|---|---|---|
+| **clean ceiling** | **~190/s** | **~250/s (+30%)** |
+| **first bottleneck** | DB connection pool (held across connector call) | **backend CPU** |
+| CPU @ saturation | PG-bound when pool raised | backend 203%/200% pegged, PG 328%/400%, Kafka 3%, Redis 10% |
+
+**Finding (counterintuitive):** enabling the production infra **raised** single-node
+capacity ~30%. Redis offloads provider-health/routing reads off Postgres and the DB
+outbox poller is off (Kafka delivers async), so per-charge DB-connection pressure drops →
+the pool stops being the wall → throughput climbs until **backend CPU** binds. Redis/Kafka
+are themselves nearly idle (well-provisioned). So on this footprint, the infra layer is a
+net win for throughput, not an overhead.
+
+**Gate-passing knee** (create p99 ≤ 100ms) is ~120–130/s for both; infra degrades more
+gracefully above it and pushes the clean throughput ceiling from ~190 → ~250/s.
+
+## Headline (postgres-only baseline)
+On a **2-vCPU app tier + 1 Postgres** footprint, the platform sustains:
+- **~190 charges/s** (postgres-only), bottlenecked by DB connections held across the
+  connector call — the documented PgBouncer scale point;
+- **~250 charges/s** with the production Redis + Kafka layer, then backend-CPU-bound.
+
+All co-located on one VM (WiFi blocks clean off-box load gen); the postgres-only vs infra
+**delta** is trustworthy (identical conditions). Absolute, publishable numbers await the
+**wired** M2 link.
+
+## Open levers (not yet done)
+- PgBouncer (transaction pooling) or eliminate the connector-call connection hold → would
+  lift the postgres-only ceiling well past 190/s.
+- More backend CPU / nodes → would lift the infra ceiling past 250/s (PG still has headroom).
+- Wired M2 link → clean, publishable absolute numbers.
