@@ -99,6 +99,8 @@ export const options = {
     // Keep the run alive but record everything for the other phases.
     'cap_system_errors': ['rate<1'],
   },
+  // k6's default summary stops at p95 — add p99/p99.9 so the gated metric is visible.
+  summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)', 'max'],
   // Don't let a slow tail wedge VUs forever.
   setupTimeout: '120s',
 };
