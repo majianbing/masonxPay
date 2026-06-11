@@ -18,6 +18,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 spring:
+  # Open-Session-In-View keeps the EntityManager's DB connection checked out for the
+  # WHOLE HTTP request — including dispatcher.charge() (the 120–380ms connector call).
+  # That silently defeats the confirm path's careful "no connection across a remote
+  # call" design and exhausts the pool under load (pool-bound at ~190/s while CPU/PG
+  # sit <60%; PG shows ~43 connections idle-in-transaction). Off → the connection is
+  # held only during the short DB write blocks (~tens of ms), not the connector call.
+  jpa:
+    open-in-view: false
   datasource:
     hikari:
       # 2 backend nodes × 40 = 80 connections, comfortably under Postgres default
