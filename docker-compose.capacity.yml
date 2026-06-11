@@ -63,6 +63,8 @@ services:
       # Set to 3.0 / 0.85 for the Phase 5 graceful-shedding run (no file edit needed).
       CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD: ${CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD:--1}
       CAPACITY_SENTINEL_HIGHEST_CPU_USAGE: ${CAPACITY_SENTINEL_HIGHEST_CPU_USAGE:--1}
+      # Hikari pool per node (×2 nodes must stay under PG max_connections=250).
+      CAPACITY_HIKARI_MAX_POOL: ${CAPACITY_HIKARI_MAX_POOL:-40}
     # !reset drops the inherited "8080:8080" host publish — nginx fronts node-1 on
     # the internal network, so the capacity stack never collides with a running
     # dev stack on 8080.
@@ -100,6 +102,7 @@ services:
       PROVIDER_SIMULATOR_ENABLED: "true"
       CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD: ${CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD:--1}
       CAPACITY_SENTINEL_HIGHEST_CPU_USAGE: ${CAPACITY_SENTINEL_HIGHEST_CPU_USAGE:--1}
+      CAPACITY_HIKARI_MAX_POOL: ${CAPACITY_HIKARI_MAX_POOL:-40}
       # ── Mirror of base backend env (keep in sync) ──
       DB_PORT: 5432
       DB_USERNAME: ${DB_USERNAME:-pay_app_user}
