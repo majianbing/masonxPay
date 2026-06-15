@@ -3,11 +3,14 @@ package com.masonx.contracts;
 import com.masonx.common.tenant.TenantRef;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * Standard metadata wrapper for every cross-service event: identity, versioning,
  * causality, and tenant scope (org + merchant + mode via {@link TenantRef}).
+ *
+ * <p>{@code eventId} is a prefixed snowflake id ({@code evt_{snowflakeId}}),
+ * minted by the producer — not a UUID. {@code correlationId} is free-form for
+ * tracing.
  *
  * Boundary rules:
  * <ul>
@@ -17,7 +20,7 @@ import java.util.UUID;
  * </ul>
  */
 public record EventEnvelope(
-        UUID eventId,
+        String eventId,
         String eventType,
         int schemaVersion,
         Instant occurredAt,

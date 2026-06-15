@@ -3,8 +3,6 @@ package com.masonx.virtualaccount.inbound;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-import java.util.UUID;
-
 /**
  * DB-level idempotency for event consumption. {@link #markProcessed} inserts the
  * event id once; a redelivered event hits the primary-key conflict and is a
@@ -20,7 +18,7 @@ public class InboxRepository {
     }
 
     /** @return true if this is the first time the event is seen (process it); false if duplicate (skip). */
-    public boolean markProcessed(UUID eventId, String eventType) {
+    public boolean markProcessed(String eventId, String eventType) {
         int rows = jdbc.update(
                 "INSERT INTO va_inbox_event (event_id, event_type) VALUES (?, ?) ON CONFLICT (event_id) DO NOTHING",
                 eventId, eventType);

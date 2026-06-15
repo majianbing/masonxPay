@@ -6,7 +6,7 @@
 -- the VA domain design (see docs/engineering/virtual-account-guide.md) and are
 -- added in later migrations.
 CREATE TABLE va_inbox_event (
-    event_id    UUID         PRIMARY KEY,
+    event_id    VARCHAR(64)  PRIMARY KEY,   -- prefixed snowflake id (evt_{snowflakeId})
     event_type  VARCHAR(100) NOT NULL,
     received_at TIMESTAMPTZ  NOT NULL DEFAULT now()
 );

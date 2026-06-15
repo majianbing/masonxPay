@@ -6,6 +6,7 @@
 - Defend against manual data changes at the DB layer: protect balance updates with a balance signature, and allow balances to be modified only through the VA APIs.
 - The Postgres database is the single source of truth.
 - Use `SELECT ... FOR UPDATE` for stable, serialized concurrent updates.
+- ID utils for new business code, DO NOT use UUID anymore, use snowflake ID with business prefix, for example `ac_{snowflakeId}`
 
 # Boundary
 - Apply an anti-corruption layer (ACL) at the Kafka consumer edge: the inbound adapter maps `contracts` events to VA-native commands; domain/ledger code never imports `contracts`. Cross-service seam decisions live in `docs/refactor/modularize-backend.md`.

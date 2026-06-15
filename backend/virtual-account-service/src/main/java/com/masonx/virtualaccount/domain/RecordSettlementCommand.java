@@ -13,7 +13,7 @@ import java.util.UUID;
  * ledger domain design; see {@code docs/engineering/virtual-account-guide.md}.
  */
 public record RecordSettlementCommand(
-        UUID sourceEventId,
+        String sourceEventId,
         TenantRef tenant,
         UUID paymentId,
         String providerRef
