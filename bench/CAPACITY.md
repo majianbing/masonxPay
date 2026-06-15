@@ -108,6 +108,60 @@ docker compose -p masonxpay-cap \
 Stop the normal dev stack first — the capacity stack publishes host ports 9090 and 3001
 (Prometheus/Grafana), plus 8088 (ALB) and 5433 (capacity DB).
 
+### `-cap` data cleanup guide (start new / end old run)
+
+The `masonxpay-cap` project owns exactly these persistent volumes — and **nothing**
+under the dev project `masonxpay`, so cleanup here can never touch local/dev data:
+
+| Volume | Holds | Removed by |
+|--------|-------|-----------|
+| `masonxpay-cap_postgres_capacity_data` | the capacity DB — payments, merchants, outbox, projections (this is what accumulates over a soak) | `down -v` |
+| `masonxpay-cap_grafana_data` | Grafana dashboard/UI state | `down -v` |
+| `masonxpay-cap_kafka_data` | Kafka commit logs (infra mode only) | `down -v` |
+
+Prometheus has **no named volume** — its TSDB lives in the container and is gone on any
+`down` (so the off-box k6 remote-write series do not persist across teardown).
+
+Run every command with the `-p masonxpay-cap` project flag and **both** `-f` files so the
+project resolves the same way it was brought up.
+
+**A. Starting a NEW run — clean slate.** Always start a published run from an empty DB so
+Flyway re-migrates fresh and no prior-run rows or table bloat skew the p99/saturation read.
+
+```bash
+# Full reset (recommended, fully reproducible) — wipes all -cap volumes, then bring it back
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml down -v
+# ...then start per Phase 1 (postgres-only) or Phase 4 (infra).
+```
+
+```bash
+# Fast reset (DB only; keeps Grafana history) — recreate just the capacity DB volume.
+# MUST also flush Redis: idempotency/rate-limit state would otherwise survive and
+# contaminate the next run. Restart the backends so Flyway re-migrates the empty DB.
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml rm -sf postgres-capacity
+docker volume rm masonxpay-cap_postgres_capacity_data
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml up -d postgres-capacity
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml exec redis redis-cli FLUSHALL
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml restart gateway-service gateway-service-2
+```
+
+> Use the fast reset only for quick local iteration. For any number you intend to cite,
+> use the full reset — it is the only one that also clears Prometheus/Grafana/Kafka state.
+
+**B. ENDING an old run — teardown + reclaim disk.**
+
+```bash
+# Stop containers and delete the three -cap volumes above
+docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml down -v
+
+# Verify nothing is left behind (both should print nothing)
+docker ps -a     --filter name=masonxpay-cap --format '{{.Names}}'
+docker volume ls --filter name=masonxpay-cap --format '{{.Name}}'
+```
+
+To keep the volumes (e.g. to inspect the soak DB afterwards) drop the `-v`: plain `down`
+stops and removes the containers but leaves the data for a later `up`.
+
 ## Runbook (step-by-step)
 
 The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired link.
@@ -144,7 +198,7 @@ docker compose -p masonxpay-cap stop
 
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d --build \
-  nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter redis kafka
+  alb-nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter redis kafka
 
 docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml ps
 ```
@@ -207,7 +261,7 @@ WEBHOOK_OUTBOX_POLLER_ENABLED=false REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT
 REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml --profile infra up -d --build \
-  nginx gateway-service gateway-service-2 postgres-capacity redis kafka prometheus grafana postgres-exporter
+  alb-nginx gateway-service gateway-service-2 postgres-capacity redis kafka prometheus grafana postgres-exporter
 ```
 Re-run Phase 2 with `RUN_MODE=infra`. Compare throughput, p99, and the cost each layer adds.
 
@@ -219,7 +273,7 @@ show the system *sheds* rather than collapses:
 CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD=3.0 CAPACITY_SENTINEL_HIGHEST_CPU_USAGE=0.85 \
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d \
-  nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter
+  alb-nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter
 # then drive SCENARIO=spike at a rate above the measured knee
 ```
 
