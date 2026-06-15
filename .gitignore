@@ -37,3 +37,4 @@ target/
 /src/
 /bench/results/
 .DS_Store
+.aha-ignore-file
