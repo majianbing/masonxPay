@@ -51,7 +51,7 @@ services:
 
   # ── Backend node 1 → capacity profile + isolated DB ─────────────────────────
   # Reuses the always-on base `backend` service (so we run exactly 2 nodes, not 3).
-  backend:
+  gateway-service:
     environment:
       SPRING_PROFILES_ACTIVE: capacity
       DB_HOST: postgres-capacity
@@ -86,7 +86,7 @@ services:
   # (shared JWTs + AES-encrypted connector credentials in the shared DB), and the
   # Redis/Kafka toggles must match so both behave the same in each run mode.
   # No host port: nginx reaches it on the internal 8080.
-  backend-2:
+  gateway-service-2:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -156,9 +156,9 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
-      backend-2:
+      gateway-service-2:
         condition: service_healthy
     volumes:
       - ./bench/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -186,6 +186,11 @@ services:
       - --storage.tsdb.retention.time=15d
       - --web.enable-lifecycle
       - --web.enable-remote-write-receiver
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1g
 
   # ── infra-mode services (start with --profile infra): cap them so the JVM
   #    broker + Redis can't starve the SUT on a single 8-CPU VM ────────────────

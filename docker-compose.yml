@@ -10,6 +10,10 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    configs:
+      # Creates msx_virtual_account on first init (POSTGRES_DB only makes one DB)
+      - source: va_init_db
+        target: /docker-entrypoint-initdb.d/01-create-virtual-account-db.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -20,6 +24,7 @@ services:
 
   # ── Postgres Exporter (H6 read-model observability) ─────────────────────────
   postgres-exporter:
+    profiles: ["infra"]
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
     restart: unless-stopped
     depends_on:
@@ -37,7 +42,7 @@ services:
 
   # ── Kafka ──────────────────────────────────────────────────────────────────
   kafka:
-    profiles: ["infra"]
+    profiles: ["infra", "virtual-account"]
     build:
       context: ./monitor/kafka
       dockerfile: Dockerfile
@@ -89,7 +94,7 @@ services:
       retries: 10
 
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
-  backend:
+  gateway-service:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -164,10 +169,11 @@ services:
 
   # ── Prometheus ──────────────────────────────────────────────────────────────
   prometheus:
+    profiles: ["infra"]
     image: prom/prometheus:v2.51.0
     restart: unless-stopped
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
     volumes:
       - ./monitor/prometheus:/etc/prometheus:ro
@@ -180,6 +186,7 @@ services:
 
   # ── Grafana ─────────────────────────────────────────────────────────────────
   grafana:
+    profiles: ["infra"]
     image: grafana/grafana:10.4.0
     restart: unless-stopped
     depends_on:
@@ -195,6 +202,12 @@ services:
       - grafana_data:/var/lib/grafana
     ports:
       - "3001:3000"   # 3000 is taken by the Next.js dashboard
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1g
+
 
   # ── Dashboard (Next.js) ─────────────────────────────────────────────────────
   dashboard:
@@ -207,12 +220,46 @@ services:
         NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER: ${NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER:-false}
     restart: unless-stopped
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
     ports:
       - "3000:3000"
+
+  # ── Virtual Account service (optional; profile: virtual-account) ────────────
+  # Enable with:  docker compose --profile virtual-account up --build
+  # Brings up Kafka (shared profile) + this service; uses the msx_virtual_account
+  # database created by scripts/init-db. Default stack stays backend+dashboard+pg.
+  virtual-account:
+    profiles: ["virtual-account", "infra"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.va
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8086:8086"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      VA_DB_NAME: ${VA_DB_NAME:-msx_virtual_account}
+      VA_DB_USERNAME: ${DB_USERNAME:-pay_app_user}
+      VA_DB_PASSWORD: ${DB_PASSWORD:-password123}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      VA_KAFKA_CONSUMER_ENABLED: ${VA_KAFKA_CONSUMER_ENABLED:-true}
+      VA_SETTLEMENT_TOPIC: ${VA_SETTLEMENT_TOPIC:-payment.settlement.events}
 
 volumes:
   postgres_data:
   kafka_data:
   grafana_data:
+
+configs:
+  # Inline Postgres init: creates the Virtual Account database. Runs only on a
+  # fresh data volume. Used by the virtual-account profile; harmless otherwise.
+  va_init_db:
+    content: |
+      CREATE DATABASE msx_virtual_account;
