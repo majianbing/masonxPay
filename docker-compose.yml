@@ -221,7 +221,7 @@ services:
   # Brings up Kafka (shared profile) + this service; uses the msx_virtual_account
   # database created by scripts/init-db. Default stack stays backend+dashboard+pg.
   virtual-account:
-    profiles: ["virtual-account"]
+    profiles: ["virtual-account", "infra"]
     build:
       context: ./backend
       dockerfile: Dockerfile.va
