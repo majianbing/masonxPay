@@ -1,5 +1,5 @@
 server:
-  port: ${VA_SERVER_PORT:8081}
+  port: ${VA_SERVER_PORT:8086}
 
 spring:
   application:

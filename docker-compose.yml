@@ -94,6 +94,7 @@ services:
 
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
   backend:
+    container_name: pay-gateway-service
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -232,7 +233,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "8081:8081"
+      - "8086:8086"
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
