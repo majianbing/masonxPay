@@ -43,6 +43,26 @@ The database must remain the final gate for money-state correctness.
 
 Kafka is fed by the transactional outbox after payment state commits. Consumers must be idempotent because delivery can repeat. Kafka workers should process webhook fan-out, projections, reconciliation, notifications, and operational read models without becoming part of synchronous payment correctness.
 
+## No-Loss Delivery
+
+The no-loss anchor is the transactional outbox, not Kafka. An event is durable in Postgres before it is published, so a lost Kafka message is simply re-published from the outbox. The producer, broker, and consumer config below protects the one hop the outbox cannot see.
+
+| Coordinator | Setting | Value | Why |
+|---|---|---|---|
+| Producer | `acks` | `all` | wait for all in-sync replicas, not just the leader |
+| Producer | `enable.idempotence` | `true` | retries cannot duplicate or reorder |
+| Broker | `replication.factor` | `3` | survive one broker loss with quorum intact |
+| Broker | `min.insync.replicas` | `2` | a write needs two durable copies or it fails (back-pressures instead of silently dropping) |
+| Broker | `unclean.leader.election.enable` | `false` | never elect an out-of-sync replica leader — the classic silent committed-message loss |
+| Consumer | `enable.auto.commit` | `false` | commit the offset only after processing succeeds |
+
+Two ordering rules carry the guarantee:
+
+- Producer (outbox relay): publish, await the broker ack, and only then mark the outbox row published. Never mark published before the ack.
+- Consumer: process the side effect, then commit the offset. Never commit first.
+
+This yields at-least-once delivery with idempotent effects: no event is lost, and unavoidable duplicates are collapsed by the DB idempotency constraints. It is not Kafka-side exactly-once, and it does not move financial truth into Kafka — Postgres remains the final gate.
+
 ## Single-Table Routing
 
 Every new non-sharded table added through Flyway must be registered in `DataSourceConfig.singleTables()` so ShardingSphere routes it directly to `ds_0`. Missing registration can cause ShardingSphere to intercept Postgres-specific SQL such as `FOR UPDATE SKIP LOCKED` or JSON operators.
