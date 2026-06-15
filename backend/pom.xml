@@ -29,5 +29,6 @@
         <module>common</module>
         <module>contracts</module>
         <module>gateway-service</module>
+        <module>virtual-account-service</module>
     </modules>
 </project>
