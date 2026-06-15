@@ -1,0 +1,207 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Capacity-proof overlay — FOUNDATION: dedicated profile + isolated data store.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.capacity.yml up -d --build
+#
+# Scope of THIS file (the "specific profile, isolate data" foundation):
+#   • Activates SPRING_PROFILES_ACTIVE=capacity  (see application-capacity.yml).
+#   • Runs a DEDICATED Postgres (postgres-capacity) on its own volume + database,
+#     so multi-hour soak bloat never touches local/preview data and `down -v`
+#     wipes ONLY the capacity store → every published run starts from a clean,
+#     reproducible baseline (Flyway re-migrates on startup).
+#
+# NOT in this file (adjacent capacity work — layer on here next):
+#   • nginx ALB + backend-2 (2-node topology, resource limits)
+#   • off-box k6 wiring
+# A `# TODO(topology)` anchor marks where those belong.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Isolated Postgres for capacity runs ─────────────────────────────────────
+  postgres-capacity:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Raise max_connections so the app pool can grow past the default 100
+    # (2 nodes × pool size). shared_buffers scaled toward the 8g cap.
+    command:
+      - postgres
+      - -c
+      - max_connections=${CAPACITY_PG_MAX_CONNECTIONS:-250}
+      - -c
+      - shared_buffers=${CAPACITY_PG_SHARED_BUFFERS:-2GB}
+    environment:
+      POSTGRES_DB: ${CAPACITY_DB_NAME:-paygateway_capacity}
+      POSTGRES_USER: ${DB_USERNAME:-pay_app_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
+    volumes:
+      - postgres_capacity_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # 5433 on host to avoid clashing with the base postgres (5432)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pay_app_user} -d ${CAPACITY_DB_NAME:-paygateway_capacity}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_DB_CPU:-4.0}'
+          memory: ${CAPACITY_DB_MEM:-8g}
+
+  # ── Backend node 1 → capacity profile + isolated DB ─────────────────────────
+  # Reuses the always-on base `backend` service (so we run exactly 2 nodes, not 3).
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: capacity
+      DB_HOST: postgres-capacity
+      DB_NAME: ${CAPACITY_DB_NAME:-paygateway_capacity}
+      # Belt-and-suspenders: keep the simulator activation flag aligned with the
+      # capacity profile (the profile owns the latency/sentinel detail).
+      PROVIDER_SIMULATOR_ENABLED: "true"
+      # Sentinel system-protection — default OFF (-1) for the raw-ceiling run.
+      # Set to 3.0 / 0.85 for the Phase 5 graceful-shedding run (no file edit needed).
+      CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD: ${CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD:--1}
+      CAPACITY_SENTINEL_HIGHEST_CPU_USAGE: ${CAPACITY_SENTINEL_HIGHEST_CPU_USAGE:--1}
+      # Hikari pool per node (×2 nodes must stay under PG max_connections=250).
+      CAPACITY_HIKARI_MAX_POOL: ${CAPACITY_HIKARI_MAX_POOL:-40}
+    # !reset drops the inherited "8080:8080" host publish — nginx fronts node-1 on
+    # the internal network, so the capacity stack never collides with a running
+    # dev stack on 8080.
+    ports: !reset null
+    # !override REPLACES the base depends_on (which points at the base `postgres`),
+    # so base postgres is never pulled in — no idle DB, no 5432 collision.
+    depends_on: !override
+      postgres-capacity:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_BACKEND_CPU:-2.0}'
+          memory: ${CAPACITY_BACKEND_MEM:-4g}
+
+  # ── Backend node 2 ──────────────────────────────────────────────────────────
+  # Explicit second node. Environment MIRRORS the base `backend` service so the
+  # two nodes are identical — JWT_SECRET and ENCRYPTION_KEY MUST match node 1
+  # (shared JWTs + AES-encrypted connector credentials in the shared DB), and the
+  # Redis/Kafka toggles must match so both behave the same in each run mode.
+  # No host port: nginx reaches it on the internal 8080.
+  backend-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres-capacity:
+        condition: service_healthy
+    environment:
+      # ── Capacity deltas ──
+      SPRING_PROFILES_ACTIVE: capacity
+      DB_HOST: postgres-capacity
+      DB_NAME: ${CAPACITY_DB_NAME:-paygateway_capacity}
+      PROVIDER_SIMULATOR_ENABLED: "true"
+      CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD: ${CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD:--1}
+      CAPACITY_SENTINEL_HIGHEST_CPU_USAGE: ${CAPACITY_SENTINEL_HIGHEST_CPU_USAGE:--1}
+      CAPACITY_HIKARI_MAX_POOL: ${CAPACITY_HIKARI_MAX_POOL:-40}
+      # ── Mirror of base backend env (keep in sync) ──
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-pay_app_user}
+      DB_PASSWORD: ${DB_PASSWORD:-password123}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-pay_app_user}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-password123}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32-chars-min}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      PAY_BASE_URL: ${PAY_BASE_URL:-http://localhost:3000}
+      PAYMENT_SHARD_COUNT: ${PAYMENT_SHARD_COUNT:-64}
+      KAFKA_OUTBOX_ENABLED: ${KAFKA_OUTBOX_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_OUTBOX_TOPIC: ${KAFKA_OUTBOX_TOPIC:-payment.lifecycle.events}
+      KAFKA_OUTBOX_TOPIC_PARTITIONS: ${KAFKA_OUTBOX_TOPIC_PARTITIONS:-12}
+      KAFKA_WEBHOOK_CONSUMER_ENABLED: ${KAFKA_WEBHOOK_CONSUMER_ENABLED:-false}
+      KAFKA_WEBHOOK_CONSUMER_GROUP_ID: ${KAFKA_WEBHOOK_CONSUMER_GROUP_ID:-masonxpay-webhook-worker}
+      KAFKA_PAYMENT_PROJECTION_ENABLED: ${KAFKA_PAYMENT_PROJECTION_ENABLED:-false}
+      KAFKA_PAYMENT_PROJECTION_GROUP_ID: ${KAFKA_PAYMENT_PROJECTION_GROUP_ID:-masonxpay-payment-projection}
+      PAYMENT_PROJECTION_BACKFILL_ENABLED: ${PAYMENT_PROJECTION_BACKFILL_ENABLED:-false}
+      WEBHOOK_OUTBOX_POLLER_ENABLED: ${WEBHOOK_OUTBOX_POLLER_ENABLED:-true}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_HOT_PATH_ENABLED: ${REDIS_HOT_PATH_ENABLED:-false}
+      REDIS_HOT_PATH_FAIL_OPEN: ${REDIS_HOT_PATH_FAIL_OPEN:-true}
+      REDIS_RATE_LIMIT_ENABLED: ${REDIS_RATE_LIMIT_ENABLED:-false}
+      REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW: ${REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW:-600}
+      REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW: ${REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW:-300}
+      REDIS_IDEMPOTENCY_CACHE_ENABLED: ${REDIS_IDEMPOTENCY_CACHE_ENABLED:-false}
+      REDIS_PROVIDER_HEALTH_CACHE_ENABLED: ${REDIS_PROVIDER_HEALTH_CACHE_ENABLED:-false}
+      REDIS_HEALTH_ENABLED: ${REDIS_HEALTH_ENABLED:-false}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_BACKEND_CPU:-2.0}'
+          memory: ${CAPACITY_BACKEND_MEM:-4g}
+
+  # ── nginx ALB → load-balances the two backend nodes ─────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+    volumes:
+      - ./bench/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${CAPACITY_ALB_PORT:-8088}:80"   # the load generator (off-box) targets this
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_NGINX_CPU:-1.0}'
+          memory: ${CAPACITY_NGINX_MEM:-1g}
+
+  # ── Exporter → point at the isolated DB ─────────────────────────────────────
+  postgres-exporter:
+    environment:
+      DATA_SOURCE_NAME: postgresql://${DB_USERNAME:-pay_app_user}:${DB_PASSWORD:-password123}@postgres-capacity:5432/${CAPACITY_DB_NAME:-paygateway_capacity}?sslmode=disable
+    # !override so the exporter doesn't drag in the base `postgres` either.
+    depends_on: !override
+      postgres-capacity:
+        condition: service_healthy
+
+  # ── Prometheus → accept the off-box k6 remote-write push ────────────────────
+  prometheus:
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+      - --web.enable-remote-write-receiver
+
+  # ── infra-mode services (start with --profile infra): cap them so the JVM
+  #    broker + Redis can't starve the SUT on a single 8-CPU VM ────────────────
+  kafka:
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_KAFKA_CPU:-1.0}'
+          memory: ${CAPACITY_KAFKA_MEM:-1500m}
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_REDIS_CPU:-0.5}'
+          memory: ${CAPACITY_REDIS_MEM:-512m}
+
+volumes:
+  postgres_capacity_data:

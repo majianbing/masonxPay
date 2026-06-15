@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Capacity-proof profile  (activate with SPRING_PROFILES_ACTIVE=capacity)
+#
+# Single, auditable home for every knob the published capacity proof runs under.
+# Layered on top of application.yml — only the deltas live here, so local/preview/
+# prod stay untouched and a reviewer can see exactly the config behind the numbers.
+#
+# What it changes vs the defaults:
+#   1. Provider simulator ON, tuned to a realistic ~100–300ms connector band.
+#   2. Sentinel confirm/create flow limits raised so the limiter is NOT the ceiling.
+#   3. Redis per-merchant rate-limit windows lifted (same reason).
+#   4. Sentinel system-protection (CPU/load shedding) disabled to measure the RAW
+#      ceiling — see note below for the second "graceful-shedding" run.
+#   5. Hikari pool sized for the capacity push (kept under Postgres max_connections
+#      across the two backend nodes).
+#
+# Data isolation is handled in docker-compose.capacity.yml (dedicated DB + volume).
+# ─────────────────────────────────────────────────────────────────────────────
+
+spring:
+  datasource:
+    hikari:
+      # 2 backend nodes × 40 = 80 connections, comfortably under Postgres default
+      # max_connections (100). Bump both together if you raise node count.
+      maximum-pool-size: ${CAPACITY_HIKARI_MAX_POOL:40}
+      minimum-idle: 10
+      # Fail fast rather than masking pool exhaustion as latency during a soak.
+      connection-timeout: 10000
+
+app:
+  # ── Synthetic connector latency ────────────────────────────────────────────
+  # Right-skewed log-normal fitted to p50/p99, modelling a realistic PSP tail.
+  # Fits UNDER the 500ms end-to-end SLO with headroom, so the test measures
+  # whether the platform PRESERVES that headroom under load rather than the mock
+  # setting the ceiling. The tail (p99) is what fills connection/thread pools.
+  provider-simulator:
+    enabled: true
+    latency-model: LOGNORMAL
+    latency-p50-ms: 120        # median connector think-time
+    latency-p99-ms: 380        # tail — leaves ~100ms at p99 for platform overhead under 500ms SLO
+    max-latency-ms: 5000       # hard cap so the tail can't produce pathological multi-second stalls
+    failure-rate: 0.0          # declines are modelled per-connector (successRate), not here
+    timeout-rate: 0.007        # ~0.7% injected faults — STIMULUS, system must absorb gracefully
+    timeout-latency-ms: 2000
+
+  redis:
+    rate-limit:
+      # Lift per-merchant windows so the proof isn't throttled below target.
+      # Combine with the multi-merchant spread in the k6 capacity workload.
+      create-payment-intent-per-window: ${CAPACITY_REDIS_CREATE_LIMIT:1000000}
+      confirm-payment-intent-per-window: ${CAPACITY_REDIS_CONFIRM_LIMIT:1000000}
+
+  # ── Sentinel ───────────────────────────────────────────────────────────────
+  # NOTE: flow-rules is a LIST — Spring REPLACES it wholesale, so both rules are
+  # re-declared here. degrade-rules (provider circuit breakers) are intentionally
+  # left to inherit from application.yml.
+  sentinel:
+    flow-rules:
+      - resource: "POST:/api/v1/payment-intents"
+        grade: QPS
+        count: ${CAPACITY_SENTINEL_CREATE_QPS:100000}
+        control-behavior: RATE_LIMITER
+        max-queueing-time-ms: 5000
+        limit-app: default
+      - resource: "POST:/api/v1/payment-intents/{id}/confirm"
+        grade: QPS
+        count: ${CAPACITY_SENTINEL_CONFIRM_QPS:100000}
+        control-behavior: RATE_LIMITER
+        max-queueing-time-ms: 8000
+        limit-app: default
+    system:
+      # Default OFF (-1) to find the RAW ceiling. For the Phase 5 graceful-shedding
+      # run, export CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD=3.0 and
+      # CAPACITY_SENTINEL_HIGHEST_CPU_USAGE=0.85 on the `up` line — no file edit.
+      highest-system-load: ${CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD:-1}
+      highest-cpu-usage: ${CAPACITY_SENTINEL_HIGHEST_CPU_USAGE:-1}
+      avg-rt: -1
+      max-thread: -1

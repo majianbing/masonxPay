@@ -10,6 +10,9 @@ Backend code is Java 21, Spring Boot, Maven, and package root `com.masonx.paygat
 - Keep business logic out of controllers.
 - Add comments only when they clarify ownership, intent, or non-obvious behavior.
 - Avoid broad `catch (Exception)` blocks unless there is a clear fallback and logging strategy.
+- Surface client-facing errors as a typed `BusinessException` mapped to a safe status and message; never let original exception details or stack traces reach the client. The global exception handler must redact any unhandled exception to a generic message.
+- New-module Redis keys are namespaced with the module prefix (e.g. `va:`); existing keys keep the current `mxp:` namespace. Never use a bare, unprefixed Redis key.
+- New modules namespace their tables with a per-module prefix (e.g. `va_` for the Virtual Account module) so table ownership is identifiable and the module stays cleanly separable. Existing payment-core and orchestration tables are grandfathered and keep their current unprefixed names.
 
 ## Module Boundaries
 
