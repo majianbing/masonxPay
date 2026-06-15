@@ -2,18 +2,21 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
 
-# Cache dependencies layer
+# Cache dependencies layer — copy the reactor parent + module poms first
 COPY pom.xml .
-RUN mvn dependency:go-offline -q
+COPY gateway-service/pom.xml gateway-service/pom.xml
+RUN mvn -q dependency:go-offline
 
-COPY src ./src
-RUN mvn package -DskipTests -q
+# Build the reactor
+COPY gateway-service/src gateway-service/src
+RUN mvn -q -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-COPY --from=builder /app/target/*.jar app.jar
+# Bootable artifact is the gateway-service module jar
+COPY --from=builder /app/gateway-service/target/*.jar app.jar
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
