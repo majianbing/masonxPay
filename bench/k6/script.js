@@ -25,7 +25,7 @@
  *   15% — GET  /api/v1/merchants/:id/payment-intents  (JWT auth, paginated list)
  *
  * Environment variables:
- *   BASE_URL  — default http://localhost:8080  (http://backend:8080 inside Docker)
+ *   BASE_URL  — default http://localhost:8080  (http://gateway-service:8080 inside Docker)
  *   RUN_MODE  — label for output grouping, e.g. postgres_only or preview_infra
  */
 

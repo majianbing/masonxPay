@@ -30,7 +30,7 @@ services:
     volumes:
       - redis_preview_data:/data
 
-  backend:
+  gateway-service:
     depends_on:
       postgres:
         condition: service_healthy

@@ -303,7 +303,7 @@ Resources:
 
             # Start backend only — Postgres is on RDS, dashboard is on Amplify
             cd /app
-            docker compose up -d --no-deps --build backend
+            docker compose up -d --no-deps --build gateway-service
 
             echo "==> Done! API: http://${ElasticIP}:8080"
 

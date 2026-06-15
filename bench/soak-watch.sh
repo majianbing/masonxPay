@@ -9,7 +9,7 @@ set -u
 P=masonxpay-cap
 
 pg() { docker exec ${P}-postgres-capacity-1 psql -U pay_app_user -d paygateway_capacity -tAc "$1" 2>/dev/null | tr -d ' \n'; }
-prom() { docker run --rm --network ${P}_default curlimages/curl:latest -s http://backend:8080/actuator/prometheus 2>/dev/null; }
+prom() { docker run --rm --network ${P}_default curlimages/curl:latest -s http://gateway-service:8080/actuator/prometheus 2>/dev/null; }
 
 snapshot() {
   local ts pi pr dead outbox rm conns idletx dbsize m heap gc hk_act hk_pend

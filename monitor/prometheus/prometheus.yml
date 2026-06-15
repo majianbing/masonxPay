@@ -10,13 +10,13 @@ rule_files:
 scrape_configs:
 
   # ── Local docker-compose (single node) ─────────────────────────────────────
-  # Used when running `docker compose up`. Backend is reachable at backend:8080
+  # Used when running `docker compose up`. Backend is reachable at gateway-service:8080
   # on the internal Docker network. Static target is fine for single-node local dev.
   - job_name: masonxpay-backend
     metrics_path: /actuator/prometheus
     static_configs:
       - targets:
-          - backend:8080
+          - gateway-service:8080
         labels:
           application: masonxpay
 

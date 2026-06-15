@@ -4,5 +4,5 @@
 # this file, so the fixed container name applies only to the default dev stack
 # and never collides across projects or with the capacity multi-node topology.
 services:
-  backend:
+  gateway-service:
     container_name: pay-gateway-service

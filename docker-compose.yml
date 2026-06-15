@@ -94,7 +94,7 @@ services:
       retries: 10
 
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
-  backend:
+  gateway-service:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -173,7 +173,7 @@ services:
     image: prom/prometheus:v2.51.0
     restart: unless-stopped
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
     volumes:
       - ./monitor/prometheus:/etc/prometheus:ro
@@ -202,6 +202,12 @@ services:
       - grafana_data:/var/lib/grafana
     ports:
       - "3001:3000"   # 3000 is taken by the Next.js dashboard
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1g
+
 
   # ── Dashboard (Next.js) ─────────────────────────────────────────────────────
   dashboard:
@@ -214,7 +220,7 @@ services:
         NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER: ${NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER:-false}
     restart: unless-stopped
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
     ports:
       - "3000:3000"

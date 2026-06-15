@@ -57,7 +57,7 @@ services:
           cpus: '${BENCH_DB_CPU:-0.5}'
           memory: ${BENCH_DB_MEM:-512m}
 
-  backend:
+  gateway-service:
     environment:
       PROVIDER_SIMULATOR_ENABLED: ${PROVIDER_SIMULATOR_ENABLED:-true}
       PROVIDER_SIMULATOR_BASE_LATENCY_MS: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:-25}
@@ -136,7 +136,7 @@ services:
     image: grafana/k6:latest
     profiles: [bench]
     depends_on:
-      backend:
+      gateway-service:
         condition: service_healthy
       prometheus:
         condition: service_started
@@ -144,7 +144,7 @@ services:
       - ./bench/k6:/scripts:ro
       - ./bench/results:/results
     environment:
-      BASE_URL: ${BASE_URL:-http://backend:8080}
+      BASE_URL: ${BASE_URL:-http://gateway-service:8080}
       RUN_MODE: ${RUN_MODE:-postgres_only}
       SIMULATOR_SUCCESS_RATE_PERCENT: ${SIMULATOR_SUCCESS_RATE_PERCENT:-100}
       # Push k6 metrics into Prometheus so the Grafana bench dashboard has live data.

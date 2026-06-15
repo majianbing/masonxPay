@@ -80,7 +80,7 @@ The success-path p99 (380ms) fits **under** the 500ms end-to-end SLO with ~100ms
 headroom, so `cap_confirm_success_ms` p99 tests whether the platform *preserves* that
 headroom under load. The ~8.6% decline tail (some near the 5000ms hard cap) is real PSP
 behavior and is reported via `cap_confirm_decline_ms` / `cap_declines`, not folded into
-the success-path SLO. All knobs live in `backend/src/main/resources/application-capacity.yml`.
+the success-path SLO. All knobs live in `backend/gateway-service/src/main/resources/application-capacity.yml`.
 
 > The distribution (not the per-request sequence) is the reproducible artifact —
 > under concurrent virtual threads, per-call determinism is meaningless.
@@ -140,23 +140,11 @@ The SUT runs on the **M1**; k6 runs **natively on the Air M2** over the wired li
 ```bash
 cd ~/Desktop/masonxPay
 
-docker compose -p masonxpay stop
+docker compose -p masonxpay-cap stop
 
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d --build \
-  nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter redis kafka
-
-# Important after any backend rebuild/recreate: force nginx to recreate too.
-# Backend containers receive new Docker IPs; an old nginx process may keep stale
-# upstream state and send most traffic to one surviving backend. This is visible
-# as one backend CPU >100% while the other is nearly idle.
-docker compose -p masonxpay-cap \
-  -f docker-compose.yml -f docker-compose.capacity.yml \
-  up -d --force-recreate nginx
-
-docker compose -p masonxpay-cap \
-  -f docker-compose.yml -f docker-compose.capacity.yml \
-  exec nginx nginx -T
+  nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter redis kafka
 
 docker compose -p masonxpay-cap -f docker-compose.yml -f docker-compose.capacity.yml ps
 ```
@@ -219,7 +207,7 @@ WEBHOOK_OUTBOX_POLLER_ENABLED=false REDIS_HOT_PATH_ENABLED=true REDIS_RATE_LIMIT
 REDIS_IDEMPOTENCY_CACHE_ENABLED=true REDIS_PROVIDER_HEALTH_CACHE_ENABLED=true \
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml --profile infra up -d --build \
-  nginx backend backend-2 postgres-capacity redis kafka prometheus grafana postgres-exporter
+  nginx gateway-service gateway-service-2 postgres-capacity redis kafka prometheus grafana postgres-exporter
 ```
 Re-run Phase 2 with `RUN_MODE=infra`. Compare throughput, p99, and the cost each layer adds.
 
@@ -231,7 +219,7 @@ show the system *sheds* rather than collapses:
 CAPACITY_SENTINEL_HIGHEST_SYSTEM_LOAD=3.0 CAPACITY_SENTINEL_HIGHEST_CPU_USAGE=0.85 \
 docker compose -p masonxpay-cap \
   -f docker-compose.yml -f docker-compose.capacity.yml up -d \
-  nginx backend backend-2 postgres-capacity prometheus grafana postgres-exporter
+  nginx gateway-service gateway-service-2 postgres-capacity prometheus grafana postgres-exporter
 # then drive SCENARIO=spike at a rate above the measured knee
 ```
 
@@ -262,6 +250,6 @@ docker compose -p masonxpay up -d      # bring the dev stack back
 |------|------|
 | `docker-compose.capacity.yml` | overlay: nginx + 2 backend nodes + isolated Postgres + limits |
 | `bench/nginx/nginx.conf` | thin ALB (least-conn, access-log off) |
-| `backend/src/main/resources/application-capacity.yml` | the capacity Spring profile (every knob) |
+| `backend/gateway-service/src/main/resources/application-capacity.yml` | the capacity Spring profile (every knob) |
 | `bench/k6/capacity.js` | open-model charge load script |
 | `bench/CAPACITY.md` | this document |

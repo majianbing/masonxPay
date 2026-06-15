@@ -79,7 +79,7 @@ docker compose restart grafana
 If backend metric shape changed, rebuild/restart the backend:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build backend grafana prometheus
+docker compose -f docker-compose.yml -f docker-compose.bench.yml up -d --build gateway-service grafana prometheus
 ```
 
 ## Instance-size profiles
