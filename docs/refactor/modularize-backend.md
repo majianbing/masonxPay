@@ -1,6 +1,6 @@
 # Backend Modularization — Refactor Plan & Progress
 
-Status: **In progress — Step 2 complete.** Branch: `refactor/modularize-backend`.
+Status: **In progress — Step 3 complete.** Branch: `refactor/modularize-backend`.
 
 This document is the running source of truth for the backend modularization. Each step is verified green before the next begins, and this file is updated after every step (see [Step Plan](#step-plan) and [Changelog](#changelog)).
 
@@ -125,7 +125,7 @@ Legend: ☐ pending · ◐ in progress · ☑ done
 |---|---|---|---|
 | 1 | Parent aggregator pom (`backend-service`, packaging=pom); move current `pom.xml` → `gateway-service/pom.xml`; `git mv backend/src → backend/gateway-service/src`. Gateway keeps its `@SpringBootApplication`. | Reactor builds; gateway boots; existing test suite green. | ☑ (build/compile green; boot+tests need DB, not run) |
 | 2 | Extract `common` module: create `BusinessException` + error model; add `Mode` and tenant value objects (`OrgId`/`MerchantId`/`TenantRef`); relocate any existing shared primitives (measure references first). | Reactor builds; gateway green; no leaked entities/repos in `common`. | ☑ (build green; `ApiKeyMode` relocation deferred — see note) |
-| 3 | `contracts` module: transaction event schema carrying `org + merchant + mode`. | Module builds; gateway can reference the event type. | ☐ |
+| 3 | `contracts` module: transaction event schema carrying `org + merchant + mode`. | Module builds; gateway can reference the event type. | ☑ (envelope + settlement event skeleton; money payload owned by VA design) |
 | 4 | `virtual-account-service`: own `@SpringBootApplication`, own DataSource → `msx_virtual_account`, Flyway (`db/migration/va`, `va_` tables), idempotent Kafka consumer, one vertical slice (consume transaction → record a ledger/fee entry). | VA boots standalone; migration applies; consumes a test event idempotently. | ☐ |
 | 5 | Docker: keep minimum stack; add `virtual-account` profile (VA + Kafka + `msx_virtual_account` DB); update `backend/Dockerfile` (reactor build, jar paths) and compose. | Minimum stack boots without VA; profile boots VA end-to-end. | ☐ |
 
@@ -156,3 +156,5 @@ Legend: ☐ pending · ◐ in progress · ☑ done
 - **Step 1 build plumbing** — updated `backend/Dockerfile` for the reactor layout (copies parent + `gateway-service` poms for the dependency cache layer, builds the reactor, takes the boot jar from `gateway-service/target/`). `docker-compose.yml` unchanged (build context `./backend`). Verified: `docker compose build backend` succeeds (image `masonxpay-backend:latest`). Remaining Docker work (VA profile) and the broken starter CI workflows stay in Step 5.
 - **Step 2 done** — added `common` module (`com.masonx.common`): `error.BusinessException` (code + httpStatus, client-safe), `tenant.Mode` (TEST/LIVE), and tenant value objects `OrgId`/`MerchantId`/`TenantRef`. Plain library — no Spring/JPA/repository deps. Wired into the reactor (`common` before `gateway-service`); `gateway-service` now depends on `common` and uses it for real via a new `BusinessException` handler in `GlobalExceptionHandler` (implements the documented redact-and-map rule). Dockerfile updated to copy the `common` module. `mvn -DskipTests package` green across all three modules.
   - **Deferred (noted):** gateway's existing `ApiKeyMode {TEST,LIVE}` (52 files) is **not** relocated. `common.Mode` is the new canonical cross-service mode; gateway maps `ApiKeyMode → common.Mode` at the event boundary (Step 3+). Full `ApiKeyMode → common.Mode` unification is a separate, compile-verifiable refactor if/when desired — kept out of Step 2 to avoid a 52-file blind change.
+- **Step 3 done** — added `contracts` module (`com.masonx.contracts`, depends on `common`): `EventEnvelope` (eventId, eventType, schemaVersion, occurredAt, correlationId, `TenantRef`) — the standard metadata wrapper with no-sensitive-data + additive-only rules documented; and `settlement.SettlementEvent` (envelope + `paymentId` + `providerRef`, with `TYPE`/`SCHEMA_VERSION`). Wired into the reactor (`common → contracts → gateway-service`); gateway-service depends on `contracts` (referenceable). Dockerfile copies `contracts`. `mvn -DskipTests package` green (4 modules).
+  - **Deferred to VA design (by request):** the settlement **money payload** (amount in minor units, asset/currency + scale, debit/credit direction, fee breakdown) is intentionally not modeled in `SettlementEvent` yet — it is owned by the VA domain design (`virtual-account-guide.md`) and will be added as additive fields.

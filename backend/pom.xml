@@ -27,6 +27,7 @@
 
     <modules>
         <module>common</module>
+        <module>contracts</module>
         <module>gateway-service</module>
     </modules>
 </project>

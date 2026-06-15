@@ -5,13 +5,15 @@ WORKDIR /app
 # Cache dependencies layer — copy the reactor parent + module poms first
 COPY pom.xml .
 COPY common/pom.xml common/pom.xml
+COPY contracts/pom.xml contracts/pom.xml
 COPY gateway-service/pom.xml gateway-service/pom.xml
-RUN mvn -q dependency:go-offline
+RUN mvn -B dependency:go-offline
 
 # Build the reactor
 COPY common/src common/src
+COPY contracts/src contracts/src
 COPY gateway-service/src gateway-service/src
-RUN mvn -q -DskipTests package
+RUN mvn -B -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-alpine
