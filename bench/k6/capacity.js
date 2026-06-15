@@ -17,10 +17,15 @@
  *   SCENARIO=soak    rate=TARGET_RATE for DURATION (hours) — the headline number
  *   SCENARIO=spike   rate=PEAK_RATE (default 1000) — peak burst
  *
- * Gate (soak): confirm p99 ≤ 500ms AND system-error rate ≤ 0.1%.
- * Injected connector faults (~0.7%, from the simulator) are STIMULUS — the system
- * must absorb them gracefully (a FAILED payment, not a 5xx). They are tracked
- * separately as `declines`, NOT counted as system errors.
+ * Gate (soak): cap_create_ms p99 < 100ms AND cap_system_errors rate < 0.1%.
+ * Injected connector faults (default SIMULATOR_SUCCESS_RATE_PERCENT=91.37, i.e.
+ * a realistic ~8.6% PSP decline rate) are STIMULUS — the system must absorb them
+ * gracefully (a FAILED payment, not a 5xx). They are tracked separately as
+ * `declines`, NOT counted as system errors. Because declines are ~8.6% of
+ * traffic (>1%), they dominate the blended confirm/e2e p99 — cap_confirm_ms is
+ * split into cap_confirm_success_ms / cap_confirm_decline_ms so the success-path
+ * latency (the number the 500ms framing in CAPACITY.md refers to) stays visible
+ * underneath the decline-tail-driven blended figure.
  *
  * Env:
  *   BASE_URL        e.g. http://<M1-wired-ip>:8088   (the nginx ALB, off-box)
@@ -56,7 +61,9 @@ const MAX_VUS = Number(__ENV.MAX_VUS || String(Math.max(300, Math.ceil(PEAK_RATE
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
 const createMs   = new Trend('cap_create_ms', true);
-const confirmMs  = new Trend('cap_confirm_ms', true);   // the charge endpoint — GATED
+const confirmMs  = new Trend('cap_confirm_ms', true);   // the charge endpoint — blended (success + decline)
+const confirmSuccessMs = new Trend('cap_confirm_success_ms', true); // confirm latency, SUCCEEDED only
+const confirmDeclineMs = new Trend('cap_confirm_decline_ms', true); // confirm latency, graceful FAILED only
 const chargeE2eMs = new Trend('cap_charge_e2e_ms', true); // create+confirm wall time (merchant view)
 const sysErrors  = new Rate('cap_system_errors');        // 5xx / network / non-2xx — GATED
 const declines   = new Rate('cap_declines');             // graceful FAILED payments (stimulus, not error)
@@ -100,6 +107,9 @@ export const options = {
   //   • cap_system_errors catches confirm-path failures.
   // The merchant-view confirm p99 is connector-latency-bound (≈ connector p99 380ms +
   // platform), so it is REPORTED via summaryTrendStats — never gated here.
+  // cap_confirm_ms blends success + decline latency; at the realistic ~8.6% decline
+  // rate, declines dominate its p99. cap_confirm_success_ms / cap_confirm_decline_ms
+  // split the two populations so the success-path number stays legible.
   thresholds: SCENARIO === 'soak' ? {
     'cap_create_ms': ['p(99)<100'],
     'cap_system_errors': ['rate<0.001'],
@@ -190,5 +200,10 @@ export function charge(data) {
   if (okHttp) {
     const succeeded = confirmed.json('status') === 'SUCCEEDED';
     declines.add(!succeeded);
+    if (succeeded) {
+      confirmSuccessMs.add(confirmed.timings.duration);
+    } else {
+      confirmDeclineMs.add(confirmed.timings.duration);
+    }
   }
 }

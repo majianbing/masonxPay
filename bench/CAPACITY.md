@@ -24,16 +24,28 @@ Read the absolute numbers as a **lower bound** captured under deliberate constra
 | **Unit** | one *charge* = `POST /payment-intents` (create) + `POST /payment-intents/{id}/confirm` (charge). Driven open-model at a fixed arrival rate; the create is part of the charge cost. |
 | **Average** | 100 charges/s sustained |
 | **Peak** | 1000 charges/s |
-| **Gate** | **confirm p99 ≤ 500ms** AND **system-error rate ≤ 0.1%**, held over a multi-hour soak |
+| **Gate** | **`cap_create_ms` p99 < 100ms** AND **`cap_system_errors` rate < 0.1%**, held over a multi-hour soak |
 | **Capacity** | max sustained charge-rate that holds the gate — always reported *with the saturating resource* |
 
-**Two latencies reported.** k6 measures the **merchant view** (end-to-end HTTP). The
+**`cap_create_ms` is the gate** because `POST /payment-intents` makes no connector
+call — its p99 is a clean signal of platform/DB saturation, unaffected by the
+connector's latency or decline rate.
+
+**Three confirm latencies reported, not gated.** k6 measures the **merchant view**
+(end-to-end HTTP) and splits it by outcome: `cap_confirm_ms` (blended),
+`cap_confirm_success_ms` (SUCCEEDED only — this is the number the 500ms target below
+refers to), and `cap_confirm_decline_ms` (graceful FAILED only). The
 **platform-added latency** (end-to-end − injected connector think-time) is read from
 backend metrics (`payment.charge.latency`), isolating our system from the mock's latency.
 
-**Injected connector faults (~0.7%) are stimulus, not failures.** The system must
-absorb them as graceful declines (a `FAILED` payment), never a 5xx. k6 tracks them
-separately (`cap_declines`) and does **not** count them against the error budget.
+**Injected connector faults default to a realistic ~8.6% decline rate**
+(`SIMULATOR_SUCCESS_RATE_PERCENT=91.37`, modeling a production PSP decline rate) and are
+stimulus, not failures. The system must absorb them as graceful declines (a `FAILED`
+payment), never a 5xx. k6 tracks them separately (`cap_declines`) and does **not** count
+them against the error budget. Because declines are >1% of traffic, they dominate the
+**blended** `cap_confirm_ms` / `cap_charge_e2e_ms` p99 — read `cap_confirm_success_ms`
+for the success-path number, and expect the blended figures to run several hundred ms
+higher due to the decline tail (some declines approach the simulator's 5000ms hard cap).
 
 ## Rig
 
@@ -60,13 +72,15 @@ In-process simulator (`MasonSimulatorPaymentProviderService`), **log-normal** fi
 to percentiles so the realistic right-skewed tail is present (the tail is what fills
 connection/thread pools):
 
-| p50 | p99 | hard cap | injected faults |
+| p50 | p99 | hard cap | injected faults (default) |
 |-----|-----|----------|-----------------|
-| 120ms | 380ms | 5000ms | ~0.7% (timeout/5xx) |
+| 120ms | 380ms | 5000ms | ~8.6% (`SIMULATOR_SUCCESS_RATE_PERCENT=91.37`, timeout/5xx) |
 
-Fits **under** the 500ms end-to-end SLO with ~100ms of p99 headroom, so the test
-measures whether the platform *preserves* that headroom under load. All knobs live in
-`backend/src/main/resources/application-capacity.yml`.
+The success-path p99 (380ms) fits **under** the 500ms end-to-end SLO with ~100ms of
+headroom, so `cap_confirm_success_ms` p99 tests whether the platform *preserves* that
+headroom under load. The ~8.6% decline tail (some near the 5000ms hard cap) is real PSP
+behavior and is reported via `cap_confirm_decline_ms` / `cap_declines`, not folded into
+the success-path SLO. All knobs live in `backend/src/main/resources/application-capacity.yml`.
 
 > The distribution (not the per-request sequence) is the reproducible artifact —
 > under concurrent virtual threads, per-call determinism is meaningless.
@@ -178,16 +192,18 @@ SCENARIO=ramp   RAMP_TO=1200 k6 run -o experimental-prometheus-rw bench/k6/capac
 SCENARIO=soak   TARGET_RATE=100 DURATION=2h k6 run -o experimental-prometheus-rw bench/k6/capacity.js  # c) HEADLINE
 SCENARIO=spike  PEAK_RATE=1000 DURATION=5m k6 run -o experimental-prometheus-rw bench/k6/capacity.js   # d) peak
 ```
-**Finding capacity:** in the ramp, the **knee** is the arrival rate where `cap_confirm_ms`
-p99 first crosses **500ms** or `cap_system_errors` lifts off zero (watch the k6 line or the
+**Finding capacity:** in the ramp, the **knee** is the arrival rate where `cap_create_ms`
+p99 first crosses **100ms** or `cap_system_errors` lifts off zero (watch the k6 line or the
 Grafana charge-latency panel). Set the soak `TARGET_RATE` to ~80% of the knee to prove
 sustained headroom, or to 100 for the stated target.
 
 ### Phase 3 — record (per run)
 
-Gate: **confirm p99 ≤ 500ms AND `cap_system_errors` ≤ 0.1%**, held through the soak.
+Gate: **`cap_create_ms` p99 < 100ms AND `cap_system_errors` ≤ 0.1%**, held through the soak.
 
-- **k6 summary** (merchant view): `cap_confirm_ms` p99 (gated), `cap_system_errors`,
+- **k6 summary** (merchant view): `cap_create_ms` p99 (gated), `cap_system_errors`
+  (gated), `cap_confirm_success_ms` p99 (success-path SLO, ~≤500ms expected),
+  `cap_confirm_ms` / `cap_charge_e2e_ms` p99 (blended, decline-tail dominated),
   `cap_declines` (injected faults — *not* failures), `cap_rate_limited_429`.
 - **Grafana** `http://localhost:3001` — *what saturated first*: PG CPU / connections /
   lock-wait, Hikari pool-wait, JVM GC, per-node backend CPU, nginx.
