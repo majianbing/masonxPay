@@ -58,13 +58,13 @@ app:
     flow-rules:
       - resource: "POST:/api/v1/payment-intents"
         grade: QPS
-        count: ${CAPACITY_SENTINEL_CREATE_QPS:100000}
+        count: ${CAPACITY_SENTINEL_CREATE_QPS:150}
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 5000
         limit-app: default
       - resource: "POST:/api/v1/payment-intents/{id}/confirm"
         grade: QPS
-        count: ${CAPACITY_SENTINEL_CONFIRM_QPS:100000}
+        count: ${CAPACITY_SENTINEL_CONFIRM_QPS:150}
         control-behavior: RATE_LIMITER
         max-queueing-time-ms: 8000
         limit-app: default
