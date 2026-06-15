@@ -16,6 +16,13 @@
     <description>Payment Gateway - User Auth &amp; RBAC</description>
 
     <dependencies>
+        <!-- Shared kernel (errors, mode, tenant value objects) -->
+        <dependency>
+            <groupId>com.masonx</groupId>
+            <artifactId>common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

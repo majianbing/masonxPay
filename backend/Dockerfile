@@ -4,10 +4,12 @@ WORKDIR /app
 
 # Cache dependencies layer — copy the reactor parent + module poms first
 COPY pom.xml .
+COPY common/pom.xml common/pom.xml
 COPY gateway-service/pom.xml gateway-service/pom.xml
 RUN mvn -q dependency:go-offline
 
 # Build the reactor
+COPY common/src common/src
 COPY gateway-service/src gateway-service/src
 RUN mvn -q -DskipTests package
 

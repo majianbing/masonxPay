@@ -1,5 +1,6 @@
 package com.masonx.paygateway.web;
 
+import com.masonx.common.error.BusinessException;
 import com.stripe.exception.StripeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +75,15 @@ public class GlobalExceptionHandler {
         ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.BAD_GATEWAY);
         pd.setTitle("Payment provider error");
         pd.setDetail(ex.getMessage());
+        return pd;
+    }
+
+    @ExceptionHandler(BusinessException.class)
+    public ProblemDetail handleBusiness(BusinessException ex) {
+        ProblemDetail pd = ProblemDetail.forStatus(HttpStatus.valueOf(ex.httpStatus()));
+        pd.setTitle("Business rule violation");
+        pd.setDetail(ex.getMessage());
+        pd.setProperty("code", ex.code());
         return pd;
     }
 
