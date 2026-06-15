@@ -1,0 +1,8 @@
+# Local dev overrides — auto-loaded ONLY by bare `docker compose ...` (no -f).
+#
+# Workflows that pass explicit -f files (preview, bench, capacity) do NOT load
+# this file, so the fixed container name applies only to the default dev stack
+# and never collides across projects or with the capacity multi-node topology.
+services:
+  backend:
+    container_name: pay-gateway-service

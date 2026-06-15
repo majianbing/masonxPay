@@ -24,6 +24,7 @@ services:
 
   # ── Postgres Exporter (H6 read-model observability) ─────────────────────────
   postgres-exporter:
+    profiles: ["infra"]
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
     restart: unless-stopped
     depends_on:
@@ -94,7 +95,6 @@ services:
 
   # ── Backend (Spring Boot) ───────────────────────────────────────────────────
   backend:
-    container_name: pay-gateway-service
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -169,6 +169,7 @@ services:
 
   # ── Prometheus ──────────────────────────────────────────────────────────────
   prometheus:
+    profiles: ["infra"]
     image: prom/prometheus:v2.51.0
     restart: unless-stopped
     depends_on:
@@ -185,6 +186,7 @@ services:
 
   # ── Grafana ─────────────────────────────────────────────────────────────────
   grafana:
+    profiles: ["infra"]
     image: grafana/grafana:10.4.0
     restart: unless-stopped
     depends_on:
