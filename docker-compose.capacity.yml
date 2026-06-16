@@ -152,7 +152,7 @@ services:
           memory: ${CAPACITY_BACKEND_MEM:-4g}
 
   # ── nginx ALB → load-balances the two backend nodes ─────────────────────────
-  nginx:
+  alb-nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
@@ -178,6 +178,14 @@ services:
     depends_on: !override
       postgres-capacity:
         condition: service_healthy
+    # Cap the sidecar so it can never starve the SUT on the soak box. The
+    # exporter only runs a few cheap stat queries per 15s scrape (~16ms, ~18MiB
+    # RSS), so this is generous headroom, not a real constraint.
+    deploy:
+      resources:
+        limits:
+          cpus: '${CAPACITY_PGEXPORTER_CPU:-0.25}'
+          memory: ${CAPACITY_PGEXPORTER_MEM:-128m}
 
   # ── Prometheus → accept the off-box k6 remote-write push ────────────────────
   prometheus:
@@ -199,7 +207,7 @@ services:
       resources:
         limits:
           cpus: '${CAPACITY_KAFKA_CPU:-1.0}'
-          memory: ${CAPACITY_KAFKA_MEM:-1500m}
+          memory: ${CAPACITY_KAFKA_MEM:-1g}
 
   redis:
     deploy:
