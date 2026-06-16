@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -35,8 +36,31 @@ public class GatewayLogService {
      * Uses the physical datasource because gateway_logs is a PostgreSQL partitioned table,
      * while ShardingSphere only routes the payment core logical tables.
      */
-    @Async("webhookExecutor")
+    @Async("gatewayLogExecutor")
     public void log(GatewayLog entry) {
+        insert(entry);
+    }
+
+    public void logBatch(List<GatewayLog> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        jdbcTemplate.batchUpdate("""
+                INSERT INTO gateway_logs (
+                    merchant_id, api_key_id, request_id, type, method, path,
+                    request_headers, request_body, response_status, response_body,
+                    duration_ms, mode, trace_id, created_at
+                ) VALUES (
+                    :merchantId, :apiKeyId, :requestId, :type, :method, :path,
+                    :requestHeaders, :requestBody, :responseStatus, :responseBody,
+                    :durationMs, :mode, :traceId, :createdAt
+                )
+                """, entries.stream()
+                .map(this::parameters)
+                .toArray(SqlParameterSource[]::new));
+    }
+
+    private void insert(GatewayLog entry) {
         jdbcTemplate.update("""
                 INSERT INTO gateway_logs (
                     merchant_id, api_key_id, request_id, type, method, path,
@@ -47,7 +71,11 @@ public class GatewayLogService {
                     :requestHeaders, :requestBody, :responseStatus, :responseBody,
                     :durationMs, :mode, :traceId, :createdAt
                 )
-                """, new MapSqlParameterSource()
+                """, parameters(entry));
+    }
+
+    private MapSqlParameterSource parameters(GatewayLog entry) {
+        return new MapSqlParameterSource()
                 .addValue("merchantId", entry.getMerchantId())
                 .addValue("apiKeyId", entry.getApiKeyId())
                 .addValue("requestId", entry.getRequestId())
@@ -61,7 +89,7 @@ public class GatewayLogService {
                 .addValue("durationMs", entry.getDurationMs())
                 .addValue("mode", entry.getMode() != null ? entry.getMode().name() : null)
                 .addValue("traceId", entry.getTraceId())
-                .addValue("createdAt", Timestamp.from(entry.getCreatedAt())));
+                .addValue("createdAt", Timestamp.from(entry.getCreatedAt()));
     }
 
     public Page<GatewayLogResponse> list(UUID merchantId, String type, String mode, Pageable pageable) {

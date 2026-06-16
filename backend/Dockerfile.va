@@ -19,7 +19,7 @@ COPY virtual-account-service/src virtual-account-service/src
 RUN mvn -B -pl virtual-account-service -am -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 
 COPY --from=builder /app/virtual-account-service/target/*.jar app.jar
