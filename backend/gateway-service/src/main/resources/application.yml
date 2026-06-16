@@ -104,6 +104,16 @@ app:
     key: ${ENCRYPTION_KEY:}       # base64-encoded 32-byte key — generate: openssl rand -base64 32
   logs:
     retention-periods: ${LOG_RETENTION_PERIODS:4}   # number of 6-month periods to keep (default 4 = 2 years)
+  gateway-logs:
+    enabled: ${GATEWAY_LOGS_ENABLED:false}
+    mode: ${GATEWAY_LOGS_MODE:DISABLED}  # INLINE | KAFKA | DISABLED
+    sample-rate: ${GATEWAY_LOG_SAMPLE_RATE:1.0}
+    topic: ${GATEWAY_LOG_KAFKA_TOPIC:gateway.api.logs}
+    group-id: ${GATEWAY_LOG_KAFKA_GROUP_ID:masonxpay-gateway-log-writer}
+    batch-size: ${GATEWAY_LOG_KAFKA_BATCH_SIZE:250}
+    topic-partitions: ${GATEWAY_LOG_KAFKA_TOPIC_PARTITIONS:12}
+    consumer-concurrency: ${GATEWAY_LOG_KAFKA_CONSUMER_CONCURRENCY:1}
+    consumer-store-enabled: ${GATEWAY_LOG_KAFKA_CONSUMER_STORE_ENABLED:true}
   pay-base-url: ${PAY_BASE_URL:http://localhost:3000}  # base URL for shareable payment link URLs
   webhook:
     outbox-poller:

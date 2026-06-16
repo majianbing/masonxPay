@@ -18,7 +18,7 @@ COPY gateway-service/src gateway-service/src
 RUN mvn -B -pl gateway-service -am -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jdk-alpine
 WORKDIR /app
 
 # Bootable artifact is the gateway-service module jar

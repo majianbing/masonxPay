@@ -17,6 +17,11 @@
 # Data isolation is handled in docker-compose.capacity.yml (dedicated DB + volume).
 # ─────────────────────────────────────────────────────────────────────────────
 
+logging:
+  level:
+    com.masonx.paygateway.provider.PaymentProviderDispatcher: ${CAPACITY_PROVIDER_CALL_LOG_LEVEL:ERROR}
+    com.masonx.paygateway.provider.ReusablePaymentMethodDispatcher: ${CAPACITY_PROVIDER_CALL_LOG_LEVEL:ERROR}
+
 spring:
   datasource:
     hikari:
@@ -28,6 +33,17 @@ spring:
       connection-timeout: 10000
 
 app:
+  gateway-logs:
+    enabled: ${CAPACITY_GATEWAY_LOGS_ENABLED:false}
+    mode: ${CAPACITY_GATEWAY_LOGS_MODE:DISABLED}
+    sample-rate: ${CAPACITY_GATEWAY_LOG_SAMPLE_RATE:1.0}
+    topic: ${CAPACITY_GATEWAY_LOG_KAFKA_TOPIC:gateway.api.logs}
+    group-id: ${CAPACITY_GATEWAY_LOG_KAFKA_GROUP_ID:masonxpay-gateway-log-writer-capacity}
+    batch-size: ${CAPACITY_GATEWAY_LOG_KAFKA_BATCH_SIZE:250}
+    topic-partitions: ${CAPACITY_GATEWAY_LOG_KAFKA_TOPIC_PARTITIONS:12}
+    consumer-concurrency: ${CAPACITY_GATEWAY_LOG_KAFKA_CONSUMER_CONCURRENCY:1}
+    consumer-store-enabled: ${CAPACITY_GATEWAY_LOG_KAFKA_CONSUMER_STORE_ENABLED:false}
+
   # ── Synthetic connector latency ────────────────────────────────────────────
   # Right-skewed log-normal fitted to p50/p99, modelling a realistic PSP tail.
   # Fits UNDER the 500ms end-to-end SLO with headroom, so the test measures

@@ -1,7 +1,9 @@
 package com.masonx.paygateway.web;
 
+import com.masonx.paygateway.config.GatewayLogProperties;
 import com.masonx.paygateway.domain.log.GatewayLog;
 import com.masonx.paygateway.domain.log.GatewayLogType;
+import com.masonx.paygateway.kafka.GatewayLogKafkaPublisher;
 import com.masonx.paygateway.security.apikey.ApiKeyAuthentication;
 import com.masonx.paygateway.service.GatewayLogService;
 import jakarta.servlet.*;
@@ -15,12 +17,14 @@ import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import org.slf4j.MDC;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 @Component
@@ -61,21 +65,32 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     }
 
     private final GatewayLogService gatewayLogService;
+    private final GatewayLogProperties properties;
+    private final ObjectProvider<GatewayLogKafkaPublisher> kafkaPublisher;
 
-    public ApiRequestLoggingFilter(GatewayLogService gatewayLogService) {
+    public ApiRequestLoggingFilter(GatewayLogService gatewayLogService,
+                                   GatewayLogProperties properties,
+                                   ObjectProvider<GatewayLogKafkaPublisher> kafkaPublisher) {
         this.gatewayLogService = gatewayLogService;
+        this.properties = properties;
+        this.kafkaPublisher = kafkaPublisher;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         // Only log API calls, not auth or admin endpoints
         String path = request.getRequestURI();
-        return !path.startsWith("/api/v1/");
+        return !properties.isEnabled() || !path.startsWith("/api/v1/");
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
+        if (!shouldSample()) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         ContentCachingRequestWrapper wrappedReq = new ContentCachingRequestWrapper(request, MAX_BODY_BYTES);
         ContentCachingResponseWrapper wrappedRes = new ContentCachingResponseWrapper(response);
 
@@ -87,6 +102,11 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
             writeLog(wrappedReq, wrappedRes, durationMs);
             wrappedRes.copyBodyToResponse();
         }
+    }
+
+    private boolean shouldSample() {
+        double sampleRate = properties.getSampleRate();
+        return sampleRate >= 1.0 || (sampleRate > 0.0 && ThreadLocalRandom.current().nextDouble() < sampleRate);
     }
 
     private static final java.util.regex.Pattern MERCHANT_PATH =
@@ -130,7 +150,11 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         log.setResponseBody(redactSensitiveFields(bodyString(res.getContentAsByteArray())));
         log.setDurationMs(durationMs);
 
-        gatewayLogService.log(log);
+        if (properties.getMode() == GatewayLogProperties.Mode.KAFKA) {
+            kafkaPublisher.ifAvailable(publisher -> publisher.publish(log));
+        } else {
+            gatewayLogService.log(log);
+        }
     }
 
     private String serializeHeaders(HttpServletRequest req) {
