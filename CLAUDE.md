@@ -41,7 +41,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 
 ## Current Track
 
-High-throughput H1-H5b and H7 are complete:
+High-throughput H1-H5b, H7, and H8 are complete:
 
 - H1: logical payment sharding.
 - H2: financial state/idempotency hardening.
@@ -50,6 +50,7 @@ High-throughput H1-H5b and H7 are complete:
 - H5: Redis hot path.
 - H5b: preview profile.
 - H7: benchmark/simulator observability.
+- H8: capacity proof — ~190 charges/s (postgres-only), ~250/s (Redis+Kafka infra); bottleneck and scale levers documented in `bench/RESULTS.md`.
 
 Phase 4 (Merchant Operations) is now complete: 4.6 merchant audit log delivered.
 
