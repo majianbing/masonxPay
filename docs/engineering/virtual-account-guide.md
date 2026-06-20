@@ -1,7 +1,7 @@
 # Virtual Account — Design and Implementation Guide
 
 # Red Lines
-- Correctness and idempotency.
+- Correctness and idempotency. Two layers: `va_inbox_event` (PK on `event_id`) is the first line of defense at the consumer — it skips redelivered events before any ledger work. `UNIQUE(account_id, source_event_id)` on `va_ledger_entry` is the DB-level safety net — it prevents the same event from posting twice to the same account even if the inbox check is bypassed. Both layers are required. Note: `UNIQUE(account_id, source_event_id)` includes the partition key so it is valid on the HASH-partitioned table; one event legitimately creates entries on multiple accounts with the same `source_event_id` — the constraint is per-account, not global.
 - Precision: the foundational layer supports high-precision decimals (up to 8 places, e.g. `0.00000000`) for future crypto support. Keep precision requirements separate from the business layer — e.g. card payments use `0.00` (2 decimals), crypto uses `0.00000000` (8 decimals).
 - Defend against manual data changes at the DB layer: protect balance updates with a balance signature, and allow balances to be modified only through the VA APIs.
 - The Postgres database is the single source of truth.
@@ -33,8 +33,9 @@ Ownership/scoping and account classification are independent. Do not stack them 
 - **Asset** (`normal_balance = DEBIT`): `CASH`, `WALLET` — value you hold; normally cannot go negative.
 - **Liability** (`normal_balance = CREDIT`): `CREDIT_LINE` — balance = amount owed; bounded by `credit_limit`; available credit = `credit_limit − outstanding`.
 - **Receivable** (`normal_balance = DEBIT`): `RECEIVABLE` — money owed to the platform by a customer. Balance = outstanding amount. Settlement (customer pays) and write-off (财务核销) are both ledger entries that reduce this balance.
-- **Reserve** (`normal_balance = DEBIT`): `RESERVE` — merchant reserve funds held by the platform. Fixed reserve and rolling reserve are identical at the ledger layer — both move $X into this account. The calculation of $X (fixed amount vs percentage) is business-layer policy, not a ledger concern.
-- Platform/external accounts (`FEE_INCOME`, `CLEARING`, `SUSPENSE`, provider mirror) use the same primitive with the appropriate role.
+- **Reserve** (`normal_balance = DEBIT`): `RESERVE` — merchant reserve funds held by the platform. Owned by the **TENANT** (the reserve is still the merchant's money, just restricted — the merchant can see their reserve balance). Fixed reserve and rolling reserve are identical at the ledger layer — both move $X into this account. The calculation of $X (fixed amount vs percentage) is business-layer policy, not a ledger concern.
+- **Bad debt** (`normal_balance = DEBIT`): `BAD_DEBT` — PLATFORM account used as the debit side of a write-off entry (销账 - 财务核销). Represents uncollectable receivables expensed by the platform.
+- Platform/external accounts (`FEE_INCOME`, `CLEARING`, `SUSPENSE`, `BAD_DEBT`, provider mirror) use the same primitive with the appropriate role.
 
 Balance is **derived/materialized** from append-only entries, respecting `normal_balance`. Never `UPDATE`/`DELETE` an entry; corrections and reversals are new compensating entries.
 
@@ -67,7 +68,8 @@ va_account                 -- generic ledger account; ONLY universal columns
   mode          TEST|LIVE
   account_role  TENANT|PLATFORM|EXTERNAL
   org_id, merchant_id      (set for TENANT)        provider_id (set for EXTERNAL)
-  account_type  CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|FEE_INCOME|CLEARING|SUSPENSE
+  account_type  CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|FEE_INCOME|CLEARING|SUSPENSE|BAD_DEBT
+  -- RESERVE is TENANT-owned: the merchant's restricted funds, visible on their balance sheet
   asset         USD|BTC|USDC...  + asset_class FIAT|CRYPTO + scale
   normal_balance DEBIT|CREDIT
   balance        NUMERIC(38, scale)                -- materialized; updated atomically with every entry
@@ -83,10 +85,11 @@ va_ledger_entry            -- append-only, immutable, double-entry; NEVER UPDATE
   direction        DEBIT|CREDIT
   amount           NUMERIC(38, scale)
   asset            VARCHAR(20)
+  entry_seq        BIGINT             -- per-account monotonically increasing counter; defines chain order for HMAC and period accounting (not created_at)
   balance_after    NUMERIC(38, scale) -- running balance snapshot after this entry
   balance_signature VARCHAR(64)       -- HMAC-SHA256 tamper-evident chain; see Balance Integrity section
-  source_event_id  VARCHAR(64) UNIQUE -- DB-level idempotency
-  status           PENDING|POSTED|REVERSED
+  source_event_id  VARCHAR(64)        -- dedup + traceability; UNIQUE(account_id, source_event_id) enforces DB-level guarantee that the same event cannot post twice to the same account
+  status           POSTED|REVERSED    -- no PENDING: pre-auth / pending amounts are tracked via frozen_balance at the account level, not as ledger entries
   created_at       TIMESTAMPTZ
 
 credit_line_profile (account_id fk, credit_limit, cycle, ...)   -- type extensions
@@ -105,6 +108,8 @@ Holds (冻结/解冻) do not move money — they constrain availability. The fun
 - **Available balance (可用余额):** `balance - frozen_balance` — derived on read, never stored
 
 Individual hold metadata (reason, expiry, dispute reference) is business-layer concern and lives above the fundamental layer. The fundamental layer only tracks the total frozen amount.
+
+**Relationship to entry status:** pre-authorization amounts (card auth before settlement) are NOT written as `PENDING` ledger entries — they are tracked entirely via `frozen_balance`. A ledger entry is only written when the movement is confirmed (POSTED). When an authorization settles, a POSTED entry is created and `frozen_balance` is decremented atomically in the same transaction.
 
 ## Financial concepts — ledger mapping
 
@@ -126,15 +131,29 @@ The ledger is a **closed** double-entry system: every transaction's debits and c
 
 Example — VCC **credit**-card loop (TENANT cardholder credit line, PLATFORM books, EXTERNAL provider window):
 
+Notation: each step shows `DEBIT account $amount | CREDIT account $amount`. Every step nets to zero.
+
 ```
-A. Card draw $100   TENANT credit line +100   |  EXTERNAL provider +100      (net 0)
-B. Fee 2%           TENANT credit line +2      |  PLATFORM fee income +2      (net 0)
-C. Settle provider  EXTERNAL provider -100     |  PLATFORM clearing  -100     (net 0)
-D. Cardholder repay TENANT credit line -102    |  PLATFORM clearing  +102     (net 0)
-END: tenant 0, provider 0, kept +$2 fee, net cash +$2
+A. Card draw $100
+   DEBIT  EXTERNAL provider   $100  |  CREDIT TENANT credit_line  $100   (net 0)
+   (platform records provider receivable; cardholder outstanding increases)
+
+B. Fee 2% = $2
+   DEBIT  EXTERNAL provider   $2    |  CREDIT PLATFORM fee_income $2     (net 0)
+   (fee embedded in provider receivable; platform earns $2)
+
+C. Provider settles $102
+   DEBIT  PLATFORM clearing   $102  |  CREDIT EXTERNAL provider   $102   (net 0)
+   (clearing receives $102 from provider; receivable cleared)
+
+D. Cardholder repays $102
+   DEBIT  PLATFORM clearing   $102  |  CREDIT TENANT credit_line  $102   (net 0)
+   (clearing receives repayment; cardholder outstanding zeroed)
+
+END: EXTERNAL provider = 0, TENANT credit_line = 0, PLATFORM net = +$2 fee
 ```
 
-Debit card is the same loop with step A flipped (cardholder asset account **−100**) and no repayment step.
+Debit card is the same loop with step A flipped: `DEBIT TENANT cash $100 | CREDIT EXTERNAL provider $100` (cardholder asset decreases directly), and no repayment step D.
 
 # Responsibility Boundary — Issuer vs Orchestrator
 
@@ -151,6 +170,41 @@ Two business scenarios, **one ledger model**, switched by a per-program authorit
 - Reconciliation engine: runs hard for `EXTERNAL`, light for `INTERNAL`.
 
 **VA's responsibility boundary:** VA owns the **ledger** (truth-of-record for A, mirror-of-record for B) **+ the reconciliation engine**. The authorization role and reconciliation intensity switch by the authority flag. Provider issuance/settlement integration lives **outside** VA as a connector (like the gateway's existing connector pattern), feeding VA via events.
+
+# Inbox & Idempotency
+
+## va_inbox_event
+
+`va_inbox_event` is the first line of dedup defense. Every inbound event is inserted here before any ledger work. A duplicate event hits a PK conflict and is skipped. The inbox insert and all ledger writes share the same DB transaction — so a crash between them rolls back the inbox row, making the event replayable.
+
+```
+va_inbox_event   PARTITION BY HASH(event_id), 8 buckets
+  event_id       VARCHAR(64)   PK   -- dedup key; also the partition key
+  event_type     VARCHAR(100)
+  received_at    TIMESTAMPTZ        -- used by retention cleanup only
+```
+
+## Sharding: why HASH(event_id), not HASH(account_id) or RANGE(received_at)
+
+**Why event_id as shard key:** dedup lookups query by `event_id`. With `HASH(event_id)`, the lookup hits exactly one partition — fast, no cross-partition scan. One event touches multiple accounts, so `account_id` is not a natural dedup key here.
+
+**Why NOT RANGE(received_at):** dedup queries don't carry `received_at`. Without the partition key in the query, Postgres cannot prune partitions and must scan all of them — a cross-partition scan that makes dedup *slower* than a single table. RANGE(received_at) only helps data retention, not throughput.
+
+**Why 8 buckets (not 64):** the inbox is a simple insert-and-forget table, far lighter than the ledger. 8 buckets distributes write contention sufficiently without incurring unnecessary partition overhead.
+
+## Retention
+
+A periodic DELETE job removes events older than N days, targeting each child partition individually. Postgres names HASH partitions with a numeric suffix:
+
+```sql
+DELETE FROM va_inbox_event_0 WHERE received_at < now() - INTERVAL '180 days';
+DELETE FROM va_inbox_event_1 WHERE received_at < now() - INTERVAL '180 days';
+-- ... through va_inbox_event_7
+```
+
+Target child partitions directly (not the parent `va_inbox_event`) — this keeps lock scope to one partition at a time, allows spreading deletes across time, and makes progress observable per shard. No composite partitioning or partition detachment needed.
+
+**Retention window sizing:** size to 2–3× your Kafka retention policy. If Kafka keeps 30 days, a 90-day inbox window provides full replay safety with headroom. 180 days is a conservative default. Events older than the retention window pose negligible replay risk in practice — Kafka will not redeliver events that old.
 
 # Ledger Entry Sharding
 
@@ -183,13 +237,13 @@ SUM(amount FILTER direction = CREDIT) − SUM(amount FILTER direction = DEBIT)
 
 **Atomic posting.** Every entry insert and the corresponding `va_account.balance` update happen in the same DB transaction — no entry without a balance update, no balance update without an entry.
 
-Because entries are immutable and timestamped, the equation holds for any window:
+Because entries are immutable and sequenced, the equation holds for any window. Use `entry_seq` — not `created_at` — as the ordering anchor. `created_at` has millisecond precision and is non-deterministic under concurrency; `entry_seq` is a per-account monotonic counter set atomically on insert.
 
 ```
-opening = SUM(entries WHERE created_at <  period_start)
-credits = SUM(credit entries WHERE created_at IN period)
-debits  = SUM(debit  entries WHERE created_at IN period)
-closing = opening + credits − debits   ← guaranteed by immutability
+opening  = balance_after WHERE entry_seq = (last seq before period_start)
+credits  = SUM(amount WHERE direction=CREDIT AND entry_seq IN period range)
+debits   = SUM(amount WHERE direction=DEBIT  AND entry_seq IN period range)
+closing  = opening + credits − debits   ← guaranteed by immutability + entry_seq ordering
 ```
 
 ## Balance signature (tamper-evident hash chain)
@@ -199,9 +253,11 @@ Direct DB edits to `va_account.balance` or `va_ledger_entry.amount` must be dete
 ```
 balance_signature = HMAC_SHA256(
   app_secret,
-  account_id || amount || direction || balance_after || txid || prev_signature
+  account_id || entry_seq || amount || direction || balance_after || frozen_balance || txid || prev_signature
 )
 ```
+
+`frozen_balance` is included in the signature inputs because it has no ledger entry audit trail of its own. Any direct DB edit to `frozen_balance` will break the next signature computed at posting time.
 
 `prev_signature` chains every entry to the one before it. Any tampering with a past entry or the account balance breaks every subsequent signature in the chain.
 
@@ -220,9 +276,10 @@ va_ledger_entry
 ```
 
 **On every entry insert:**
-1. Read the previous entry's `balance_signature` for this account (within the same `SELECT FOR UPDATE` lock).
-2. Compute the new signature.
-3. Insert entry + update `va_account.balance` atomically.
+1. `SELECT FOR UPDATE` on `va_account` — locks the account row for the duration of the transaction.
+2. Read `balance`, `frozen_balance`, and the previous `balance_signature` + `entry_seq` from the last entry for this account.
+3. Compute `entry_seq = prev_entry_seq + 1`, new `balance_after`, and new `balance_signature`.
+4. Insert the `va_ledger_entry` row and update `va_account.balance` atomically in the same transaction.
 
 **Validation:** on any read or reconciliation pass, recompute the chain from `sig_0` and compare. A mismatch pinpoints the tampered entry.
 
@@ -230,6 +287,14 @@ va_ledger_entry
 - `app_secret` lives in the application (environment secret / KMS); never stored in the DB.
 - The app DB role must have no `UPDATE`/`DELETE` on `va_ledger_entry` and no direct `UPDATE balance` on `va_account` — enforced via `REVOKE`. The signature is defense-in-depth for higher-privilege DB compromise.
 
-**What this catches:** direct balance edits, deleted entries, amount tampering.  
+**What this catches:** direct balance edits, deleted entries, amount tampering, and direct `frozen_balance` edits.  
 **What this does not catch:** an attacker who also has the `app_secret` and rewrites the chain — that is a key management problem, not a schema problem.
+
+## Application-layer invariants (not enforceable by DB)
+
+With HASH partitioning, entries for one transaction span multiple partitions. Two correctness invariants must be enforced at the application layer on every transaction commit — the DB cannot enforce them across partitions:
+
+**Transaction balance (net-zero):** the sum of all DEBIT amounts must equal the sum of all CREDIT amounts across every entry sharing the same `transaction_id`. A transaction that doesn't net to zero must never be committed.
+
+**Asset consistency:** all entries in a transaction must share the same `asset`. A transaction that DEBITs USD and CREDITs BTC would pass net-zero but corrupt the books. Reject at the service layer before writing.
 
