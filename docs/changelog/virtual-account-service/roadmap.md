@@ -14,10 +14,12 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 
 - `[x]` `SnowflakeIdGenerator` — time + node bits, thread-safe; used for `ac_`, `le_`, `tx_` prefixed IDs
 
-## Layer 3 — Contracts Update `[ ]`
+## Layer 3 — Contracts Update `[x]`
 
-- `[ ]` Add money fields to `SettlementEvent` (amount, asset, asset_class, scale, direction, fee)
-- `[ ]` Update `RecordSettlementCommand` + `SettlementEventMapper` to carry money fields through
+- `[x]` Add money fields to `SettlementEvent` (amount, feeAmount, asset, assetClass, scale, direction) — schema v2, additive/nullable
+- `[x]` `Direction` + `AssetClass` enums added to VA domain
+- `[x]` `RecordSettlementCommand` updated with VA-typed money fields (BigDecimal, enums, netAmount derived)
+- `[x]` `SettlementEventMapper` maps contract strings → VA enums with null-safe v1 defaults
 
 ## Layer 4 — Domain Model & Repositories `[ ]`
 
@@ -39,3 +41,4 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 
 - **Layer 1 — DB Migrations** (2026-06-20): V2 inbox repartition, V3 va_account, V4 va_ledger_entry
 - **Layer 2 — Common Module** (2026-06-20): SnowflakeIdGenerator (8 tests passing)
+- **Layer 3 — Contracts Update** (2026-06-20): SettlementEvent v2 money fields, Direction/AssetClass enums, RecordSettlementCommand, SettlementEventMapper
