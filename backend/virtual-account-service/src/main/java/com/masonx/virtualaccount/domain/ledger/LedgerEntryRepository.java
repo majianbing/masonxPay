@@ -1,8 +1,7 @@
 package com.masonx.virtualaccount.domain.ledger;
 
-import com.masonx.virtualaccount.domain.Direction;
-import com.masonx.virtualaccount.domain.EntryStatus;
-import com.masonx.virtualaccount.domain.LedgerEntry;
+import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.po.LedgerEntry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 

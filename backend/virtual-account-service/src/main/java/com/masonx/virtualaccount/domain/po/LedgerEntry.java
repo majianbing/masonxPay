@@ -1,4 +1,7 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.po;
+
+import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.constant.EntryStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;

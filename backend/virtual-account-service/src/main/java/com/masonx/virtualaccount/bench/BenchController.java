@@ -2,8 +2,9 @@ package com.masonx.virtualaccount.bench;
 
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
-import com.masonx.virtualaccount.domain.*;
+import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.*;
+import com.masonx.virtualaccount.domain.po.VaAccount;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;

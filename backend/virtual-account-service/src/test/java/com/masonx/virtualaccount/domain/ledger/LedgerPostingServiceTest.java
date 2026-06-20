@@ -3,7 +3,12 @@ package com.masonx.virtualaccount.domain.ledger;
 import com.masonx.common.error.BusinessException;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
-import com.masonx.virtualaccount.domain.*;
+import com.masonx.virtualaccount.domain.constant.*;
+import com.masonx.virtualaccount.domain.ledger.validator.AssetConsistencyValidator;
+import com.masonx.virtualaccount.domain.ledger.validator.InsufficientBalanceValidator;
+import com.masonx.virtualaccount.domain.ledger.validator.NetZeroValidator;
+import com.masonx.virtualaccount.domain.po.LedgerEntry;
+import com.masonx.virtualaccount.domain.po.VaAccount;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +39,9 @@ class LedgerPostingServiceTest {
     void setUp() {
         service = new LedgerPostingService(
                 accountRepo, entryRepo, signatureService,
-                new SnowflakeIdGenerator(0));
+                new SnowflakeIdGenerator(0),
+                List.of(new AssetConsistencyValidator(), new NetZeroValidator()),
+                List.of(new InsufficientBalanceValidator()));
     }
 
     // --- helpers ---
@@ -119,7 +126,7 @@ class LedgerPostingServiceTest {
                 Optional.of(cashAccount("ac_tenant", new BigDecimal("50.00"))));
 
         // CASH is DEBIT-normal: CREDIT reduces the balance. Crediting 100 from a 50 balance → -50.
-        // computeBalance fires before chain verification, so findLastChainHead is never called.
+        // entryValidators fire before chain verification, so findLastChainHead is never called.
         var tx = new PostTransaction("tx_1", List.of(
                 credit("ac_tenant", "100.00"), debit("ac_ext", "100.00")));
 

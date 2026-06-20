@@ -1,5 +1,7 @@
 package com.masonx.virtualaccount.domain;
 
+import com.masonx.virtualaccount.domain.api.SettlementHandler;
+import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

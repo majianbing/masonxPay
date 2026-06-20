@@ -1,4 +1,6 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.api;
+
+import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
 
 /**
  * Domain entry point for a settlement. The skeleton ships a logging stub; the

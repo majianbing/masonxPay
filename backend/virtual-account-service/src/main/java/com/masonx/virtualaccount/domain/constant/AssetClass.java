@@ -1,4 +1,4 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.constant;
 
 /** Asset classification — drives precision rules and allowed operations. */
 public enum AssetClass {

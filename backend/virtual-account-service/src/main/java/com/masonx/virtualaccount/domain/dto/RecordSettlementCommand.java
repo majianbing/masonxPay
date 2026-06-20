@@ -1,6 +1,8 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.dto;
 
 import com.masonx.common.tenant.TenantRef;
+import com.masonx.virtualaccount.domain.constant.AssetClass;
+import com.masonx.virtualaccount.domain.constant.Direction;
 
 import java.math.BigDecimal;
 import java.util.UUID;

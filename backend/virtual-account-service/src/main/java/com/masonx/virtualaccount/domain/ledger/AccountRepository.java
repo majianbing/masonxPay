@@ -1,7 +1,8 @@
 package com.masonx.virtualaccount.domain.ledger;
 
 import com.masonx.common.tenant.Mode;
-import com.masonx.virtualaccount.domain.*;
+import com.masonx.virtualaccount.domain.constant.*;
+import com.masonx.virtualaccount.domain.po.VaAccount;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;

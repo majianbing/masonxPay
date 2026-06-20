@@ -82,30 +82,42 @@ class SnowflakeIdGeneratorTest {
     }
 
     @Test
-    void tolerates_small_clock_drift_without_throwing() {
-        // Simulate a 1 ms backward tick (common NTP adjustment on Docker/VMs).
-        // next() must spin-wait and return a valid ID rather than throwing.
+    void tolerates_backward_clock_tick_by_pinning_to_last_timestamp() {
+        // Simulate a 7 ms backward tick (observed at 2000 TPS under Docker load).
+        // next() must pin now=lastTimestamp, increment sequence, and return a valid ID.
         var gen = new SnowflakeIdGenerator(1) {
-            private final long[] ticks = { 1_000L, 999L, 1_001L };
+            private final long[] ticks = { 1_000L, 993L };
             private int call = 0;
             @Override long currentMs() { return ticks[Math.min(call++, ticks.length - 1)]; }
         };
-        long id1 = gen.next();  // primes lastTimestamp = 1000
-        long id2 = gen.next();  // clock returns 999 → drift=1 → spin → returns 1001
+        long id1 = gen.next();  // lastTimestamp = 1000, seq = 0
+        long id2 = gen.next();  // clock = 993 → drift = 7 → pin now = 1000, seq = 1
         assertThat(id2).isGreaterThan(id1);
     }
 
     @Test
-    void throws_on_large_clock_drift() {
+    void tolerates_up_to_2000ms_backward_drift() {
         var gen = new SnowflakeIdGenerator(1) {
-            private final long[] ticks = { 1_000L, 994L };
+            private final long[] ticks = { 5_000L, 3_001L };
             private int call = 0;
             @Override long currentMs() { return ticks[Math.min(call++, ticks.length - 1)]; }
         };
-        gen.next();  // primes lastTimestamp = 1000
+        long id1 = gen.next();  // lastTimestamp = 5000
+        long id2 = gen.next();  // drift = 1999 ms → within limit → pin and succeed
+        assertThat(id2).isGreaterThan(id1);
+    }
+
+    @Test
+    void throws_on_extreme_clock_reset_beyond_2000ms() {
+        var gen = new SnowflakeIdGenerator(1) {
+            private final long[] ticks = { 5_000L, 2_999L };
+            private int call = 0;
+            @Override long currentMs() { return ticks[Math.min(call++, ticks.length - 1)]; }
+        };
+        gen.next();  // primes lastTimestamp = 5000
         assertThatThrownBy(gen::next)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Clock moved backwards by 6 ms");
+                .hasMessageContaining("Clock moved backwards by 2001 ms");
     }
 
     @Test

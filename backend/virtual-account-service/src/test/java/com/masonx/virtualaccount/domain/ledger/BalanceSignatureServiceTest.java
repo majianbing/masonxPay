@@ -1,6 +1,6 @@
 package com.masonx.virtualaccount.domain.ledger;
 
-import com.masonx.virtualaccount.domain.Direction;
+import com.masonx.virtualaccount.domain.constant.Direction;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;

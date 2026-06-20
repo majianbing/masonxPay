@@ -1,6 +1,7 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.po;
 
 import com.masonx.common.tenant.Mode;
+import com.masonx.virtualaccount.domain.constant.*;
 
 import java.math.BigDecimal;
 

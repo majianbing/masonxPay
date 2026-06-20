@@ -1,4 +1,4 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.constant;
 
 public enum NormalBalance {
     /** Balance increases on DEBIT (asset accounts: CASH, WALLET, RECEIVABLE, RESERVE). */

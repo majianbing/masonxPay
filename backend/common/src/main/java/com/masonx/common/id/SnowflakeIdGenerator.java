@@ -29,9 +29,13 @@ public class SnowflakeIdGenerator {
     private static final int  NODE_SHIFT      = SEQUENCE_BITS;              // 12
     private static final int  TIMESTAMP_SHIFT = NODE_BITS + SEQUENCE_BITS;  // 22
 
-    /** NTP adjustments on Docker/VMs routinely cause 1–2 ms backward ticks.
-     *  Spin-wait for drift up to this threshold; throw beyond it. */
-    private static final long MAX_CLOCK_DRIFT_MS = 5L;
+    /**
+     * Under load, NTP corrections on Docker/VMs can move the clock backwards by tens of ms.
+     * For any backward tick within this threshold we pin now=lastTimestamp and let the
+     * per-ms sequence absorb the drift — no spin, no exception, IDs stay monotonic.
+     * Beyond this threshold the clock has been reset intentionally; throw to surface it.
+     */
+    private static final long MAX_BACKWARD_MS = 2_000L;
 
     private final long nodeId;
     private long lastTimestamp = -1L;
@@ -51,14 +55,12 @@ public class SnowflakeIdGenerator {
 
         if (now < lastTimestamp) {
             long drift = lastTimestamp - now;
-            if (drift > MAX_CLOCK_DRIFT_MS) {
+            if (drift > MAX_BACKWARD_MS) {
                 throw new IllegalStateException(
-                        "Clock moved backwards by " + drift + " ms (max tolerated: " + MAX_CLOCK_DRIFT_MS + " ms)");
+                        "Clock moved backwards by " + drift + " ms (max tolerated: " + MAX_BACKWARD_MS + " ms)");
             }
-            // Small NTP drift — spin until the clock catches up rather than failing the request.
-            while (now < lastTimestamp) {
-                now = currentMs();
-            }
+            // NTP correction — pin to lastTimestamp; sequence handles ordering within the ms.
+            now = lastTimestamp;
         }
 
         if (now == lastTimestamp) {

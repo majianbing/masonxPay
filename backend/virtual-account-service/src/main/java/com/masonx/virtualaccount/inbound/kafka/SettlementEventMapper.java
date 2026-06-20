@@ -1,9 +1,9 @@
 package com.masonx.virtualaccount.inbound.kafka;
 
 import com.masonx.contracts.settlement.SettlementEvent;
-import com.masonx.virtualaccount.domain.AssetClass;
-import com.masonx.virtualaccount.domain.Direction;
-import com.masonx.virtualaccount.domain.RecordSettlementCommand;
+import com.masonx.virtualaccount.domain.constant.AssetClass;
+import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

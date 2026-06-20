@@ -1,4 +1,4 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.constant;
 
 public enum EntryStatus {
     POSTED,

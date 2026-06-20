@@ -1,4 +1,4 @@
-package com.masonx.virtualaccount.domain;
+package com.masonx.virtualaccount.domain.constant;
 
 public enum AccountRole {
     /** Owned by a merchant/org. Scoped by mode + org + merchant. */
