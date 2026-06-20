@@ -24,6 +24,10 @@ spring:
 
 # Virtual Account service settings
 va:
+  signature:
+    # HMAC-SHA256 secret for the tamper-evident balance chain.
+    # MUST be set via VA_SIGNATURE_SECRET in production — never commit a real value.
+    secret: ${VA_SIGNATURE_SECRET:change-me-in-production}
   id:
     # Node ID (0–1023). Must be unique across all running VA service instances.
     # Set VA_NODE_ID per pod/instance in deployment config.
