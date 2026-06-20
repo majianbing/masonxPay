@@ -24,6 +24,10 @@ spring:
 
 # Virtual Account service settings
 va:
+  id:
+    # Node ID (0–1023). Must be unique across all running VA service instances.
+    # Set VA_NODE_ID per pod/instance in deployment config.
+    node-id: ${VA_NODE_ID:0}
   kafka:
     settlement-topic: ${VA_SETTLEMENT_TOPIC:payment.settlement.events}
     consumer:

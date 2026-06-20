@@ -14,4 +14,17 @@
     <artifactId>common</artifactId>
     <name>common</name>
     <description>Shared kernel: business errors, mode, and tenant value objects. No framework, entity, or repository dependencies.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

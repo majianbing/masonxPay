@@ -10,9 +10,9 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 - `[x]` V3: create `va_account` table (enums, extension tables, constraints, indexes)
 - `[x]` V4: create `va_ledger_entry` table → `PARTITION BY HASH(account_id)`, 64 buckets
 
-## Layer 2 — Common Module `[ ]`
+## Layer 2 — Common Module `[x]`
 
-- `[ ]` `SnowflakeIdGenerator` — time + node bits, thread-safe; used for `ac_`, `le_`, `tx_` prefixed IDs
+- `[x]` `SnowflakeIdGenerator` — time + node bits, thread-safe; used for `ac_`, `le_`, `tx_` prefixed IDs
 
 ## Layer 3 — Contracts Update `[ ]`
 
@@ -38,3 +38,4 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 ## Completed
 
 - **Layer 1 — DB Migrations** (2026-06-20): V2 inbox repartition, V3 va_account, V4 va_ledger_entry
+- **Layer 2 — Common Module** (2026-06-20): SnowflakeIdGenerator (8 tests passing)
