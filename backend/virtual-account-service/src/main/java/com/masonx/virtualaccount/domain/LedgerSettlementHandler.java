@@ -4,7 +4,7 @@ import com.masonx.common.error.BusinessException;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
 import com.masonx.virtualaccount.domain.ledger.EntryDraft;
-import com.masonx.virtualaccount.domain.ledger.LedgerPostingService;
+import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
 import com.masonx.virtualaccount.domain.ledger.PostTransaction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,15 +44,15 @@ public class LedgerSettlementHandler implements SettlementHandler {
     private static final Logger log = LoggerFactory.getLogger(LedgerSettlementHandler.class);
 
     private final AccountRepository    accountRepo;
-    private final LedgerPostingService postingService;
+    private final LedgerFacade         ledger;
     private final SnowflakeIdGenerator idGenerator;
 
     public LedgerSettlementHandler(AccountRepository accountRepo,
-                                   LedgerPostingService postingService,
+                                   LedgerFacade ledger,
                                    SnowflakeIdGenerator idGenerator) {
-        this.accountRepo    = accountRepo;
-        this.postingService = postingService;
-        this.idGenerator    = idGenerator;
+        this.accountRepo = accountRepo;
+        this.ledger      = ledger;
+        this.idGenerator = idGenerator;
     }
 
     @Override
@@ -79,10 +79,16 @@ public class LedgerSettlementHandler implements SettlementHandler {
         String txId    = idGenerator.generate("tx_");
         List<EntryDraft> entries = buildEntries(cmd, tenantCash, externalClearing);
 
-        postingService.post(new PostTransaction(txId, entries));
+        boolean posted = ledger.postIfNew(
+                new PostTransaction(txId, entries),
+                cmd.sourceEventId(), "settlement");
 
-        log.info("VA settlement posted: eventId={} txId={} merchant={} amount={} asset={}",
-                cmd.sourceEventId(), txId, merchantId, cmd.netAmount(), cmd.asset());
+        if (posted) {
+            log.info("VA settlement posted: eventId={} txId={} merchant={} amount={} asset={}",
+                    cmd.sourceEventId(), txId, merchantId, cmd.netAmount(), cmd.asset());
+        } else {
+            log.info("VA settlement duplicate skipped: eventId={}", cmd.sourceEventId());
+        }
     }
 
     private List<EntryDraft> buildEntries(RecordSettlementCommand cmd,

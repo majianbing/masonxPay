@@ -63,6 +63,13 @@ class LedgerPostingServiceTest {
                 new BigDecimal(amount), "USD", "evt_1");
     }
 
+    /** A ChainHead whose verify() call will pass when mocked to return true. */
+    private ChainHead chainHead(long seq, String sig) {
+        return new ChainHead(seq, new BigDecimal("100.00"), Direction.DEBIT,
+                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_prev",
+                ChainAnchor.GENESIS_SIGNATURE, sig);
+    }
+
     // --- validation tests ---
 
     @Test
@@ -112,7 +119,7 @@ class LedgerPostingServiceTest {
                 Optional.of(cashAccount("ac_tenant", new BigDecimal("50.00"))));
 
         // CASH is DEBIT-normal: CREDIT reduces the balance. Crediting 100 from a 50 balance → -50.
-        // Exception is thrown in computeBalance before the signature/anchor calls are ever reached.
+        // computeBalance fires before chain verification, so findLastChainHead is never called.
         var tx = new PostTransaction("tx_1", List.of(
                 credit("ac_tenant", "100.00"), debit("ac_ext", "100.00")));
 
@@ -129,7 +136,7 @@ class LedgerPostingServiceTest {
                 Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));
         when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
                 Optional.of(externalAccount("ac_ext")));
-        when(entryRepo.findLastAnchor(any())).thenReturn(Optional.empty());
+        when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
         when(signatureService.compute(any())).thenReturn("sig_abc");
 
         // Settlement: provider clears $100 to merchant.
@@ -150,7 +157,7 @@ class LedgerPostingServiceTest {
                 Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));
         when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
                 Optional.of(externalAccount("ac_ext")));
-        when(entryRepo.findLastAnchor(any())).thenReturn(Optional.empty());
+        when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
         when(signatureService.compute(any())).thenReturn("sig");
 
         service.post(new PostTransaction("tx_1", List.of(
@@ -163,14 +170,16 @@ class LedgerPostingServiceTest {
 
     @Test
     void uses_genesis_signature_for_first_entry() {
-        when(accountRepo.findByIdForUpdate(any())).thenReturn(
-                Optional.of(cashAccount("ac_any", BigDecimal.ZERO)));
-        when(entryRepo.findLastAnchor(any())).thenReturn(Optional.empty());
+        // Two distinct accounts with no prior entries — both must chain to GENESIS.
+        when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
+                Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));
+        when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
+                Optional.of(externalAccount("ac_ext")));
+        when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
         when(signatureService.compute(any())).thenReturn("sig");
 
-        // CASH is DEBIT-normal: debit first (increases balance), then credit back to zero.
         service.post(new PostTransaction("tx_1", List.of(
-                debit("ac_any", "100.00"), credit("ac_any", "100.00"))));
+                debit("ac_tenant", "100.00"), credit("ac_ext", "100.00"))));
 
         var sigCaptor = ArgumentCaptor.forClass(SignatureInput.class);
         verify(signatureService, atLeastOnce()).compute(sigCaptor.capture());
@@ -180,19 +189,76 @@ class LedgerPostingServiceTest {
 
     @Test
     void chains_prev_signature_from_last_entry() {
+        // ac_tenant has prior entries (chain head with balanceAfter=100 matches account balance).
+        // ac_ext is fresh (no prior entries, balance=0).
+        // Verifies that ac_tenant's new entry uses the chain head's signature as prevSignature.
         String prevSig = "prev-sig-abc";
-        when(accountRepo.findByIdForUpdate(any())).thenReturn(
-                Optional.of(cashAccount("ac_any", new BigDecimal("200.00"))));
-        when(entryRepo.findLastAnchor(any()))
-                .thenReturn(Optional.of(new ChainAnchor(5L, prevSig)));
+        ChainHead tenantHead = chainHead(5L, prevSig);  // balanceAfter=100
+
+        when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
+                Optional.of(cashAccount("ac_tenant", new BigDecimal("100.00"))));
+        when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
+                Optional.of(externalAccount("ac_ext")));
+        when(entryRepo.findLastChainHead("ac_tenant")).thenReturn(Optional.of(tenantHead));
+        when(entryRepo.findLastChainHead("ac_ext")).thenReturn(Optional.empty());
+        when(signatureService.verify(any(), eq(prevSig))).thenReturn(true);
         when(signatureService.compute(any())).thenReturn("new-sig");
 
         service.post(new PostTransaction("tx_1", List.of(
-                debit("ac_any", "50.00"), credit("ac_any", "50.00"))));
+                debit("ac_tenant", "50.00"), credit("ac_ext", "50.00"))));
 
         var captor = ArgumentCaptor.forClass(SignatureInput.class);
         verify(signatureService, atLeastOnce()).compute(captor.capture());
         assertThat(captor.getAllValues())
-                .allMatch(s -> s.prevSignature().equals(prevSig));
+                .anyMatch(s -> s.prevSignature().equals(prevSig));
+    }
+
+    @Test
+    void rejects_posting_when_va_account_balance_tampered() {
+        // Simulate: attacker ran UPDATE va_account SET balance = 0 but left va_ledger_entry intact.
+        // account.balance() = 0, but last entry balance_after = 100 → mismatch caught before HMAC check.
+        ChainHead head = new ChainHead(1L, new BigDecimal("100.00"), Direction.DEBIT,
+                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_prev",
+                ChainAnchor.GENESIS_SIGNATURE, "sig");
+
+        when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
+                Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));   // tampered balance
+        when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
+                Optional.of(externalAccount("ac_ext")));
+        // Exception fires on ac_tenant before ac_ext is reached — no ac_ext chain stub needed.
+        when(entryRepo.findLastChainHead("ac_tenant")).thenReturn(Optional.of(head));
+
+        var tx = new PostTransaction("tx_1", List.of(
+                debit("ac_tenant", "50.00"), credit("ac_ext", "50.00")));
+
+        assertThatThrownBy(() -> service.post(tx))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).code()).isEqualTo("VA_BALANCE_MISMATCH"));
+
+        verify(entryRepo, never()).insert(any());
+    }
+
+    @Test
+    void rejects_posting_when_chain_head_is_tampered() {
+        // account.balance matches last entry (balance cross-check passes),
+        // but HMAC recomputation fails → entry row was modified directly.
+        ChainHead tamperedHead = chainHead(3L, "stored-sig");
+
+        when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
+                Optional.of(cashAccount("ac_tenant", new BigDecimal("100.00"))));
+        when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
+                Optional.of(externalAccount("ac_ext")));
+        when(entryRepo.findLastChainHead(any())).thenReturn(Optional.of(tamperedHead));
+        // Signature recomputation does not match stored signature → tampering detected.
+        when(signatureService.verify(any(), eq("stored-sig"))).thenReturn(false);
+
+        var tx = new PostTransaction("tx_1", List.of(
+                debit("ac_tenant", "100.00"), credit("ac_ext", "100.00")));
+
+        assertThatThrownBy(() -> service.post(tx))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).code()).isEqualTo("VA_CHAIN_TAMPERED"));
+
+        verify(entryRepo, never()).insert(any());
     }
 }

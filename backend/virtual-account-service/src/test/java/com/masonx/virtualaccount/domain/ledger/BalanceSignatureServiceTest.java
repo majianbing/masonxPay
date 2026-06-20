@@ -69,6 +69,19 @@ class BalanceSignatureServiceTest {
     }
 
     @Test
+    void scale_variants_produce_same_signature() {
+        // DB NUMERIC(38,8) returns scale-8; request body BigDecimal has scale-2 or scale-0.
+        // canonical() must be invariant to scale.
+        var withScale2 = new SignatureInput("ac_1", 1L,
+                new BigDecimal("10.00"), Direction.DEBIT,
+                new BigDecimal("10.00"), BigDecimal.ZERO, "tx_1", "GENESIS");
+        var withScale8 = new SignatureInput("ac_1", 1L,
+                new BigDecimal("10.00000000"), Direction.DEBIT,
+                new BigDecimal("10.00000000"), new BigDecimal("0.00000000"), "tx_1", "GENESIS");
+        assertThat(service.compute(withScale2)).isEqualTo(service.compute(withScale8));
+    }
+
+    @Test
     void chain_links_correctly() {
         String sig1 = service.compute(input("GENESIS"));
         var input2 = new SignatureInput("ac_123", 2L,

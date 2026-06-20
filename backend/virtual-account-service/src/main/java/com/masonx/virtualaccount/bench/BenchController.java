@@ -25,18 +25,18 @@ import java.util.*;
 public class BenchController {
 
     private final AccountRepository       accountRepo;
-    private final LedgerPostingService    postingService;
+    private final LedgerFacade            ledger;
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator    idGenerator;
     private final JdbcTemplate            jdbc;
 
     public BenchController(AccountRepository accountRepo,
-                           LedgerPostingService postingService,
+                           LedgerFacade ledger,
                            BalanceSignatureService signatureService,
                            SnowflakeIdGenerator idGenerator,
                            JdbcTemplate jdbc) {
         this.accountRepo      = accountRepo;
-        this.postingService   = postingService;
+        this.ledger           = ledger;
         this.signatureService = signatureService;
         this.idGenerator      = idGenerator;
         this.jdbc             = jdbc;
@@ -77,7 +77,7 @@ public class BenchController {
     @PostMapping("/post")
     public PostResponse post(@RequestBody PostRequest req) {
         String txId = idGenerator.generate("tx_");
-        postingService.post(new PostTransaction(txId, List.of(
+        ledger.postDirect(new PostTransaction(txId, List.of(
                 new EntryDraft(req.tenantAccountId(), Direction.DEBIT,
                         req.amount(), "USD", "bench_" + txId),
                 new EntryDraft(req.externalAccountId(), Direction.CREDIT,
@@ -94,11 +94,12 @@ public class BenchController {
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
 
         record EntryRow(long entrySeq, BigDecimal amount, Direction direction,
-                        BigDecimal balanceAfter, String balanceSignature, String transactionId) {}
+                        BigDecimal balanceAfter, BigDecimal frozenBalance,
+                        String prevSignature, String balanceSignature, String transactionId) {}
 
         List<EntryRow> entries = jdbc.query("""
                 SELECT entry_seq, amount, direction, balance_after,
-                       balance_signature, transaction_id
+                       frozen_balance, prev_signature, balance_signature, transaction_id
                 FROM va_ledger_entry
                 WHERE account_id = ?
                 ORDER BY entry_seq ASC
@@ -108,6 +109,8 @@ public class BenchController {
                         rs.getBigDecimal("amount"),
                         Direction.valueOf(rs.getString("direction")),
                         rs.getBigDecimal("balance_after"),
+                        rs.getBigDecimal("frozen_balance"),
+                        rs.getString("prev_signature"),
                         rs.getString("balance_signature"),
                         rs.getString("transaction_id")),
                 accountId);
@@ -131,21 +134,19 @@ public class BenchController {
             }
         }
 
-        // HMAC chain: recompute each entry's signature using prevSig and compare.
-        // Bench accounts always have frozenBalance=0 (never frozen), so ZERO is correct here.
+        // HMAC chain: each entry now stores its own frozen_balance snapshot and
+        // prev_signature, so it is fully self-verifiable without external context.
         boolean chainOk = true;
         Long firstBrokenChainAtSeq = null;
-        String prevSig = ChainAnchor.GENESIS_SIGNATURE;
         for (EntryRow e : entries) {
             String expected = signatureService.compute(new SignatureInput(
                     accountId, e.entrySeq(), e.amount(), e.direction(),
-                    e.balanceAfter(), BigDecimal.ZERO, e.transactionId(), prevSig));
+                    e.balanceAfter(), e.frozenBalance(), e.transactionId(), e.prevSignature()));
             if (!expected.equals(e.balanceSignature())) {
                 chainOk = false;
                 firstBrokenChainAtSeq = e.entrySeq();
                 break;
             }
-            prevSig = e.balanceSignature();
         }
 
         return new VerifyResponse(accountId, entryCount, accountBalance,

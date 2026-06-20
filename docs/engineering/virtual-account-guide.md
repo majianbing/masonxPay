@@ -1,7 +1,7 @@
 # Virtual Account — Design and Implementation Guide
 
 # Red Lines
-- Correctness and idempotency. Two layers: `va_inbox_event` (PK on `event_id`) is the first line of defense at the consumer — it skips redelivered events before any ledger work. `UNIQUE(account_id, source_event_id)` on `va_ledger_entry` is the DB-level safety net — it prevents the same event from posting twice to the same account even if the inbox check is bypassed. Both layers are required. Note: `UNIQUE(account_id, source_event_id)` includes the partition key so it is valid on the HASH-partitioned table; one event legitimately creates entries on multiple accounts with the same `source_event_id` — the constraint is per-account, not global.
+- Correctness and idempotency. Two layers: `va_inbox_event` (PK on `event_id`) is the first line of defense, enforced inside `LedgerFacade#postIfNew` — callers do not call the inbox directly. `UNIQUE(account_id, source_event_id)` on `va_ledger_entry` is the DB-level safety net — it prevents the same event from posting twice to the same account even if the facade is bypassed via `postDirect`. Both layers are required. Note: `UNIQUE(account_id, source_event_id)` includes the partition key so it is valid on the HASH-partitioned table; one event legitimately creates entries on multiple accounts with the same `source_event_id` — the constraint is per-account, not global.
 - Precision: the foundational layer supports high-precision decimals (up to 8 places, e.g. `0.00000000`) for future crypto support. Keep precision requirements separate from the business layer — e.g. card payments use `0.00` (2 decimals), crypto uses `0.00000000` (8 decimals).
 - Defend against manual data changes at the DB layer: protect balance updates with a balance signature, and allow balances to be modified only through the VA APIs.
 - The Postgres database is the single source of truth.
@@ -87,6 +87,8 @@ va_ledger_entry            -- append-only, immutable, double-entry; NEVER UPDATE
   asset            VARCHAR(20)
   entry_seq        BIGINT             -- per-account monotonically increasing counter; defines chain order for HMAC and period accounting (not created_at)
   balance_after    NUMERIC(38, scale) -- running balance snapshot after this entry
+  frozen_balance   NUMERIC(38, scale) -- point-in-time snapshot of va_account.frozen_balance when this entry was signed; required to re-verify the HMAC without reading the (now-potentially-different) account row
+  prev_signature   VARCHAR(64)        -- balance_signature of the immediately preceding entry (GENESIS for seq=1); makes each entry self-verifiable without fetching a second row
   balance_signature VARCHAR(64)       -- HMAC-SHA256 tamper-evident chain; see Balance Integrity section
   source_event_id  VARCHAR(64)        -- dedup + traceability; UNIQUE(account_id, source_event_id) enforces DB-level guarantee that the same event cannot post twice to the same account
   status           POSTED|REVERSED    -- no PENDING: pre-auth / pending amounts are tracked via frozen_balance at the account level, not as ledger entries
@@ -175,7 +177,7 @@ Two business scenarios, **one ledger model**, switched by a per-program authorit
 
 ## va_inbox_event
 
-`va_inbox_event` is the first line of dedup defense. Every inbound event is inserted here before any ledger work. A duplicate event hits a PK conflict and is skipped. The inbox insert and all ledger writes share the same DB transaction — so a crash between them rolls back the inbox row, making the event replayable.
+`va_inbox_event` is the first line of dedup defense. The check is enforced inside `LedgerFacade#postIfNew` — inbound adapters (Kafka consumers, webhooks) call the facade directly and do not interact with `InboxRepository` themselves. A duplicate event hits a PK conflict, `postIfNew` returns `false`, and the adapter skips without error. The inbox insert and all ledger writes share the same DB transaction — so a crash between them rolls back the inbox row, making the event replayable.
 
 ```
 va_inbox_event   PARTITION BY HASH(event_id), 8 buckets
@@ -267,28 +269,49 @@ entry_2: sig_2 = HMAC(... || balance_after_2 || sig_1)
 entry_3: sig_3 = HMAC(... || balance_after_3 || sig_2)
 ```
 
-**Required schema additions:**
+**Schema columns (on `va_ledger_entry`):**
 
 ```
-va_ledger_entry
-  balance_after      NUMERIC(38, scale)   -- running balance snapshot after this entry
-  balance_signature  VARCHAR(64)          -- HMAC-SHA256 hex
+balance_after      NUMERIC(38, scale)   -- running balance snapshot after this entry
+frozen_balance     NUMERIC(38, scale)   -- point-in-time frozen_balance snapshot when signed
+prev_signature     VARCHAR(64)          -- balance_signature of the preceding entry (GENESIS for seq=1)
+balance_signature  VARCHAR(64)          -- HMAC-SHA256 hex of this entry
 ```
 
-**On every entry insert:**
+Storing `frozen_balance` and `prev_signature` in each row makes every entry self-verifiable — no second read needed, and historical verification does not require knowing what the frozen balance was at that moment.
+
+**On every entry insert (`LedgerPostingService`, called via `LedgerFacade`):**
 1. `SELECT FOR UPDATE` on `va_account` — locks the account row for the duration of the transaction.
-2. Read `balance`, `frozen_balance`, and the previous `balance_signature` + `entry_seq` from the last entry for this account.
-3. Compute `entry_seq = prev_entry_seq + 1`, new `balance_after`, and new `balance_signature`.
-4. Insert the `va_ledger_entry` row and update `va_account.balance` atomically in the same transaction.
+2. Validate new balance is non-negative (`computeBalance` — fast in-memory check before any DB reads).
+3. Fetch the last entry for this account (`findLastChainHead`).
+4. **Tamper check A — balance cross-check:** assert `va_account.balance == last_entry.balance_after`. Catches a direct `UPDATE va_account SET balance = X` that left `va_ledger_entry` intact. Thrown as `VA_BALANCE_MISMATCH`.
+5. **Tamper check B — HMAC chain integrity:** recompute `last_entry.balance_signature` from its stored `frozen_balance`, `prev_signature`, and other fields; compare to stored value. Catches a direct `UPDATE va_ledger_entry SET balance_after = X`. Thrown as `VA_CHAIN_TAMPERED`.
+6. Compute `entry_seq = last_entry.entry_seq + 1`, new `balance_after`, new `balance_signature` (chaining to `last_entry.balance_signature` as `prev_signature`).
+7. Insert the `va_ledger_entry` row (with `frozen_balance` snapshot and `prev_signature`) and update `va_account.balance` atomically in the same transaction.
 
-**Validation:** on any read or reconciliation pass, recompute the chain from `sig_0` and compare. A mismatch pinpoints the tampered entry.
+**Verification (reconciliation / bench verify endpoint):** each entry is self-verifiable — recompute `balance_signature` from the entry's own stored fields and compare. No external context needed.
 
 **Key management rules:**
 - `app_secret` lives in the application (environment secret / KMS); never stored in the DB.
 - The app DB role must have no `UPDATE`/`DELETE` on `va_ledger_entry` and no direct `UPDATE balance` on `va_account` — enforced via `REVOKE`. The signature is defense-in-depth for higher-privilege DB compromise.
 
-**What this catches:** direct balance edits, deleted entries, amount tampering, and direct `frozen_balance` edits.  
+**What this catches:** direct `va_account.balance` edits (check A), direct `va_ledger_entry` row edits (check B), deleted entries, amount tampering, and direct `frozen_balance` edits.  
 **What this does not catch:** an attacker who also has the `app_secret` and rewrites the chain — that is a key management problem, not a schema problem.
+
+## Posting API — LedgerFacade
+
+`LedgerFacade` is the only public entry point into the ledger engine from outside the `domain.ledger` package. `LedgerPostingService` (the engine) has a package-private `post()` method — it cannot be called directly from handlers, consumers, or controllers.
+
+Two posting paths:
+
+| Method | Use case | Idempotency |
+|---|---|---|
+| `postIfNew(tx, eventId, eventType)` | Kafka consumers, webhooks, any event-driven caller | Inbox check enforced here; returns `false` on duplicate |
+| `postDirect(tx)` | Bench endpoints, internal corrections, admin API | No inbox; DB `UNIQUE(account_id, source_event_id)` is the only backstop |
+
+**All new handlers must use `postIfNew`.** Using `postDirect` without a comment explaining why is a red flag in code review.
+
+Inbound adapters (e.g. `SettlementEventConsumer`) are thin: they map the wire event to a domain command and call the handler. They do not interact with `InboxRepository` directly.
 
 ## Application-layer invariants (not enforceable by DB)
 

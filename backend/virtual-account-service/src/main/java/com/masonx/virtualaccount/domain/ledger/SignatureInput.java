@@ -23,12 +23,15 @@ public record SignatureInput(
         String prevSignature
 ) {
     public String canonical() {
+        // stripTrailingZeros() normalises scale before toPlainString() so that
+        // "10.00" (request body, scale 2) and "10.00000000" (DB NUMERIC(38,8), scale 8)
+        // both produce "10" and never diverge between posting and verification.
         return accountId + '\0'
                 + entrySeq + '\0'
-                + amount.toPlainString() + '\0'
+                + amount.stripTrailingZeros().toPlainString() + '\0'
                 + direction.name() + '\0'
-                + balanceAfter.toPlainString() + '\0'
-                + frozenBalance.toPlainString() + '\0'
+                + balanceAfter.stripTrailingZeros().toPlainString() + '\0'
+                + frozenBalance.stripTrailingZeros().toPlainString() + '\0'
                 + transactionId + '\0'
                 + prevSignature;
     }

@@ -82,6 +82,33 @@ class SnowflakeIdGeneratorTest {
     }
 
     @Test
+    void tolerates_small_clock_drift_without_throwing() {
+        // Simulate a 1 ms backward tick (common NTP adjustment on Docker/VMs).
+        // next() must spin-wait and return a valid ID rather than throwing.
+        var gen = new SnowflakeIdGenerator(1) {
+            private final long[] ticks = { 1_000L, 999L, 1_001L };
+            private int call = 0;
+            @Override long currentMs() { return ticks[Math.min(call++, ticks.length - 1)]; }
+        };
+        long id1 = gen.next();  // primes lastTimestamp = 1000
+        long id2 = gen.next();  // clock returns 999 → drift=1 → spin → returns 1001
+        assertThat(id2).isGreaterThan(id1);
+    }
+
+    @Test
+    void throws_on_large_clock_drift() {
+        var gen = new SnowflakeIdGenerator(1) {
+            private final long[] ticks = { 1_000L, 994L };
+            private int call = 0;
+            @Override long currentMs() { return ticks[Math.min(call++, ticks.length - 1)]; }
+        };
+        gen.next();  // primes lastTimestamp = 1000
+        assertThatThrownBy(gen::next)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Clock moved backwards by 6 ms");
+    }
+
+    @Test
     void generate_returns_prefixed_string() {
         var gen = new SnowflakeIdGenerator(0);
         String id = gen.generate("ac_");

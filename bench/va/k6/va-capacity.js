@@ -41,20 +41,20 @@
  */
 
 import http from 'k6/http';
-import { check } from 'k6';
+import {check} from 'k6';
 import exec from 'k6/execution';
-import { Trend, Rate } from 'k6/metrics';
+import {Trend, Rate} from 'k6/metrics';
 
-const BASE_URL    = __ENV.BASE_URL    || 'http://localhost:8087';
-const SCENARIO    = __ENV.SCENARIO    || 'soak';
-const TARGET_RATE = Number(__ENV.TARGET_RATE || '150');
-const RAMP_TO     = Number(__ENV.RAMP_TO     || '2000');
-const PEAK_RATE   = Number(__ENV.PEAK_RATE   || '800');
-const DURATION    = __ENV.DURATION           || '30m';
-const PAIR_COUNT  = Number(__ENV.PAIR_COUNT  || '100');
-const CONTENTION  = __ENV.CONTENTION || (SCENARIO === 'correctness' ? 'hotspot' : 'spread');
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8087';
+const SCENARIO = __ENV.SCENARIO || 'soak';
+const TARGET_RATE = Number(__ENV.TARGET_RATE || '1000');
+const RAMP_TO = Number(__ENV.RAMP_TO || '3000');
+const PEAK_RATE = Number(__ENV.PEAK_RATE || '2000');
+const DURATION = __ENV.DURATION || '1h';
+const PAIR_COUNT = Number(__ENV.PAIR_COUNT || '100');
+const CONTENTION = __ENV.CONTENTION || (SCENARIO === 'correctness' ? 'hotspot' : 'spread');
 const TOTAL_ITERS = Number(__ENV.TOTAL_ITERS || '5000');
-const AMOUNT      = __ENV.AMOUNT             || '10.00';
+const AMOUNT = __ENV.AMOUNT || '10.00';
 
 // VU pool: at 5ms hold Little's law needs far fewer VUs than the gateway.
 // Size PRE_VUS conservatively; MAX_VUS covers the ramp ceiling.
@@ -62,130 +62,152 @@ const PRE_VUS = Number(__ENV.PRE_VUS || String(Math.max(10, Math.ceil(TARGET_RAT
 const MAX_VUS = Number(__ENV.MAX_VUS || '500');
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
-const postMs    = new Trend('va_post_ms', true);  // posting latency — GATED soak p99 ≤ 50ms
+const postMs = new Trend('va_post_ms', true);  // posting latency — GATED soak p99 ≤ 50ms
 const sysErrors = new Rate('va_sys_errors');       // 5xx / network — GATED < 0.1%
 
 // ── Scenario selection ────────────────────────────────────────────────────────
 function buildScenario() {
-  const common = { exec: 'post', tags: { scenario: SCENARIO, contention: CONTENTION } };
-  switch (SCENARIO) {
-    case 'warmup':
-      return { warmup: { executor: 'constant-arrival-rate', rate: 20, timeUnit: '1s',
-        duration: '2m', preAllocatedVUs: 10, maxVUs: 50, ...common } };
+    const common = {exec: 'post', tags: {scenario: SCENARIO, contention: CONTENTION}};
+    switch (SCENARIO) {
+        case 'warmup':
+            return {
+                warmup: {
+                    executor: 'constant-arrival-rate', rate: 20, timeUnit: '1s',
+                    duration: '2m', preAllocatedVUs: 10, maxVUs: 50, ...common
+                }
+            };
 
-    case 'ramp':
-      return { ramp: { executor: 'ramping-arrival-rate', startRate: 20, timeUnit: '1s',
-        preAllocatedVUs: PRE_VUS, maxVUs: MAX_VUS,
-        stages: [
-          { target: Math.ceil(RAMP_TO * 0.10), duration: '2m' },
-          { target: Math.ceil(RAMP_TO * 0.25), duration: '2m' },
-          { target: Math.ceil(RAMP_TO * 0.50), duration: '2m' },
-          { target: Math.ceil(RAMP_TO * 0.75), duration: '2m' },
-          { target: RAMP_TO,                    duration: '2m' },
-          { target: RAMP_TO,                    duration: '3m' },  // sustain at ceiling
-        ], ...common } };
+        case 'ramp':
+            return {
+                ramp: {
+                    executor: 'ramping-arrival-rate', startRate: 20, timeUnit: '1s',
+                    preAllocatedVUs: PRE_VUS, maxVUs: MAX_VUS,
+                    stages: [
+                        {target: Math.ceil(RAMP_TO * 0.10), duration: '2m'},
+                        {target: Math.ceil(RAMP_TO * 0.25), duration: '2m'},
+                        {target: Math.ceil(RAMP_TO * 0.50), duration: '2m'},
+                        {target: Math.ceil(RAMP_TO * 0.75), duration: '2m'},
+                        {target: RAMP_TO, duration: '2m'},
+                        {target: RAMP_TO, duration: '3m'},  // sustain at ceiling
+                    ], ...common
+                }
+            };
 
-    case 'spike':
-      return { spike: { executor: 'constant-arrival-rate', rate: PEAK_RATE, timeUnit: '1s',
-        duration: __ENV.DURATION || '3m',
-        preAllocatedVUs: Math.max(20, Math.ceil(PEAK_RATE * 0.05)), maxVUs: MAX_VUS, ...common } };
+        case 'spike':
+            return {
+                spike: {
+                    executor: 'constant-arrival-rate', rate: PEAK_RATE, timeUnit: '1s',
+                    duration: __ENV.DURATION || '5m',
+                    preAllocatedVUs: Math.max(20, Math.ceil(PEAK_RATE * 0.05)), maxVUs: MAX_VUS, ...common
+                }
+            };
 
-    case 'correctness':
-      // Fixed total iterations (not rate-based) so we know the exact expected balance.
-      return { correctness: { executor: 'shared-iterations', vus: 50,
-        iterations: TOTAL_ITERS, maxDuration: '10m', ...common } };
+        case 'correctness':
+            // Fixed total iterations (not rate-based) so we know the exact expected balance.
+            return {
+                correctness: {
+                    executor: 'shared-iterations', vus: 50,
+                    iterations: TOTAL_ITERS, maxDuration: '10m', ...common
+                }
+            };
 
-    case 'soak':
-    default:
-      return { soak: { executor: 'constant-arrival-rate', rate: TARGET_RATE, timeUnit: '1s',
-        duration: DURATION, preAllocatedVUs: PRE_VUS, maxVUs: MAX_VUS, ...common } };
-  }
+        case 'soak':
+        default:
+            return {
+                soak: {
+                    executor: 'constant-arrival-rate', rate: TARGET_RATE, timeUnit: '1s',
+                    duration: DURATION, preAllocatedVUs: PRE_VUS, maxVUs: MAX_VUS, ...common
+                }
+            };
+    }
 }
 
 export const options = {
-  scenarios: buildScenario(),
-  // Gate only the soak (the headline number). Ramp/spike/correctness are exploratory.
-  // 50ms is tighter than gateway's 100ms — justified because VA has no connector call.
-  thresholds: SCENARIO === 'soak' ? {
-    'va_post_ms':    ['p(99)<50'],
-    'va_sys_errors': ['rate<0.001'],
-  } : {
-    'va_sys_errors': ['rate<1'],   // keep run alive, record everything
-  },
-  summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)', 'max'],
-  setupTimeout: '60s',
+    scenarios: buildScenario(),
+    // Gate only the soak (the headline number). Ramp/spike/correctness are exploratory.
+    // 50ms is tighter than gateway's 100ms — justified because VA has no connector call.
+    thresholds: SCENARIO === 'soak' ? {
+        'va_post_ms': ['p(99)<50'],
+        'va_sys_errors': ['rate<0.001'],
+    } : {
+        'va_sys_errors': ['rate<1'],   // keep run alive, record everything
+    },
+    summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'p(99.9)', 'max'],
+    setupTimeout: '60s',
 };
 
 // ── setup(): create N account pairs via the bench endpoint ───────────────────
 export function setup() {
-  const res = http.post(`${BASE_URL}/internal/bench/setup`,
-    JSON.stringify({ pairCount: PAIR_COUNT }),
-    { headers: { 'Content-Type': 'application/json' } });
+    const res = http.post(`${BASE_URL}/internal/bench/setup`,
+        JSON.stringify({pairCount: PAIR_COUNT}),
+        {headers: {'Content-Type': 'application/json'}});
 
-  if (res.status !== 200) {
-    throw new Error(`setup failed ${res.status}: ${res.body}`);
-  }
+    if (res.status !== 200) {
+        throw new Error(`setup failed ${res.status}: ${res.body}`);
+    }
 
-  const data = res.json();
-  console.log(`setup: runId=${data.runId} pairs=${data.pairs.length} ` +
-    `scenario=${SCENARIO} contention=${CONTENTION} ` +
-    `target=${TARGET_RATE}/s amount=${AMOUNT}`);
-  return { pairs: data.pairs, runId: data.runId };
+    const data = res.json();
+    console.log(`setup: runId=${data.runId} pairs=${data.pairs.length} ` +
+        `scenario=${SCENARIO} contention=${CONTENTION} ` +
+        `target=${TARGET_RATE}/s amount=${AMOUNT}`);
+    return {pairs: data.pairs, runId: data.runId};
 }
 
 // ── post(): one 2-entry balanced posting, driven at the scenario arrival rate ─
 export function post(data) {
-  const { pairs } = data;
+    const {pairs} = data;
 
-  // spread: each VU uses its own pair (minimises lock contention — baseline throughput).
-  // hotspot: all VUs hammer pair 0 (worst-case SELECT FOR UPDATE serialization).
-  const pairIdx = CONTENTION === 'hotspot'
-    ? 0
-    : (exec.vu.idInTest + exec.scenario.iterationInInstance) % pairs.length;
-  const pair = pairs[pairIdx];
+    // spread: each VU uses its own pair (minimises lock contention — baseline throughput).
+    // hotspot: all VUs hammer pair 0 (worst-case SELECT FOR UPDATE serialization).
+    const pairIdx = CONTENTION === 'hotspot'
+        ? 0
+        : (exec.vu.idInTest + exec.scenario.iterationInInstance) % pairs.length;
+    const pair = pairs[pairIdx];
 
-  const res = http.post(`${BASE_URL}/internal/bench/post`,
-    JSON.stringify({
-      tenantAccountId:   pair.tenantAccountId,
-      externalAccountId: pair.externalAccountId,
-      amount: AMOUNT,
-    }),
-    { headers: { 'Content-Type': 'application/json' },
-      tags: { pair: String(pairIdx) } });
+    const res = http.post(`${BASE_URL}/internal/bench/post`,
+        JSON.stringify({
+            tenantAccountId: pair.tenantAccountId,
+            externalAccountId: pair.externalAccountId,
+            amount: AMOUNT,
+        }),
+        {
+            headers: {'Content-Type': 'application/json'},
+            tags: {pair: String(pairIdx)}
+        });
 
-  postMs.add(res.timings.duration);
-  const ok = check(res, { 'post → 200': (r) => r.status === 200 });
-  sysErrors.add(!ok);
+    postMs.add(res.timings.duration);
+    const ok = check(res, {'post → 200': (r) => r.status === 200});
+    sysErrors.add(!ok);
 }
 
 // ── teardown(): verify correctness invariants after the run ──────────────────
 // Skipped for warmup (discard run). Always runs for correctness scenario.
 // For soak/ramp: spot-checks first 5 pairs as a sanity signal.
 export function teardown(data) {
-  if (SCENARIO === 'warmup') return;
+    if (SCENARIO === 'warmup') return;
 
-  const pairsToVerify = SCENARIO === 'correctness'
-    ? [data.pairs[0]]
-    : data.pairs.slice(0, Math.min(5, data.pairs.length));
+    const pairsToVerify = SCENARIO === 'correctness'
+        ? [data.pairs[0]]
+        : data.pairs.slice(0, Math.min(5, data.pairs.length));
 
-  console.log(`\nteardown: verifying ${pairsToVerify.length} account pair(s)...`);
+    console.log(`\nteardown: verifying ${pairsToVerify.length} account pair(s)...`);
 
-  let allOk = true;
-  for (const pair of pairsToVerify) {
-    const res = http.get(`${BASE_URL}/internal/bench/verify/${pair.tenantAccountId}`);
-    if (res.status !== 200) {
-      console.error(`  VERIFY ERROR ${pair.tenantAccountId}: HTTP ${res.status}`);
-      allOk = false;
-      continue;
+    let allOk = true;
+    for (const pair of pairsToVerify) {
+        const res = http.get(`${BASE_URL}/internal/bench/verify/${pair.tenantAccountId}`);
+        if (res.status !== 200) {
+            console.error(`  VERIFY ERROR ${pair.tenantAccountId}: HTTP ${res.status}`);
+            allOk = false;
+            continue;
+        }
+        const v = res.json();
+        const ok = v.balanceOk && v.seqOk && v.chainOk;
+        const parts = [ok ? 'PASS' : `FAIL balance=${v.balanceOk} seq=${v.seqOk} chain=${v.chainOk}`];
+        if (v.firstGapAtSeq) parts.push(`firstGap=${v.firstGapAtSeq}`);
+        if (v.firstBrokenChainAtSeq) parts.push(`brokenChain=${v.firstBrokenChainAtSeq}`);
+        console.log(`  [${pair.tenantAccountId}] entries=${v.entryCount} ${parts.join(' ')}`);
+        if (!ok) allOk = false;
     }
-    const v = res.json();
-    const ok = v.balanceOk && v.seqOk && v.chainOk;
-    const parts = [ok ? 'PASS' : `FAIL balance=${v.balanceOk} seq=${v.seqOk} chain=${v.chainOk}`];
-    if (v.firstGapAtSeq)           parts.push(`firstGap=${v.firstGapAtSeq}`);
-    if (v.firstBrokenChainAtSeq)   parts.push(`brokenChain=${v.firstBrokenChainAtSeq}`);
-    console.log(`  [${pair.tenantAccountId}] entries=${v.entryCount} ${parts.join(' ')}`);
-    if (!ok) allOk = false;
-  }
 
-  console.log(`\n=== CORRECTNESS: ${allOk ? 'ALL PASS ✓' : 'INVARIANTS VIOLATED ✗'} ===`);
+    console.log(`\n=== CORRECTNESS: ${allOk ? 'ALL PASS ✓' : 'INVARIANTS VIOLATED ✗'} ===`);
 }

@@ -90,4 +90,28 @@ docker compose down -v && docker compose up --build
 
 | Date | Scenario | Contention | Rate | p50 | p99 | Gate | Correctness | Notes |
 |------|----------|------------|------|-----|-----|------|-------------|-------|
-| TBD  | soak     | spread     | 150/s | — | — | — | — | first run |
+| 2026-06-20 | soak  | spread | 150/s  | 2.8ms  | 9.1ms  | PASS (p99✓, errors✓) | FAIL chain brokenChain=1 | HMAC scale bug — see fix below |
+| 2026-06-20 | spike | spread | 800/s  | 1.5ms  | 10.5ms | PASS (errors✓) | FAIL chain brokenChain=1 | same root cause |
+
+### Bug: HMAC chain always breaks at seq=1 (fixed 2026-06-20)
+
+**Symptom:** All verified accounts report `chain=false brokenChain=1` despite `balance=true seq=true`.
+Throughput and latency gates pass; only the chain invariant fails.
+
+**Root cause:** `SignatureInput.canonical()` used `BigDecimal.toPlainString()` directly, which is
+scale-sensitive. Two mismatches:
+
+1. `amount` at posting comes from the request body as `BigDecimal("10.00")` (scale 2 → `"10.00"`);
+   at verify it is read from `NUMERIC(38,8)` → `BigDecimal("10.00000000")` (scale 8 → `"10.00000000"`).
+2. `frozenBalance` at posting comes from the DB → scale 8 (`"0.00000000"`);
+   verify hardcoded `BigDecimal.ZERO` → scale 0 (`"0"`).
+
+Both diverge in the canonical string, so every single entry's HMAC differs between post and
+verify — chain fails at the first entry (seq=1) on every account.
+
+**Fix:** `SignatureInput.canonical()` now calls `.stripTrailingZeros().toPlainString()` on all
+three `BigDecimal` fields. `"10.00"`, `"10.00000000"` → `"10"`. `"0"`, `"0.00000000"` → `"0"`.
+Regression test added to `BalanceSignatureServiceTest#scale_variants_produce_same_signature`.
+
+**Action required before re-running:** wipe bench DB (`docker compose down -v && docker compose up --build`)
+because existing entries were signed with the old buggy canonical strings.
