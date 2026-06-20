@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${VA_TEST_DB_NAME:msx_virtual_account_test}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5442}/${VA_TEST_DB_NAME:msx_virtual_account_test}
     username: ${VA_DB_USERNAME:${DB_USERNAME:pay_app_user}}
     password: ${VA_DB_PASSWORD:${DB_PASSWORD:password123}}
   flyway:

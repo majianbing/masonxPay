@@ -37,3 +37,15 @@ va:
     consumer:
       # VA is optional; when Kafka is absent the listener can be turned off.
       enabled: ${VA_KAFKA_CONSUMER_ENABLED:true}
+  # Bench endpoints — disabled by default; set VA_BENCH_ENABLED=true in bench docker-compose only.
+  bench:
+    enabled: ${VA_BENCH_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    prometheus:
+      enabled: true

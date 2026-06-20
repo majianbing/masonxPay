@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'va-service'
+    static_configs:
+      - targets: ['virtual-account-service:8086']
+    metrics_path: '/actuator/prometheus'

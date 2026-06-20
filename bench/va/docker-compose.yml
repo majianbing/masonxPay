@@ -1,0 +1,92 @@
+# VA Service Capacity Bench Stack
+# ─────────────────────────────────────────────────────────────────────────────
+# Starts: va-bench-postgres (4 CPU / 1 GB) + virtual-account-service (2 CPU, bench enabled)
+#         + Prometheus for DB and JVM observability
+#
+# Usage:
+#   cd bench/va/
+#   docker compose up --build
+#   k6 run k6/va-capacity.js -e SCENARIO=soak -e TARGET_RATE=150
+#
+# Endpoints:
+#   Postgres    localhost:5443   DB: msx_va_bench   user: pay_app_user   pw: password123
+#   VA service  localhost:8087   bench endpoints: /internal/bench/{setup,post,verify/*}
+#   Prometheus  localhost:9090
+#
+# To stop and wipe bench data:
+#   docker compose down -v
+
+services:
+
+  va-bench-postgres:
+    image: postgres:16-alpine
+    container_name: va-bench-postgres
+    environment:
+      POSTGRES_USER:     pay_app_user
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB:       msx_va_bench
+    ports:
+      - "5443:5432"
+    volumes:
+      - va_bench_data:/var/lib/postgresql/data
+    # Postgres tuning for throughput: larger shared_buffers, fast WAL.
+    command: >
+      postgres
+        -c max_connections=200
+        -c shared_buffers=256MB
+        -c work_mem=4MB
+        -c maintenance_work_mem=64MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
+        -c synchronous_commit=on
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pay_app_user -d msx_va_bench"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 1G
+
+  virtual-account-service:
+    build:
+      context: ../../backend    # backend/ — contains Dockerfile.va and all modules
+      dockerfile: Dockerfile.va
+    container_name: va-bench-service
+    ports:
+      - "8087:8086"             # host 8087 → container 8086 (avoids conflict with dev stack on 8086)
+    environment:
+      SPRING_PROFILES_ACTIVE:          test
+      SPRING_DATASOURCE_URL:           jdbc:postgresql://va-bench-postgres:5432/msx_va_bench
+      VA_DB_USERNAME:                  pay_app_user
+      VA_DB_PASSWORD:                  password123
+      VA_SIGNATURE_SECRET:             bench-secret-not-for-production
+      VA_NODE_ID:                      0
+      VA_KAFKA_CONSUMER_ENABLED:       "false"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS:  localhost:9999
+      VA_BENCH_ENABLED:                "true"
+      # Expose /actuator/prometheus for Prometheus scraping
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+    depends_on:
+      va-bench-postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: va-bench-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - virtual-account-service
+
+volumes:
+  va_bench_data:
