@@ -2,94 +2,101 @@
 
 Double-entry ledger service for MasonXPay virtual accounts. Optional and independently deployable — the main payment gateway works without it.
 
-Own database: `msx_virtual_account` (Postgres, separate from the gateway DB).  
+Own database: `msx_virtual_account_test` (Postgres, separate from the gateway DB).  
 Design doc: [`docs/engineering/virtual-account-guide.md`](../../docs/engineering/virtual-account-guide.md)  
 Build progress: [`docs/changelog/virtual-account-service/roadmap.md`](../../docs/changelog/virtual-account-service/roadmap.md)
 
 ---
 
-## Running tests
+## Standalone dev/test stack
 
-There are two test layers with different requirements:
+A self-contained `docker-compose.yml` lives in this directory. It starts both Postgres and the VA Spring Boot service — no need to run the full main stack.
+
+```
+backend/virtual-account-service/
+├── docker-compose.yml          ← Postgres (5442) + VA service (8086)
+├── src/main/resources/
+│   └── application-test.yml   ← Spring profile used by the compose service and IDEA
+└── src/test/resources/
+    └── application-test.yml   ← same settings, on the test classpath
+```
+
+### Step 1 — build the Docker image
+
+```bash
+# from backend/virtual-account-service/
+cd ..                        # move to backend/
+mvn package -pl virtual-account-service -am -DskipTests
+cd virtual-account-service
+```
+
+### Step 2 — start the stack
+
+```bash
+docker compose up --build
+```
+
+This starts:
+- **va-postgres** on `localhost:5442` — Flyway migrations run automatically when the app starts
+- **virtual-account-service** on `localhost:8086` — Spring Boot app with `test` profile
+
+Health check: `http://localhost:8086/actuator/health`
+
+### Step 3 — connect to Postgres from Mac
+
+Any DB client (TablePlus, DataGrip, DBeaver) or psql:
+
+```bash
+psql -h localhost -p 5442 -U pay_app_user -d msx_virtual_account_test
+# password: password123
+```
+
+After the service starts, Flyway creates all tables including partitions:
+
+```sql
+\dt va_*                  -- all VA tables
+\d  va_ledger_entry       -- partitioned by HASH(account_id), 64 buckets
+\d  va_inbox_event        -- partitioned by HASH(event_id), 8 buckets
+SELECT * FROM va_account; -- account rows
+SELECT * FROM va_ledger_entry LIMIT 20;
+```
+
+---
+
+## Running tests in IntelliJ IDEA
 
 ### Unit tests — no Docker needed
 
-```bash
-mvn test -pl virtual-account-service -am
-```
+Right-click any test class → **Run**. No database or Kafka required.
 
-Runs 24 unit tests (SnowflakeIdGenerator, BalanceSignatureService, LedgerPostingService). No database or Kafka required.
+Covers: `SnowflakeIdGeneratorTest`, `BalanceSignatureServiceTest`, `LedgerPostingServiceTest` (24 tests).
 
-In **IntelliJ IDEA**: right-click any test class or the `src/test/java` folder → **Run Tests**. They work out of the box.
+### Integration tests — requires `docker compose up`
 
----
+1. Start the stack (Step 2 above)
+2. Open `LedgerSettlementHandlerIntegrationTest` in IDEA
+3. Set the Spring profile — one of:
+   - Edit Run Configuration → **Active profiles**: `test`
+   - Or add to VM options: `-Dspring.profiles.active=test`
+4. Run the test or any individual method
 
-### Integration tests — require the VA test DB
+Data is **left in the DB after each test** — connect to `localhost:5442` and inspect `va_account` and `va_ledger_entry` while the test is fresh.
 
-Integration tests hit a real Postgres with the full partitioned schema (HASH partitions, PG enums). A standalone compose file is included so you don't need the full main stack.
+**Tip — set the profile once for all tests:**  
+Run → Edit Configurations → Templates → JUnit → VM options: `-Dspring.profiles.active=test`
 
-**Step 1 — start the test DB** (from this directory):
-
-```bash
-docker compose up -d
-```
-
-This starts a Postgres 16 container on **port 5433** (avoids collision with the main stack on 5432). Data is stored in `tmpfs` — wiped clean on `docker compose down`.
-
-**Step 2 — run integration tests**
-
-From the command line:
+### Integration tests from command line
 
 ```bash
+# from backend/
 mvn test -Pintegration -pl virtual-account-service -am
 ```
 
-From **IntelliJ IDEA**:
-
-1. Open `LedgerSettlementHandlerIntegrationTest`
-2. Click the green run arrow next to the class or any test method
-3. Before running, set the **Active profiles** field to `test`:
-   - Edit the run configuration → **Active profiles**: `test`
-   - Or: right-click → **Modify Run Configuration** → set `spring.profiles.active=test`
-4. Run — IDEA will connect to `localhost:5433` and apply Flyway migrations automatically
-
-**Alternative IDEA setup (once, applies to all integration tests):**
-
-Go to **Run → Edit Configurations → Templates → JUnit**:
-- **VM options**: `-Dspring.profiles.active=test`
-
-All new test runs will inherit the profile.
-
-**Step 3 — stop the test DB**
-
-```bash
-docker compose down
-```
-
 ---
 
-## Environment variables (integration tests)
-
-| Variable | Default | Description |
-|---|---|---|
-| `DB_HOST` | `localhost` | Postgres host |
-| `DB_PORT` | `5433` | Postgres port (test compose uses 5433) |
-| `VA_TEST_DB_NAME` | `msx_virtual_account_test` | Test database name |
-| `VA_DB_USERNAME` | `pay_app_user` | DB user |
-| `VA_DB_PASSWORD` | `password123` | DB password |
-
----
-
-## Connecting to the test DB manually
+## Stop the stack
 
 ```bash
-psql -h localhost -p 5433 -U pay_app_user -d msx_virtual_account_test
-```
-
-After the first integration test run, Flyway will have applied all migrations and you can inspect the schema:
-
-```sql
-\dt va_*         -- list all VA tables (partitioned)
-\d va_account    -- account schema
-\d va_ledger_entry  -- ledger entry (HASH partitioned, 64 buckets)
+docker compose down        # stops containers, data volume persists
+docker compose down -v     # stops and wipes the data volume (clean slate)
 ```

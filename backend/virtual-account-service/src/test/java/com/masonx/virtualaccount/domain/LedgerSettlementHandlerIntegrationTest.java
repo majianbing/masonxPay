@@ -5,6 +5,7 @@ import com.masonx.common.tenant.MerchantId;
 import com.masonx.common.tenant.Mode;
 import com.masonx.common.tenant.TenantRef;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,10 +22,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Integration tests for LedgerSettlementHandler against a real Postgres.
  *
- * Requires: docker compose up (VA DB available at localhost:5432/msx_virtual_account_test).
+ * Requires: docker compose up (in backend/virtual-account-service/)
  * Run with: mvn test -Pintegration -pl virtual-account-service -am
  *
- * Normal `mvn test` excludes this class — unit tests run without Docker.
+ * Data is LEFT in the DB after each test so you can inspect it with a DB client.
+ * Cleanup runs AFTER each test (not before), so the DB has the last test's state.
+ *
+ * Connect: psql -h localhost -p 5442 -U pay_app_user -d msx_virtual_account_test
  */
 @SpringBootTest(properties = {
         "va.kafka.consumer.enabled=false",
@@ -45,10 +49,7 @@ class LedgerSettlementHandlerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Clean partitioned tables — must target each child partition directly.
-        for (int i = 0; i < 64; i++) jdbc.execute("DELETE FROM va_ledger_entry_" + i);
-        for (int i = 0; i < 8;  i++) jdbc.execute("DELETE FROM va_inbox_event_" + i);
-        jdbc.execute("DELETE FROM va_account");
+        cleanDb();
 
         merchantUuid = UUID.randomUUID();
         merchantId   = merchantUuid.toString();
@@ -73,6 +74,19 @@ class LedgerSettlementHandlerIntegrationTest {
 
         accountRepo.save(tenantCash);
         accountRepo.save(externalClearing);
+    }
+
+    /** Runs AFTER each test — data stays in DB during the test so you can inspect it. */
+    @AfterEach
+    void tearDown() {
+        // intentionally left empty — call cleanDb() manually here if you want cleanup after each test
+        // cleanDb();
+    }
+
+    private void cleanDb() {
+        for (int i = 0; i < 64; i++) jdbc.execute("DELETE FROM va_ledger_entry_" + i);
+        for (int i = 0; i < 8;  i++) jdbc.execute("DELETE FROM va_inbox_event_" + i);
+        jdbc.execute("DELETE FROM va_account");
     }
 
     // --- helpers ---
