@@ -64,6 +64,43 @@ public class AccountRepository {
                 account.status().name());
     }
 
+    public Optional<VaAccount> findTenantAccount(String merchantId, Mode mode,
+                                                  String asset, AccountType type) {
+        var rows = jdbc.query("""
+                SELECT * FROM va_account
+                WHERE account_role = 'TENANT'
+                  AND merchant_id = ?
+                  AND mode = ?::va_mode
+                  AND asset = ?
+                  AND account_type = ?::va_account_type
+                LIMIT 1
+                """, ROW_MAPPER, merchantId, mode.name(), asset, type.name());
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public Optional<VaAccount> findExternalAccount(String providerId, String asset, AccountType type) {
+        var rows = jdbc.query("""
+                SELECT * FROM va_account
+                WHERE account_role = 'EXTERNAL'
+                  AND provider_id = ?
+                  AND asset = ?
+                  AND account_type = ?::va_account_type
+                LIMIT 1
+                """, ROW_MAPPER, providerId, asset, type.name());
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public Optional<VaAccount> findPlatformAccount(String asset, AccountType type) {
+        var rows = jdbc.query("""
+                SELECT * FROM va_account
+                WHERE account_role = 'PLATFORM'
+                  AND asset = ?
+                  AND account_type = ?::va_account_type
+                LIMIT 1
+                """, ROW_MAPPER, asset, type.name());
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
     /** Updates balance and frozen_balance atomically — called inside the posting transaction. */
     public void updateBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
         jdbc.update(

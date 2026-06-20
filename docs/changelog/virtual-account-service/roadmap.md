@@ -21,20 +21,6 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 - `[x]` `RecordSettlementCommand` updated with VA-typed money fields (BigDecimal, enums, netAmount derived)
 - `[x]` `SettlementEventMapper` maps contract strings → VA enums with null-safe v1 defaults
 
-## Layer 4 — Domain Model & Repositories `[ ]`
-
-- `[ ]` Enums: `AccountRole`, `AccountType`, `Direction`, `AssetClass`
-- `[ ]` `AccountRepository` — find by account_id, `SELECT FOR UPDATE`
-- `[ ]` `LedgerEntryRepository` — insert, fetch last entry per account (for HMAC chain)
-- `[ ]` `BalanceSignatureService` — HMAC-SHA256 chain computation and validation
-- `[ ]` `LedgerPostingService` — core double-entry: lock → entry_seq → balance_after → signature → atomic write
-
-## Layer 5 — Wire-up & Tests `[ ]`
-
-- `[ ]` Real `SettlementHandler` replacing `LoggingSettlementHandler`
-- `[ ]` Unit tests: `LedgerPostingService`, `BalanceSignatureService`
-- `[ ]` Integration test: full settlement event → ledger entries flow
-
 ---
 
 ## Completed
@@ -42,3 +28,5 @@ Design doc: `docs/engineering/virtual-account-guide.md`
 - **Layer 1 — DB Migrations** (2026-06-20): V2 inbox repartition, V3 va_account, V4 va_ledger_entry
 - **Layer 2 — Common Module** (2026-06-20): SnowflakeIdGenerator (8 tests passing)
 - **Layer 3 — Contracts Update** (2026-06-20): SettlementEvent v2 money fields, Direction/AssetClass enums, RecordSettlementCommand, SettlementEventMapper
+- **Layer 4 — Domain Model & Repositories** (2026-06-20): VaAccount, LedgerEntry, AccountRole/Type/Status/NormalBalance/EntryStatus enums; AccountRepository (SELECT FOR UPDATE + 3 finder methods); LedgerEntryRepository; BalanceSignatureService (HMAC-SHA256 chain); LedgerPostingService (deadlock-safe posting, net-zero validation, negative balance guard). 24 unit tests passing.
+- **Layer 5 — Wire-up** (2026-06-20): LedgerSettlementHandler replaces LoggingSettlementHandler; 3-entry (gross+fee) and 2-entry (net) settlement flows; refund reversal; AccountRepository finder methods for tenant/external/platform account lookup. Integration test (`LedgerSettlementHandlerIntegrationTest`) covers 7 scenarios against real Postgres — run with `mvn test -Pintegration -pl virtual-account-service -am` (requires `docker compose up`). Normal `mvn test` runs 24 unit tests only.
