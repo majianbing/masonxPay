@@ -32,6 +32,8 @@ Ownership/scoping and account classification are independent. Do not stack them 
 
 - **Asset** (`normal_balance = DEBIT`): `CASH`, `WALLET` — value you hold; normally cannot go negative.
 - **Liability** (`normal_balance = CREDIT`): `CREDIT_LINE` — balance = amount owed; bounded by `credit_limit`; available credit = `credit_limit − outstanding`.
+- **Receivable** (`normal_balance = DEBIT`): `RECEIVABLE` — money owed to the platform by a customer. Balance = outstanding amount. Settlement (customer pays) and write-off (财务核销) are both ledger entries that reduce this balance.
+- **Reserve** (`normal_balance = DEBIT`): `RESERVE` — merchant reserve funds held by the platform. Fixed reserve and rolling reserve are identical at the ledger layer — both move $X into this account. The calculation of $X (fixed amount vs percentage) is business-layer policy, not a ledger concern.
 - Platform/external accounts (`FEE_INCOME`, `CLEARING`, `SUSPENSE`, provider mirror) use the same primitive with the appropriate role.
 
 Balance is **derived/materialized** from append-only entries, respecting `normal_balance`. Never `UPDATE`/`DELETE` an entry; corrections and reversals are new compensating entries.
@@ -60,29 +62,63 @@ The customer is an **external identity**, modeled as a relationship — not a sc
 ## Schema sketch
 
 ```
-account                    -- generic ledger account; ONLY universal columns
-  account_id    uuid pk
+va_account                 -- generic ledger account; ONLY universal columns
+  account_id    VARCHAR(32) pk                     -- snowflake ID, e.g. ac_{snowflakeId}
   mode          TEST|LIVE
   account_role  TENANT|PLATFORM|EXTERNAL
   org_id, merchant_id      (set for TENANT)        provider_id (set for EXTERNAL)
-  account_type  CASH|WALLET|CREDIT_LINE|FEE_INCOME|CLEARING|SUSPENSE
+  account_type  CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|FEE_INCOME|CLEARING|SUSPENSE
   asset         USD|BTC|USDC...  + asset_class FIAT|CRYPTO + scale
   normal_balance DEBIT|CREDIT
-  balance       NUMERIC(38, scale)                 -- derived/materialized
+  balance        NUMERIC(38, scale)                -- materialized; updated atomically with every entry
+  frozen_balance NUMERIC(38, scale) DEFAULT 0      -- funds on hold; see Holds section below
+  -- available_balance = balance - frozen_balance  (derived, never stored)
   status        ACTIVE|FROZEN|CLOSED
 
-ledger_entry               -- append-only, immutable, double-entry
-  entry_id, transaction_id (groups the balanced set), account_id,
-  direction DEBIT|CREDIT, amount, asset,
-  source_event_id  UNIQUE  -- DB-level idempotency
-  status PENDING|POSTED|REVERSED, created_at
+va_ledger_entry            -- append-only, immutable, double-entry; NEVER UPDATE or DELETE
+                           -- partitioned: HASH(account_id), 64 buckets
+  entry_id         VARCHAR(32)        -- snowflake ID, e.g. le_{snowflakeId}
+  transaction_id   VARCHAR(32)        -- groups the balanced entry set
+  account_id       VARCHAR(32)
+  direction        DEBIT|CREDIT
+  amount           NUMERIC(38, scale)
+  asset            VARCHAR(20)
+  balance_after    NUMERIC(38, scale) -- running balance snapshot after this entry
+  balance_signature VARCHAR(64)       -- HMAC-SHA256 tamper-evident chain; see Balance Integrity section
+  source_event_id  VARCHAR(64) UNIQUE -- DB-level idempotency
+  status           PENDING|POSTED|REVERSED
+  created_at       TIMESTAMPTZ
 
 credit_line_profile (account_id fk, credit_limit, cycle, ...)   -- type extensions
 wallet_profile      (account_id fk, chain, address, ...)         (class-table inheritance)
 cash_profile        (account_id fk, payout_config, ...)
 ```
 
-Type-specific columns live **only** in extension tables — never on `account`. Per-type policy (sign, can-go-negative, precision, allowed ops) lives in code, selected by `account_type`.
+Type-specific columns live **only** in extension tables — never on `va_account`. Per-type policy (sign, can-go-negative, precision, allowed ops) lives in code, selected by `account_type`.
+
+## Holds & available balance
+
+Holds (冻结/解冻) do not move money — they constrain availability. The fundamental layer handles this with a single `frozen_balance` field on `va_account`, updated atomically under `SELECT FOR UPDATE`:
+
+- **Freeze (冻结):** `frozen_balance += amount`
+- **Release (解冻):** `frozen_balance -= amount`
+- **Available balance (可用余额):** `balance - frozen_balance` — derived on read, never stored
+
+Individual hold metadata (reason, expiry, dispute reference) is business-layer concern and lives above the fundamental layer. The fundamental layer only tracks the total frozen amount.
+
+## Financial concepts — ledger mapping
+
+| Concept | Ledger representation |
+|---|---|
+| 余额 (Ledger Balance) | `va_account.balance` |
+| 可用余额 (Available Balance) | `balance − frozen_balance` (derived) |
+| 冻结余额 (Reserved/Held Balance) | `va_account.frozen_balance` |
+| 冻结资金 (Hold) | `frozen_balance += amount` (no ledger entry) |
+| 解冻资金 (Release) | `frozen_balance -= amount` (no ledger entry) |
+| 挂账 (Receivable/Outstanding) | Balance on a `RECEIVABLE` account |
+| 销账 - 客户补款 (Settlement) | DEBIT `CASH`, CREDIT `RECEIVABLE` |
+| 销账 - 财务核销 (Write-off) | DEBIT `BAD_DEBT` (PLATFORM), CREDIT `RECEIVABLE` |
+| 保证金 (Reserve) | Balance on a `RESERVE` account |
 
 # Internal & External Accounts
 
@@ -115,4 +151,85 @@ Two business scenarios, **one ledger model**, switched by a per-program authorit
 - Reconciliation engine: runs hard for `EXTERNAL`, light for `INTERNAL`.
 
 **VA's responsibility boundary:** VA owns the **ledger** (truth-of-record for A, mirror-of-record for B) **+ the reconciliation engine**. The authorization role and reconciliation intensity switch by the authority flag. Provider issuance/settlement integration lives **outside** VA as a connector (like the gateway's existing connector pattern), feeding VA via events.
+
+# Ledger Entry Sharding
+
+`va_ledger_entry` uses **flat `HASH(account_id)` partitioning with 64 buckets** — no time-based partition layer.
+
+**Why `account_id`:** all performance-critical queries (balance calculation, account history, reconciliation) are scoped by account. Entries for one transaction naturally span multiple accounts/buckets — that is acceptable because cross-transaction joins across accounts are never needed.
+
+**Why flat (no time layer):** a two-level `RANGE(created_at) + HASH` was considered but rejected. The time layer only pays off for hot/cold archival, which is deferred.
+
+**Hot/cold archival (deferred):** plan is to keep ~180 days in Postgres, then archive older partitions to cheaper storage. 180 days covers standard card chargeback windows (Visa/MC common case is 120 days; some fraud dispute types can reach 540 days — revisit when implementing). When hot/cold is implemented, it is handled at the archival layer with no schema topology change.
+
+# Balance Integrity & Tamper Detection
+
+## The accounting equation invariant
+
+For any account, over any time window:
+
+```
+Opening Balance + Credits − Debits = Closing Balance
+```
+
+The design guarantees this through two properties:
+
+**Immutable ledger.** `va_ledger_entry` is append-only — no UPDATE, no DELETE ever. Balance can always be recomputed from scratch:
+
+```sql
+SUM(amount FILTER direction = CREDIT) − SUM(amount FILTER direction = DEBIT)
+  = va_account.balance   -- must always hold
+```
+
+**Atomic posting.** Every entry insert and the corresponding `va_account.balance` update happen in the same DB transaction — no entry without a balance update, no balance update without an entry.
+
+Because entries are immutable and timestamped, the equation holds for any window:
+
+```
+opening = SUM(entries WHERE created_at <  period_start)
+credits = SUM(credit entries WHERE created_at IN period)
+debits  = SUM(debit  entries WHERE created_at IN period)
+closing = opening + credits − debits   ← guaranteed by immutability
+```
+
+## Balance signature (tamper-evident hash chain)
+
+Direct DB edits to `va_account.balance` or `va_ledger_entry.amount` must be detectable even if Postgres-level controls are bypassed. Each `va_ledger_entry` carries a `balance_signature`:
+
+```
+balance_signature = HMAC_SHA256(
+  app_secret,
+  account_id || amount || direction || balance_after || txid || prev_signature
+)
+```
+
+`prev_signature` chains every entry to the one before it. Any tampering with a past entry or the account balance breaks every subsequent signature in the chain.
+
+```
+entry_1: sig_1 = HMAC(... || balance_after_1 || sig_0)
+entry_2: sig_2 = HMAC(... || balance_after_2 || sig_1)
+entry_3: sig_3 = HMAC(... || balance_after_3 || sig_2)
+```
+
+**Required schema additions:**
+
+```
+va_ledger_entry
+  balance_after      NUMERIC(38, scale)   -- running balance snapshot after this entry
+  balance_signature  VARCHAR(64)          -- HMAC-SHA256 hex
+```
+
+**On every entry insert:**
+1. Read the previous entry's `balance_signature` for this account (within the same `SELECT FOR UPDATE` lock).
+2. Compute the new signature.
+3. Insert entry + update `va_account.balance` atomically.
+
+**Validation:** on any read or reconciliation pass, recompute the chain from `sig_0` and compare. A mismatch pinpoints the tampered entry.
+
+**Key management rules:**
+- `app_secret` lives in the application (environment secret / KMS); never stored in the DB.
+- The app DB role must have no `UPDATE`/`DELETE` on `va_ledger_entry` and no direct `UPDATE balance` on `va_account` — enforced via `REVOKE`. The signature is defense-in-depth for higher-privilege DB compromise.
+
+**What this catches:** direct balance edits, deleted entries, amount tampering.  
+**What this does not catch:** an attacker who also has the `app_secret` and rewrites the chain — that is a key management problem, not a schema problem.
 
