@@ -1,0 +1,16 @@
+services:
+  va-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pay_app_user
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: msx_virtual_account_test
+    ports:
+      - "5433:5432"     # 5433 avoids collision with the main stack on 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pay_app_user -d msx_virtual_account_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data   # in-memory — wiped on every docker compose down
