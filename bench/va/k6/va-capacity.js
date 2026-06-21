@@ -47,10 +47,10 @@ import {Trend, Rate} from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8087';
 const SCENARIO = __ENV.SCENARIO || 'soak';
-const TARGET_RATE = Number(__ENV.TARGET_RATE || '200');
+const TARGET_RATE = Number(__ENV.TARGET_RATE || '500');
 const RAMP_TO = Number(__ENV.RAMP_TO || '3000');
 const PEAK_RATE = Number(__ENV.PEAK_RATE || '1000');
-const DURATION = __ENV.DURATION || '1h';
+const DURATION = __ENV.DURATION || '6h';
 const PAIR_COUNT = Number(__ENV.PAIR_COUNT || '100');
 const CONTENTION = __ENV.CONTENTION || (SCENARIO === 'correctness' ? 'hotspot' : 'spread');
 const TOTAL_ITERS = Number(__ENV.TOTAL_ITERS || '5000');
