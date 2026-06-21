@@ -1,0 +1,49 @@
+services:
+
+  va-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pay_app_user
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: msx_virtual_account_test
+    ports:
+      - "5442:5432"     # host Mac: localhost:5442
+    volumes:
+      - va_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pay_app_user -d msx_virtual_account_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  virtual-account-service:
+    build:
+      context: ..                  # backend/ directory
+      dockerfile: Dockerfile.va
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_PROFILES_ACTIVE: test
+      # override localhost URL from application-test.yml to use the compose service name
+      SPRING_DATASOURCE_URL: jdbc:postgresql://va-postgres:5432/msx_virtual_account_test
+      VA_DB_USERNAME: pay_app_user
+      VA_DB_PASSWORD: password123
+      VA_SIGNATURE_SECRET: test-secret-do-not-use-in-production
+      VA_NODE_ID: 0
+      VA_KAFKA_CONSUMER_ENABLED: "false"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "localhost:9999"
+    depends_on:
+      va-postgres:
+        condition: service_healthy
+
+# Connect from Mac (DB client / psql):
+#   host: localhost  port: 5442  db: msx_virtual_account_test
+#   user: pay_app_user  password: password123
+#
+#   psql -h localhost -p 5442 -U pay_app_user -d msx_virtual_account_test
+#
+# VA service health check:
+#   http://localhost:8086/actuator/health
+
+volumes:
+  va_test_data:

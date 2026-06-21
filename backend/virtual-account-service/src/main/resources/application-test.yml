@@ -1,0 +1,25 @@
+server:
+  port: 8086
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5442/msx_virtual_account_test
+    username: pay_app_user
+    password: password123
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/va
+    clean-on-validation-error: true
+    clean-disabled: false
+  kafka:
+    bootstrap-servers: localhost:9999   # dummy — consumer disabled below
+
+va:
+  signature:
+    secret: test-secret-do-not-use-in-production
+  id:
+    node-id: 0
+  kafka:
+    settlement-topic: payment.settlement.events
+    consumer:
+      enabled: false    # no Kafka needed for local DB inspection

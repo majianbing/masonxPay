@@ -24,8 +24,28 @@ spring:
 
 # Virtual Account service settings
 va:
+  signature:
+    # HMAC-SHA256 secret for the tamper-evident balance chain.
+    # MUST be set via VA_SIGNATURE_SECRET in production — never commit a real value.
+    secret: ${VA_SIGNATURE_SECRET:change-me-in-production}
+  id:
+    # Node ID (0–1023). Must be unique across all running VA service instances.
+    # Set VA_NODE_ID per pod/instance in deployment config.
+    node-id: ${VA_NODE_ID:0}
   kafka:
     settlement-topic: ${VA_SETTLEMENT_TOPIC:payment.settlement.events}
     consumer:
       # VA is optional; when Kafka is absent the listener can be turned off.
       enabled: ${VA_KAFKA_CONSUMER_ENABLED:true}
+  # Bench endpoints — disabled by default; set VA_BENCH_ENABLED=true in bench docker-compose only.
+  bench:
+    enabled: ${VA_BENCH_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    prometheus:
+      enabled: true
