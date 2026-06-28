@@ -53,6 +53,9 @@ public class PaymentReadModel {
     @Column(length = 500)
     private String description;
 
+    @Column(name = "payment_method_type", length = 30)
+    private String paymentMethodType;
+
     @Column(name = "billing_email", length = 255)
     private String billingEmail;
 
@@ -122,6 +125,8 @@ public class PaymentReadModel {
     public void setDescription(String description) { this.description = description; }
     public String getBillingEmail() { return billingEmail; }
     public void setBillingEmail(String billingEmail) { this.billingEmail = billingEmail; }
+    public String getPaymentMethodType() { return paymentMethodType; }
+    public void setPaymentMethodType(String paymentMethodType) { this.paymentMethodType = paymentMethodType; }
     public long getRefundedAmountSucceeded() { return refundedAmountSucceeded; }
     public void setRefundedAmountSucceeded(long refundedAmountSucceeded) { this.refundedAmountSucceeded = refundedAmountSucceeded; }
     public UUID getLastRefundId() { return lastRefundId; }

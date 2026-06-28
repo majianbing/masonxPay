@@ -5,6 +5,9 @@ import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.projection.PaymentReadModel;
 import com.masonx.paygateway.domain.projection.PaymentReadModelRepository;
+import com.masonx.paygateway.domain.projection.ProjectionEventStatus;
+import com.masonx.paygateway.domain.projection.ProjectionProcessedEvent;
+import com.masonx.paygateway.domain.projection.ProjectionProcessedEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.web.dto.RefundResponse;
 import com.masonx.paygateway.service.RefundService;
@@ -49,6 +52,7 @@ public class DashboardPaymentController {
     private final RefundService refundService;
     private final ObjectMapper objectMapper;
     private final com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository;
+    private final ProjectionProcessedEventRepository projectionProcessedEventRepository;
     private final boolean paymentProjectionEnabled;
 
     public DashboardPaymentController(PaymentIntentRepository paymentIntentRepository,
@@ -58,6 +62,7 @@ public class DashboardPaymentController {
                                       RefundService refundService,
                                       ObjectMapper objectMapper,
                                       com.masonx.paygateway.domain.connector.ProviderAccountRepository providerAccountRepository,
+                                      ProjectionProcessedEventRepository projectionProcessedEventRepository,
                                       @Value("${app.kafka.payment-projection.enabled:false}") boolean paymentProjectionEnabled) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentReadModelRepository = paymentReadModelRepository;
@@ -66,6 +71,7 @@ public class DashboardPaymentController {
         this.refundService = refundService;
         this.objectMapper = objectMapper;
         this.providerAccountRepository = providerAccountRepository;
+        this.projectionProcessedEventRepository = projectionProcessedEventRepository;
         this.paymentProjectionEnabled = paymentProjectionEnabled;
     }
 
@@ -77,13 +83,14 @@ public class DashboardPaymentController {
             @RequestParam(required = false) String mode,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String provider,
+            @RequestParam(required = false) String method,
             @RequestParam(required = false) String labelSearch,
             @RequestParam(required = false) String dateFrom,
             @RequestParam(required = false) String dateTo,
             @PageableDefault(size = 20, sort = "sourceCreatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         if (!paymentProjectionEnabled) {
             return ResponseEntity.ok(listFromPaymentIntents(
-                    merchantId, status, mode, search, provider, labelSearch, dateFrom, dateTo, pageable));
+                    merchantId, status, mode, search, provider, method, labelSearch, dateFrom, dateTo, pageable));
         }
 
         Specification<PaymentReadModel> spec = (root, query, cb) -> {
@@ -96,6 +103,8 @@ public class DashboardPaymentController {
                 predicates.add(cb.equal(root.get("status"), status.toUpperCase()));
             if (provider != null && !provider.isBlank())
                 predicates.add(cb.equal(root.get("resolvedProvider"), provider.toUpperCase()));
+            if (method != null && !method.isBlank())
+                predicates.add(cb.equal(cb.lower(root.get("paymentMethodType")), method.toLowerCase()));
             if (search != null && !search.isBlank())
                 predicates.add(cb.like(cb.lower(root.get("searchText")), "%" + search.toLowerCase() + "%"));
             if (labelSearch != null && !labelSearch.isBlank()) {
@@ -138,6 +147,7 @@ public class DashboardPaymentController {
                                                                String mode,
                                                                String search,
                                                                String provider,
+                                                               String method,
                                                                String labelSearch,
                                                                String dateFrom,
                                                                String dateTo,
@@ -152,6 +162,8 @@ public class DashboardPaymentController {
                 predicates.add(cb.equal(root.get("status"), PaymentIntentStatus.valueOf(status.toUpperCase())));
             if (provider != null && !provider.isBlank())
                 predicates.add(cb.equal(root.get("resolvedProvider"), PaymentProvider.valueOf(provider.toUpperCase())));
+            if (method != null && !method.isBlank())
+                predicates.add(cb.equal(cb.lower(root.get("paymentMethodType")), method.toLowerCase()));
             if (search != null && !search.isBlank()) {
                 String term = "%" + search.toLowerCase() + "%";
                 predicates.add(cb.or(
@@ -223,7 +235,12 @@ public class DashboardPaymentController {
                 null,
                 model.getSourceCreatedAt(),
                 model.getSourceUpdatedAt(),
-                List.of());
+                model.getPaymentMethodType() != null
+                        ? List.of(new PaymentIntentResponse.PaymentAttemptSummary(
+                                null, 1, null, model.getConnectorAccountId(),
+                                model.getPaymentMethodType(), model.getStatus(),
+                                null, null, null, model.getSourceCreatedAt()))
+                        : List.of());
     }
 
     private Pageable projectionPageable(Pageable pageable) {
@@ -273,6 +290,24 @@ public class DashboardPaymentController {
                         .map(ProviderAccount::getLabel).orElse(null)
                 : null;
         return ResponseEntity.ok(PaymentIntentResponse.from(intent, attempts, objectMapper, label));
+    }
+
+    @GetMapping("/projection-health")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Map<String, Object>> projectionHealth(@PathVariable UUID merchantId) {
+        if (!paymentProjectionEnabled) {
+            return ResponseEntity.ok(Map.of("enabled", false));
+        }
+        long failedCount = projectionProcessedEventRepository.countByStatus(ProjectionEventStatus.FAILED);
+        long oldestFailedAgeSecs = projectionProcessedEventRepository
+                .findFirstByStatusOrderByProcessedAtAsc(ProjectionEventStatus.FAILED)
+                .map(ProjectionProcessedEvent::getProcessedAt)
+                .map(t -> java.time.Duration.between(t, java.time.Instant.now()).getSeconds())
+                .orElse(0L);
+        return ResponseEntity.ok(Map.of(
+                "enabled", true,
+                "failedCount", failedCount,
+                "oldestFailedAgeSecs", oldestFailedAgeSecs));
     }
 
     @GetMapping("/refunds")

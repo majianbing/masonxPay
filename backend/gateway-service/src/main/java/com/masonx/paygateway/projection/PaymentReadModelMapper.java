@@ -55,6 +55,16 @@ public final class PaymentReadModelMapper {
         model.setOrderId(text(payload, "orderId").orElse(null));
         model.setDescription(text(payload, "description").orElse(null));
         model.setBillingEmail(text(payload.path("billingDetails"), "email").orElse(null));
+        // paymentMethodType lives at the top level on older events; on newer events it is
+        // inside attempts[]. Fall back to the first attempt's value if not at top level.
+        Optional<String> methodType = text(payload, "paymentMethodType");
+        if (methodType.isEmpty()) {
+            JsonNode attempts = payload.path("attempts");
+            if (attempts.isArray() && !attempts.isEmpty()) {
+                methodType = text(attempts.get(0), "paymentMethodType");
+            }
+        }
+        methodType.ifPresent(model::setPaymentMethodType);
         model.setSourceCreatedAt(instant(payload, "createdAt").orElse(null));
         model.setSourceUpdatedAt(instant(payload, "updatedAt").orElse(null));
         model.setSearchText(searchText(model));

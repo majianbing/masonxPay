@@ -42,6 +42,12 @@ interface PageResponse {
   number: number;
 }
 
+interface ProjectionHealth {
+  enabled: boolean;
+  failedCount?: number;
+  oldestFailedAgeSecs?: number;
+}
+
 // Human-readable labels for every known payment method type
 const METHOD_LABELS: Record<string, string> = {
   card:        'Card',
@@ -146,15 +152,22 @@ export default function PaymentsPage() {
   const debouncedId = useDebounce(idSearch, 400);
   const debouncedLabel = useDebounce(labelSearch, 400);
 
-  // Server-side filters reset page; method filter is client-side so no reset needed
-  useEffect(() => { setPage(0); }, [statusFilter, providerFilter, debouncedId, debouncedLabel, dateFrom, dateTo]);
+  useEffect(() => { setPage(0); }, [statusFilter, providerFilter, methodFilter, debouncedId, debouncedLabel, dateFrom, dateTo]);
+
+  const { data: projectionHealth } = useQuery<ProjectionHealth>({
+    queryKey: ['payment-projection-health', activeMerchantId],
+    queryFn: () => apiFetch<ProjectionHealth>(`/api/v1/merchants/${activeMerchantId}/payment-intents/projection-health`),
+    enabled: !!activeMerchantId,
+    staleTime: 60_000,
+  });
 
   const { data, isLoading } = useQuery<PageResponse>({
-    queryKey: ['payment-intents', activeMerchantId, page, statusFilter, providerFilter, debouncedId, debouncedLabel, dateFrom, dateTo, mode],
+    queryKey: ['payment-intents', activeMerchantId, page, statusFilter, providerFilter, methodFilter, debouncedId, debouncedLabel, dateFrom, dateTo, mode],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), size: '20', sort: 'createdAt,desc', mode });
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (providerFilter !== 'ALL') params.set('provider', providerFilter);
+      if (methodFilter !== 'ALL') params.set('method', methodFilter);
       if (debouncedId) params.set('search', debouncedId);
       if (debouncedLabel) params.set('labelSearch', debouncedLabel);
       if (dateFrom) params.set('dateFrom', dateFrom);
@@ -164,12 +177,7 @@ export default function PaymentsPage() {
     enabled: !!activeMerchantId,
   });
 
-  // Method filter is client-side — applied after the server page is fetched
-  const visibleRows = methodFilter === 'ALL'
-    ? (data?.content ?? [])
-    : (data?.content ?? []).filter(
-        (p) => effectiveMethod(p.attempts)?.toLowerCase() === methodFilter,
-      );
+  const visibleRows = data?.content ?? [];
 
   const table = useReactTable({
     data: visibleRows,
@@ -197,6 +205,19 @@ export default function PaymentsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Payments</h1>
       </div>
+
+      {projectionHealth?.enabled && (projectionHealth.failedCount ?? 0) > 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+          <span className="font-medium">Payment data may be delayed.</span>
+          <span>
+            {projectionHealth.failedCount} event{projectionHealth.failedCount !== 1 ? 's' : ''} failed to project
+            {(projectionHealth.oldestFailedAgeSecs ?? 0) > 60
+              ? ` — oldest issue is ${Math.round((projectionHealth.oldestFailedAgeSecs ?? 0) / 60)} min ago`
+              : ''}.
+            Recent payments may not appear.
+          </span>
+        </div>
+      )}
 
       {/* Primary filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -331,11 +352,7 @@ export default function PaymentsPage() {
       </Card>
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {methodFilter !== 'ALL'
-            ? `${visibleRows.length} of ${data?.totalElements ?? 0} payments`
-            : `${data?.totalElements ?? 0} total payments`}
-        </span>
+        <span>{data?.totalElements ?? 0} total payments</span>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Previous

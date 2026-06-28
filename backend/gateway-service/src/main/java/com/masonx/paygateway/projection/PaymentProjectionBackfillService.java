@@ -55,11 +55,17 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     projectedCount, sourceCount);
             return;
         }
-
         log.info("Payment projection backfill started; read model has {} row(s) for {} payment intent(s)",
                 projectedCount, sourceCount);
         int projected = physicalJdbcTemplate.update(backfillSql());
         log.info("Payment projection backfill upserted {} read model row(s)", projected);
+    }
+
+    public int triggerBackfill() {
+        log.info("Payment projection backfill triggered on-demand");
+        int upserted = physicalJdbcTemplate.update(backfillSql());
+        log.info("Payment projection backfill upserted {} read model row(s)", upserted);
+        return upserted;
     }
 
     private String backfillSql() {
@@ -72,9 +78,23 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                 .mapToObj(i -> "SELECT * FROM payment_intents_" + String.format("%02d", i))
                 .reduce((left, right) -> left + "\nUNION ALL\n" + right)
                 .orElseThrow();
+        String sourceRequests = IntStream.range(0, PAYMENT_SHARD_COUNT)
+                .mapToObj(i -> "SELECT payment_intent_id, payment_method_type, created_at FROM payment_requests_" + String.format("%02d", i))
+                .reduce((left, right) -> left + "\nUNION ALL\n" + right)
+                .orElseThrow();
         return """
                 WITH source_intents AS (
                 %s
+                ),
+                all_requests AS (
+                %s
+                ),
+                latest_method AS (
+                    SELECT DISTINCT ON (payment_intent_id)
+                        payment_intent_id,
+                        payment_method_type
+                    FROM all_requests
+                    ORDER BY payment_intent_id, created_at DESC
                 )
                 INSERT INTO payment_read_models (
                     payment_intent_id,
@@ -91,6 +111,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     order_id,
                     description,
                     refunded_amount_succeeded,
+                    payment_method_type,
                     search_text,
                     source_created_at,
                     source_updated_at
@@ -110,6 +131,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     pi.order_id,
                     pi.description,
                     COALESCE(r.refunded_amount_succeeded, 0),
+                    lm.payment_method_type,
                     lower(concat_ws(' ',
                         pi.id::text,
                         pi.provider_payment_id,
@@ -126,6 +148,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     WHERE status = 'SUCCEEDED'
                     GROUP BY payment_intent_id
                 ) r ON r.payment_intent_id = pi.id
+                LEFT JOIN latest_method lm ON lm.payment_intent_id = pi.id
                 ON CONFLICT (payment_intent_id) DO UPDATE SET
                     merchant_id = EXCLUDED.merchant_id,
                     mode = EXCLUDED.mode,
@@ -140,10 +163,11 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     order_id = EXCLUDED.order_id,
                     description = EXCLUDED.description,
                     refunded_amount_succeeded = EXCLUDED.refunded_amount_succeeded,
+                    payment_method_type = COALESCE(EXCLUDED.payment_method_type, payment_read_models.payment_method_type),
                     search_text = EXCLUDED.search_text,
                     source_created_at = EXCLUDED.source_created_at,
                     source_updated_at = EXCLUDED.source_updated_at,
                     updated_at = now()
-                """.formatted(sourceIntents);
+                """.formatted(sourceIntents, sourceRequests);
     }
 }
