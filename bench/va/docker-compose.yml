@@ -15,7 +15,7 @@
 #
 # To stop and wipe bench data:
 #   docker compose down -v
-
+name: va-bench-test
 services:
 
   va-bench-postgres:
