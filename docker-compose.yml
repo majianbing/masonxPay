@@ -36,7 +36,6 @@ services:
       - ./monitor/postgres-exporter:/etc/postgres-exporter:ro
     command:
       - --config.file=/etc/postgres-exporter/postgres_exporter.yml
-      - --extend.query-path=/etc/postgres-exporter/queries.yaml
     ports:
       - "9187:9187"
 

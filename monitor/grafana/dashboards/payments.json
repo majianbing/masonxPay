@@ -1,6 +1,6 @@
 {
   "uid": "masonxpay-payments",
-  "title": "MasonXPay — Payments",
+  "title": "MasonXPay \u2014 Payments",
   "schemaVersion": 38,
   "version": 3,
   "refresh": "30s",
@@ -1001,15 +1001,15 @@
       },
       "targets": [
         {
-          "expr": "pg_read_model_relation_size_bytes_table_bytes{relation=\"payment_read_models\"} or vector(0)",
+          "expr": "payment_read_model_table_bytes or vector(0)",
           "legendFormat": "table heap"
         },
         {
-          "expr": "pg_read_model_relation_size_bytes_index_bytes{relation=\"payment_read_models\"} or vector(0)",
+          "expr": "payment_read_model_index_bytes or vector(0)",
           "legendFormat": "all indexes"
         },
         {
-          "expr": "pg_read_model_index_size_bytes_size_bytes{index_name=\"idx_payment_read_models_search\"} or vector(0)",
+          "expr": "payment_read_model_index_bytes or vector(0)",
           "legendFormat": "search GIN index"
         }
       ]
@@ -1018,7 +1018,7 @@
       "id": 26,
       "type": "timeseries",
       "title": "payment_read_models Sequential vs Index Scans",
-      "description": "Sequential scan rate climbing relative to index scans means a query/filter combination isn't using the existing indexes — usually fixable with a targeted index before reaching for partitioning or OpenSearch.",
+      "description": "Sequential scan rate climbing relative to index scans means a query/filter combination isn't using the existing indexes \u2014 usually fixable with a targeted index before reaching for partitioning or OpenSearch.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1049,11 +1049,11 @@
       },
       "targets": [
         {
-          "expr": "rate(pg_read_model_table_stats_seq_scan{relation=\"payment_read_models\"}[5m]) or vector(0)",
+          "expr": "rate(pg_stat_user_tables_seq_scan{datname=\"paygateway\",relname=\"payment_read_models\"}[5m]) or vector(0)",
           "legendFormat": "seq scans/s"
         },
         {
-          "expr": "rate(pg_read_model_table_stats_idx_scan{relation=\"payment_read_models\"}[5m]) or vector(0)",
+          "expr": "rate(pg_stat_user_tables_idx_scan{datname=\"paygateway\",relname=\"payment_read_models\"}[5m]) or vector(0)",
           "legendFormat": "index scans/s"
         }
       ]
@@ -1089,7 +1089,7 @@
       },
       "targets": [
         {
-          "expr": "pg_read_model_table_stats_n_live_tup{relation=\"payment_read_models\"} or vector(0)",
+          "expr": "pg_stat_user_tables_n_live_tup{datname=\"paygateway\",relname=\"payment_read_models\"} or vector(0)",
           "legendFormat": "rows"
         }
       ]
@@ -1143,7 +1143,7 @@
       },
       "targets": [
         {
-          "expr": "(pg_read_model_table_stats_n_dead_tup{relation=\"payment_read_models\"} / clamp_min(pg_read_model_table_stats_n_dead_tup{relation=\"payment_read_models\"} + pg_read_model_table_stats_n_live_tup{relation=\"payment_read_models\"}, 1)) or vector(0)",
+          "expr": "(pg_stat_user_tables_n_dead_tup{datname=\"paygateway\",relname=\"payment_read_models\"} / clamp_min(pg_stat_user_tables_n_dead_tup{datname=\"paygateway\",relname=\"payment_read_models\"} + pg_stat_user_tables_n_live_tup{datname=\"paygateway\",relname=\"payment_read_models\"}, 1)) or vector(0)",
           "legendFormat": "dead tuple ratio"
         }
       ]
@@ -1152,7 +1152,7 @@
       "id": 29,
       "type": "timeseries",
       "title": "Merchant Payment List Latency (p95 / p99)",
-      "description": "Latency of GET /api/v1/merchants/{merchantId}/payment-intents — the primary dashboard query against payment_read_models. This is the user-facing signal for the H6 ceiling: if this stays high after indexing/partitioning fixes, consider OpenSearch.",
+      "description": "Latency of GET /api/v1/merchants/{merchantId}/payment-intents \u2014 the primary dashboard query against payment_read_models. This is the user-facing signal for the H6 ceiling: if this stays high after indexing/partitioning fixes, consider OpenSearch.",
       "gridPos": {
         "h": 8,
         "w": 12,

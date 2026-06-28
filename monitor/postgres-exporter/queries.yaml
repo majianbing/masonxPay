@@ -1,81 +1,13 @@
-# Custom postgres_exporter queries for H6 dashboard read-model observability.
+# No custom queries needed.
+# Table/index size metrics for payment_read_models are exposed by the gateway
+# service itself via ReadModelMetrics (Micrometer gauges) at /actuator/prometheus:
+#   payment_read_model_table_bytes
+#   payment_read_model_index_bytes
+#   payment_read_model_total_bytes
 #
-# These give visibility into payment_read_models size and access patterns so
-# we can tell when it's approaching the point where Postgres-only search/list
-# stops being the right tool (see docs/planning/high-throughput-payment-core-plan.md
-# Phase H6 decision criteria).
-
-read_model_relation_size_bytes:
-  query: |
-    SELECT
-      c.relname AS relation,
-      pg_table_size(c.oid) AS table_bytes,
-      pg_indexes_size(c.oid) AS index_bytes,
-      pg_total_relation_size(c.oid) AS total_bytes
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public'
-      AND c.relname IN ('payment_read_models', 'projection_processed_events')
-  metrics:
-    - relation:
-        usage: "LABEL"
-        description: "Table name"
-    - table_bytes:
-        usage: "GAUGE"
-        description: "Table heap size in bytes, excluding indexes and TOAST"
-    - index_bytes:
-        usage: "GAUGE"
-        description: "Total size of all indexes on the table, in bytes"
-    - total_bytes:
-        usage: "GAUGE"
-        description: "Total relation size (table + indexes + TOAST), in bytes"
-
-read_model_index_size_bytes:
-  query: |
-    SELECT
-      indexrelname AS index_name,
-      pg_relation_size(indexrelid) AS size_bytes
-    FROM pg_stat_user_indexes
-    WHERE relname = 'payment_read_models'
-  metrics:
-    - index_name:
-        usage: "LABEL"
-        description: "Index name on payment_read_models"
-    - size_bytes:
-        usage: "GAUGE"
-        description: "Index size in bytes"
-
-read_model_table_stats:
-  query: |
-    SELECT
-      relname AS relation,
-      seq_scan,
-      seq_tup_read,
-      idx_scan,
-      idx_tup_fetch,
-      n_live_tup,
-      n_dead_tup
-    FROM pg_stat_user_tables
-    WHERE relname IN ('payment_read_models', 'projection_processed_events')
-  metrics:
-    - relation:
-        usage: "LABEL"
-        description: "Table name"
-    - seq_scan:
-        usage: "COUNTER"
-        description: "Number of sequential scans initiated on this table"
-    - seq_tup_read:
-        usage: "COUNTER"
-        description: "Number of live rows fetched by sequential scans"
-    - idx_scan:
-        usage: "COUNTER"
-        description: "Number of index scans initiated on this table"
-    - idx_tup_fetch:
-        usage: "COUNTER"
-        description: "Number of live rows fetched by index scans"
-    - n_live_tup:
-        usage: "GAUGE"
-        description: "Estimated number of live rows"
-    - n_dead_tup:
-        usage: "GAUGE"
-        description: "Estimated number of dead rows awaiting vacuum"
+# Scan and row-count metrics are covered by the postgres-exporter built-in
+# pg_stat_user_tables_* collector:
+#   pg_stat_user_tables_seq_scan{datname="paygateway",relname="payment_read_models"}
+#   pg_stat_user_tables_idx_scan{...}
+#   pg_stat_user_tables_n_live_tup{...}
+#   pg_stat_user_tables_n_dead_tup{...}
