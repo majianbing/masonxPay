@@ -1,6 +1,5 @@
-# Minimal exporter-level config (auth_modules, etc.).
-# Empty on purpose: we connect via DATA_SOURCE_NAME and only need the custom
-# queries in queries.yaml. Without this file, postgres_exporter v0.15 logs a
-# (non-fatal) warning on every start: "Error opening config file
-# \"postgres_exporter.yml\": no such file or directory".
+# Minimal config — connection is provided via DATA_SOURCE_NAME env var.
+# Built-in collectors (pg_stat_user_tables, pg_statio_user_tables, etc.) run by default.
+# Table/index size metrics for payment_read_models are exposed by the gateway service
+# itself via Micrometer (payment_read_model_table_bytes, _index_bytes, _total_bytes).
 auth_modules: {}
