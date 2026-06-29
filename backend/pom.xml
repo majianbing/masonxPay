@@ -30,5 +30,7 @@
         <module>contracts</module>
         <module>gateway-service</module>
         <module>virtual-account-service</module>
+        <module>rail-service</module>
+        <module>rail-simulator</module>
     </modules>
 </project>

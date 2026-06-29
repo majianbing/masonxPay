@@ -1,0 +1,40 @@
+server:
+  port: ${RAIL_SERVER_PORT:8081}
+
+spring:
+  application:
+    name: rail-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${RAIL_DB_NAME:msx_rail}
+    username: ${RAIL_DB_USERNAME:${DB_USERNAME:pay_app_user}}
+    password: ${RAIL_DB_PASSWORD:${DB_PASSWORD:password123}}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/rail
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+rail:
+  simulator:
+    # Base URL of the rail-simulator (card-network-sim HTTP + ISO 8583 TCP host)
+    host: ${RAIL_SIM_HOST:localhost}
+    http-port: ${RAIL_SIM_HTTP_PORT:9090}
+    tcp-port: ${RAIL_SIM_TCP_PORT:9091}
+    # Connection timeout for ISO 8583 TCP channel (ms)
+    connect-timeout-ms: ${RAIL_SIM_CONNECT_TIMEOUT_MS:5000}
+    # Read timeout — exceeding this transitions the payment to UNKNOWN state
+    read-timeout-ms: ${RAIL_SIM_READ_TIMEOUT_MS:30000}
+  kafka:
+    settlement-topic: ${RAIL_SETTLEMENT_TOPIC:rail.settlement.events}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    prometheus:
+      enabled: true

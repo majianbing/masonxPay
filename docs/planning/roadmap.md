@@ -209,6 +209,24 @@ Agent recommendation:
 
 ---
 
+## Phase MR — Multi-Rail Payment Infrastructure
+
+Phase MR extends MasonXPay beyond PSP integration into a simulation of the infrastructure layer that acquirer processors, card networks, and bank payment rails operate. It implements a two-sided payment rail — `rail-service` (acquirer/processor client) and `rail-simulator` (card-network and bank-rail server) — for both ISO 8583 and ISO 20022, connected to the existing double-entry ledger through Kafka settlement events.
+
+This phase also delivers a Virtual Credit Card (VCC) product: merchants fund a main wallet account and issue funded virtual cards backed by ledger balance. The `virtual-account-service` acts as the card issuer — making real authorization decisions and posting settlement journals — for VCCs running on the ISO 8583 card rail.
+
+See [multi-rail ISO8583 ISO 20022 plan](multi-rail-iso8583-iso20022-plan.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| MR0 | **Foundation** | [ ] | New Maven modules (`rail-service`, `rail-simulator`), canonical payment model (`CanonicalPaymentCommand`, `PaymentRail`, `MoneyMovementType`, `PaymentRailAdapter`), DB migrations (rail tables), `AccountType` extended (`PREPAID_CARD`, `CARD_NETWORK_RECEIVABLE`, `BANK_RAIL_RECEIVABLE`, `SUSPENSE_UNKNOWN_TXN`), `VirtualCard` entity skeleton, `RailSettlementEvent` in contracts, Docker Compose wiring. |
+| MR1 | **ISO8583 card rail + VCC issuer** | [ ] | Netty TCP transport, jPOS codec, `VisaSimAdapter`/`MastercardSimAdapter`, card-network-sim (Netty TCP server), VA issuer endpoint for BIN 999999, VCC card management API (create, fund, freeze, close), masked ISO8583 logs, `POST /v1/rail/authorize`. |
+| MR2 | **Timeout, UNKNOWN, and reversal** | [ ] | `IdleStateHandler` drives UNKNOWN state on timeout, `ReversalTaskService` schedules 0400, `LateResponseHandler` detects 0110 after reversal, duplicate response idempotency, reversal retry with backoff. |
+| MR3 | **ISO 20022 bank rail** | [ ] | JAXB POJOs for pain.001/002, pacs.008/002/004, camt.054, `SepaSimAdapter`/`FedNowSimAdapter`, bank-rail-simulator (HTTP), async status flow, correlation ID chain, `POST /v1/rail/bank-transfers`. |
+| MR4 | **Ledger integration and reconciliation** | [ ] | `RailSettlementEvent` published to Kafka on settlement, VA `SettlementEventConsumer` extended for rail events, seeded rail accounts, `GET /v1/rail/reconciliation/exceptions` surfaces unmatched/amount-mismatch/late-response exceptions. |
+
+---
+
 ## Phase R — Financial Reconciliation
 
 Settlement file reconciliation and real-time dual-stream monitoring at 1–10M transactions/day. Phase R is entirely additive — it builds on the existing Kafka event stream, `payment_requests` table, and provider response storage without touching the authorization path. It is also the foundation that Phase N settlement processing will extend.
@@ -252,5 +270,7 @@ Phase 0 (done)
             ├── Phase 4 (merchant ops — customer vault → Phase 15.6 subscriptions)
             └── Phase H (high-throughput core — sharding, Redis, Kafka, read projections)
                     ├── Phase O (advanced orchestration — instruments, route policies, fallback, retries)
-                    └── Phase AI (later advisory ops control plane — recommendations, validator, approval)
+                    ├── Phase AI (later advisory ops control plane — recommendations, validator, approval)
+                    └── Phase MR (multi-rail infrastructure — ISO8583, ISO 20022, VCC, ledger integration)
+                            └── Phase N (future real direct card network connectivity — requires acquiring license)
 ```

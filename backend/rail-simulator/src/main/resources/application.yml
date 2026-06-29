@@ -1,0 +1,23 @@
+server:
+  port: ${RAILSIM_HTTP_PORT:9090}
+
+spring:
+  application:
+    name: rail-simulator
+
+railsim:
+  # ISO 8583 TCP server port (card-network-sim)
+  tcp-port: ${RAILSIM_TCP_PORT:9091}
+  # URL of virtual-account-service issuer endpoint (for BIN 999999 VCC routing)
+  va-issuer-url: ${RAILSIM_VA_ISSUER_URL:http://localhost:8086/internal/issuer/authorize}
+  # Simulated network latency range (ms) for non-timeout responses
+  min-latency-ms: ${RAILSIM_MIN_LATENCY_MS:50}
+  max-latency-ms: ${RAILSIM_MAX_LATENCY_MS:200}
+  # Timeout simulation: how long before a timeout-PAN sends no response (ms)
+  timeout-silence-ms: ${RAILSIM_TIMEOUT_SILENCE_MS:35000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
