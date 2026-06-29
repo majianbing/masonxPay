@@ -152,6 +152,11 @@ services:
       PROVIDER_SIMULATOR_JITTER_MS: ${PROVIDER_SIMULATOR_JITTER_MS:-25}
       PROVIDER_SIMULATOR_FAILURE_RATE: ${PROVIDER_SIMULATOR_FAILURE_RATE:-0.0}
       PROVIDER_SIMULATOR_TIMEOUT_RATE: ${PROVIDER_SIMULATOR_TIMEOUT_RATE:-0.0}
+      # MR5-B: gateway → rail bridge (active when --profile rail is used)
+      RAIL_ENABLED: ${RAIL_ENABLED:-false}
+      RAIL_BASE_URL: ${RAIL_BASE_URL:-http://rail-service:8081}
+      RAIL_RESOLVED_TOPIC: ${RAIL_RESOLVED_TOPIC:-rail.payment.resolved}
+      RAIL_RESOLVED_CONSUMER_GROUP_ID: ${RAIL_RESOLVED_CONSUMER_GROUP_ID:-gateway-rail-resolved}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
