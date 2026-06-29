@@ -10,6 +10,8 @@ railsim:
   tcp-port: ${RAILSIM_TCP_PORT:9091}
   # URL of virtual-account-service issuer endpoint (for BIN 999999 VCC routing)
   va-issuer-url: ${RAILSIM_VA_ISSUER_URL:http://localhost:8086/internal/issuer/authorize}
+  # Shared secret sent as X-Internal-Token. Must match INTERNAL_AUTH_TOKEN in virtual-account-service.
+  internal-auth-token: ${INTERNAL_AUTH_TOKEN:internal-dev-secret}
   # Simulated network latency range (ms) for non-timeout responses
   min-latency-ms: ${RAILSIM_MIN_LATENCY_MS:50}
   max-latency-ms: ${RAILSIM_MAX_LATENCY_MS:200}

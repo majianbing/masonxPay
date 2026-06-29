@@ -23,24 +23,31 @@ import java.util.List;
  *   <li>For each message in the returned list, parses and applies the state transition.
  *   <li>pacs.002 ACSC → SETTLED; pacs.002 RJCT → DECLINED; pacs.004 → RETURNED; camt.054 → logged only.
  * </ol>
+ *
+ * <h3>MR4 — settlement events</h3>
+ * On SETTLED publishes {@code BANK_CREDIT_TRANSFER}; on RETURNED publishes {@code BANK_RETURN}
+ * so virtual-account-service can post the corresponding ledger journals.
  */
 @Component
 public class BankPaymentPoller {
 
     private static final Logger log = LoggerFactory.getLogger(BankPaymentPoller.class);
 
-    private final RailPaymentRepository paymentRepo;
-    private final BankRailHttpClient    httpClient;
-    private final Iso20022LogService    logService;
-    private final String                bankSimBaseUrl;
+    private final RailPaymentRepository        paymentRepo;
+    private final BankRailHttpClient           httpClient;
+    private final Iso20022LogService           logService;
+    private final RailSettlementEventPublisher publisher;
+    private final String                       bankSimBaseUrl;
 
     public BankPaymentPoller(RailPaymentRepository paymentRepo,
                              BankRailHttpClient httpClient,
                              Iso20022LogService logService,
+                             RailSettlementEventPublisher publisher,
                              @Value("${rail.simulator.bank-url:http://localhost:9090}") String bankSimBaseUrl) {
         this.paymentRepo    = paymentRepo;
         this.httpClient     = httpClient;
         this.logService     = logService;
+        this.publisher      = publisher;
         this.bankSimBaseUrl = bankSimBaseUrl;
     }
 
@@ -73,29 +80,35 @@ public class BankPaymentPoller {
         logService.logReceive(p.paymentId(), p.network(), msg);
 
         switch (msg.type()) {
-            case PACS_002 -> applyPacs002(p, msg);
-            case PACS_004 -> applyPacs004(p, msg);
+            case PACS_002 -> handlePaymentStatusReport(p, msg);
+            case PACS_004 -> handlePaymentReturn(p, msg);
             case CAMT_054 -> log.info("camt.054 received paymentId={} amount={} currency={}",
                     p.paymentId(), msg.amount(), msg.currency());
             default -> log.warn("Unexpected message type {} paymentId={}", msg.type(), p.paymentId());
         }
     }
 
-    private void applyPacs002(PendingBankPayment p, Iso20022ParsedMessage msg) {
+    /** Handles pacs.002 — Payment Status Report (settled or rejected). */
+    private void handlePaymentStatusReport(PendingBankPayment p, Iso20022ParsedMessage msg) {
         if (msg.isSettled()) {
-            paymentRepo.updateStatus(p.paymentId(), "SETTLED");
+            paymentRepo.updateStatus(p.paymentId(), p.merchantId(), "SETTLED");
             log.info("Bank payment SETTLED paymentId={} e2eId={}", p.paymentId(), p.endToEndId());
+            publisher.publishBankTransferSettled(
+                    p.paymentId(), p.merchantId(), p.network(), msg.amount(), msg.currency());
         } else if (msg.isRejected()) {
-            paymentRepo.updateStatus(p.paymentId(), "DECLINED");
+            paymentRepo.updateStatus(p.paymentId(), p.merchantId(), "DECLINED");
             log.info("Bank payment DECLINED paymentId={} reason={}", p.paymentId(), msg.reasonCode());
         } else {
             log.info("pacs.002 intermediate status paymentId={} status={}", p.paymentId(), msg.statusCode());
         }
     }
 
-    private void applyPacs004(PendingBankPayment p, Iso20022ParsedMessage msg) {
-        paymentRepo.updateStatus(p.paymentId(), "RETURNED");
+    /** Handles pacs.004 — Payment Return (bank initiated return of funds). */
+    private void handlePaymentReturn(PendingBankPayment p, Iso20022ParsedMessage msg) {
+        paymentRepo.updateStatus(p.paymentId(), p.merchantId(), "RETURNED");
         log.info("Bank payment RETURNED paymentId={} e2eId={} reason={}",
                 p.paymentId(), p.endToEndId(), msg.reasonCode());
+        publisher.publishBankReturn(
+                p.paymentId(), p.merchantId(), p.network(), msg.amount(), msg.currency());
     }
 }

@@ -462,7 +462,7 @@ Acceptance criteria:
 - All four IDs (MessageId, EndToEndId, InstructionId, TransactionId) present in correlation table
 - Return is recorded as a new rail_payment entry linked to original, not a cancellation
 
-Status: [ ]
+Status: [x]
 
 ---
 
@@ -490,7 +490,61 @@ Acceptance criteria:
 - `GET /v1/rail/reconciliation/exceptions` returns LATE_RESPONSE_AFTER_REVERSAL from MR2 scenario
 - All journals balance (NetZeroValidator passes)
 
-Status: [ ]
+Status: [x]
+
+---
+
+### MR5 — VA Account APIs + Gateway-Rail Bridge
+
+**Goal:** Surface the VA ledger through a proper API (removing the raw-SQL prerequisite for E2E testing), then wire the existing `MasonSimulatorPaymentProviderService` in gateway-service to call rail-service instead of returning in-process canned responses. This allows the payment dashboard to drive real ISO 8583 / ISO 20022 flows end-to-end without any curl scripting.
+
+#### MR5-A — VA Account Management APIs
+
+**Deliverables — virtual-account-service:**
+- `POST /internal/va/accounts` — admin token required (`X-Internal-Token`). Creates a TENANT account (WALLET, CASH, CREDIT_LINE, etc.) for a merchant. Derives `accountRole=TENANT`, `balance=0`, `frozenBalance=0`, `status=ACTIVE`. Derives `normalBalance` and `assetClass` from `accountType`.
+- `GET /v1/va/accounts/{accountId}` — merchant-facing. Returns `accountId`, `accountType`, `mode`, `asset`, `balance`, `frozenBalance`, `availableBalance`, `status`.
+- `GET /v1/va/accounts?merchantId=...&page=0&size=20` — merchant-facing, paginated list of all TENANT accounts for a merchant.
+- Add `findByMerchantId(merchantId, page, size)` + `countByMerchantId(merchantId)` to `AccountRepository`.
+
+Security: `/internal/**` already requires `ROLE_INTERNAL` via `InternalTokenFilter`. No new security config changes.
+
+#### MR5-B — Gateway → Rail Bridge
+
+**Deliverables — contracts module:**
+- `RailPaymentResolvedEvent(envelope, railPaymentId, outcome)` — published by rail-service when an UNKNOWN payment resolves. `outcome` values: `"SUCCEEDED"` | `"FAILED"`.
+
+**Deliverables — rail-service:**
+- `RailSettlementEventPublisher.publishPaymentResolved()` — called by `ReversalTaskService` when reversal confirmed (`UNKNOWN → REVERSED`; outcome=`FAILED`).
+- New Kafka topic: `rail.payment.resolved` (config key `rail.kafka.resolved-topic`).
+
+**Deliverables — gateway-service:**
+- `ChargeResult` — add `boolean pendingAsyncResolution` field. When `true`, `PaymentIntentService` leaves the intent in `PROCESSING` and saves `providerPaymentId = railPaymentId`.
+- `RailServiceClient` — `RestTemplate` wrapper for `POST /v1/rail/authorize`. Config: `app.rail.base-url`.
+- `MasonSimulatorPaymentProviderService.sendCharge()` — replaces canned response with `RailServiceClient.authorize()`. Status mapping: `APPROVED → success=true`, `DECLINED → success=false`, `UNKNOWN → pendingAsyncResolution=true`.
+- `RailPaymentResolvedConsumer` — Kafka listener on `rail.payment.resolved`. Looks up `PaymentIntent` by `providerPaymentId = railPaymentId` where `status = PROCESSING`; transitions to `FAILED` or `SUCCEEDED`; writes outbox entry.
+- `PaymentIntentService.confirmCharge()` — handle `pendingAsyncResolution=true`: skip SUCCEEDED/FAILED transition, save `providerPaymentId`, leave in `PROCESSING`.
+
+**Status flow in gateway after bridge:**
+```
+Dashboard confirms payment
+  → MasonSimulator → rail-service
+      ← APPROVED   → gateway: PROCESSING → SUCCEEDED
+      ← DECLINED   → gateway: PROCESSING → FAILED
+      ← UNKNOWN    → gateway: stays PROCESSING
+                       ~30s later: reversal resolves
+                       ← RailPaymentResolvedEvent (Kafka)
+                       → gateway: PROCESSING → FAILED
+```
+
+Acceptance criteria:
+- `POST /internal/va/accounts` creates a WALLET account; GET returns correct balance
+- Payment dashboard charge via SIMULATOR provider goes through real ISO 8583 path
+- APPROVED payment → dashboard shows SUCCEEDED
+- DECLINED payment (PAN suffix 0001) → dashboard shows FAILED
+- Timeout payment (PAN suffix 0003) → dashboard shows PROCESSING, transitions to FAILED after reversal resolves
+- BIN 999999 VCC charge routes through VA issuer; balance check fires; DECLINED on insufficient funds
+
+Status: [x]
 
 ---
 

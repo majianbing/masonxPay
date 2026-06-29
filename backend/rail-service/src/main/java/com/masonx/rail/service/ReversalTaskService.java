@@ -35,22 +35,30 @@ public class ReversalTaskService {
     // Backoff delays (seconds) indexed by 0-based attempt number.
     private static final long[] BACKOFF_SECONDS = { 30L, 120L, 300L };
 
-    private final ReversalTaskRepository reversalRepo;
-    private final RailPaymentRepository  paymentRepo;
-    private final Iso8583ReversalSender  reversalSender;
-    private final Iso8583LogService      logService;
-    private final SnowflakeIdGenerator   idGen;
+    private static final String PREPAID_CARD_BIN = "999999";
+
+    private final ReversalTaskRepository         reversalRepo;
+    private final RailPaymentRepository          paymentRepo;
+    private final Iso8583ReversalSender          reversalSender;
+    private final Iso8583LogService              logService;
+    private final SnowflakeIdGenerator           idGen;
+    private final RailSettlementEventPublisher   publisher;
+    private final RailPaymentResolvedPublisher   resolvedPublisher;
 
     public ReversalTaskService(ReversalTaskRepository reversalRepo,
                                RailPaymentRepository paymentRepo,
                                Iso8583ReversalSender reversalSender,
                                Iso8583LogService logService,
-                               SnowflakeIdGenerator idGen) {
-        this.reversalRepo   = reversalRepo;
-        this.paymentRepo    = paymentRepo;
-        this.reversalSender = reversalSender;
-        this.logService     = logService;
-        this.idGen          = idGen;
+                               SnowflakeIdGenerator idGen,
+                               RailSettlementEventPublisher publisher,
+                               RailPaymentResolvedPublisher resolvedPublisher) {
+        this.reversalRepo      = reversalRepo;
+        this.paymentRepo       = paymentRepo;
+        this.reversalSender    = reversalSender;
+        this.logService        = logService;
+        this.idGen             = idGen;
+        this.publisher         = publisher;
+        this.resolvedPublisher = resolvedPublisher;
     }
 
     /**
@@ -98,11 +106,22 @@ public class ReversalTaskService {
         boolean reversed = reversalSender.sendReversal(task);
 
         if (reversed) {
-            paymentRepo.updateStatus(task.paymentId(), "REVERSED");
+            paymentRepo.updateStatus(task.paymentId(), task.merchantId(), "REVERSED");
             reversalRepo.markResolved(task.id());
             log.info("Reversal RESOLVED taskId={} paymentId={}", task.id(), task.paymentId());
+            publishCardReversalIfPrepaid(task);
+            // Notify gateway-service so it can finalize the PROCESSING PaymentIntent as FAILED.
+            resolvedPublisher.publish(task.paymentId(), task.merchantId(), "FAILED");
         } else {
             handleReversalFailure(task);
+        }
+    }
+
+    private void publishCardReversalIfPrepaid(ReversalTask task) {
+        if (task.maskedPan() != null && task.maskedPan().startsWith(PREPAID_CARD_BIN)) {
+            publisher.publishCardReversal(
+                    task.paymentId(), task.merchantId(), task.network(),
+                    task.maskedPan(), task.amount(), task.currency());
         }
     }
 
@@ -118,7 +137,7 @@ public class ReversalTaskService {
 
         if (attemptsSoFar >= task.maxAttempts()) {
             reversalRepo.exhaustTask(task.id());
-            paymentRepo.updateStatus(task.paymentId(), "REVERSAL_REQUIRED");
+            paymentRepo.updateStatus(task.paymentId(), task.merchantId(), "REVERSAL_REQUIRED");
             log.error("Reversal EXHAUSTED after {} attempt(s) — manual intervention required " +
                             "taskId={} paymentId={}",
                     attemptsSoFar, task.id(), task.paymentId());

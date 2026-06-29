@@ -22,22 +22,31 @@ import java.time.Instant;
  * </ol>
  * A card reversal is a financial message (0400) sent to the network — it is NOT
  * a database rollback. The payment status moves to REVERSED only after a confirmed 0410.
+ *
+ * <h3>MR4 — settlement events</h3>
+ * On APPROVED for a VA-issued prepaid card (BIN 999999), publishes a {@code CARD_SALE}
+ * {@link RailSettlementEvent} so virtual-account-service can post the ledger journal.
+ * Non-prepaid simulator cards have no VA ledger account and are skipped.
  */
 @Service
 public class RailPaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(RailPaymentService.class);
+    private static final String PREPAID_CARD_BIN = "999999";
 
-    private final RailPaymentRepository paymentRepo;
-    private final RailRouter            router;
-    private final ReversalTaskService   reversalTaskService;
+    private final RailPaymentRepository       paymentRepo;
+    private final RailRouter                  router;
+    private final ReversalTaskService         reversalTaskService;
+    private final RailSettlementEventPublisher publisher;
 
     public RailPaymentService(RailPaymentRepository paymentRepo,
                               RailRouter router,
-                              ReversalTaskService reversalTaskService) {
-        this.paymentRepo        = paymentRepo;
-        this.router             = router;
+                              ReversalTaskService reversalTaskService,
+                              RailSettlementEventPublisher publisher) {
+        this.paymentRepo         = paymentRepo;
+        this.router              = router;
         this.reversalTaskService = reversalTaskService;
+        this.publisher           = publisher;
     }
 
     public RailResponse authorize(CanonicalPaymentCommand command) {
@@ -50,16 +59,13 @@ public class RailPaymentService {
         try {
             response = router.route(command);
         } catch (Exception e) {
-            // TODO: classify adapter failures by send state. If the ISO8583 request
-            // may have reached the network, mark UNKNOWN and create a reversal task
-            // instead of treating the payment as a local FAILED outcome.
-            paymentRepo.updateStatus(command.paymentId(), "FAILED");
+            paymentRepo.updateStatus(command.paymentId(), command.merchantId(), "FAILED");
             log.error("Rail payment failed paymentId={}: {}", command.paymentId(), e.getMessage(), e);
             throw e;
         }
 
         String dbStatus = toDbStatus(response.status());
-        paymentRepo.updateStatus(command.paymentId(), dbStatus);
+        paymentRepo.updateStatus(command.paymentId(), command.merchantId(), dbStatus);
         log.info("Rail payment settled paymentId={} status={} responseCode={}",
                 command.paymentId(), dbStatus, response.responseCode());
 
@@ -67,7 +73,18 @@ public class RailPaymentService {
             scheduleReversal(command, response);
         }
 
+        if (response.status() == RailPaymentStatus.APPROVED && isPrepaidCard(command)) {
+            String network = command.metadata().getOrDefault("network", "UNKNOWN");
+            publisher.publishCardSale(
+                    command.paymentId(), command.merchantId(), network,
+                    command.cardToken().masked(), command.amount(), command.currency());
+        }
+
         return response;
+    }
+
+    private static boolean isPrepaidCard(CanonicalPaymentCommand command) {
+        return command.cardToken() != null && PREPAID_CARD_BIN.equals(command.cardToken().bin());
     }
 
     /**

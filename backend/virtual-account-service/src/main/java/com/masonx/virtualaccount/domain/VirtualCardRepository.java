@@ -69,14 +69,25 @@ public class VirtualCardRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    /** Lists all cards (any status) linked to the given merchant via their owner account. */
-    public List<VirtualCard> findByMerchantId(String merchantId) {
+    /** Returns the total number of cards linked to the given merchant. */
+    public long countByMerchantId(String merchantId) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM virtual_card vc
+                JOIN va_account a ON vc.owner_account_id = a.account_id
+                WHERE a.merchant_id = ?
+                """, Long.class, merchantId);
+        return count != null ? count : 0L;
+    }
+
+    /** Lists cards linked to the given merchant, paginated by LIMIT/OFFSET. */
+    public List<VirtualCard> findByMerchantId(String merchantId, int page, int size) {
         return jdbc.query("""
                 SELECT vc.* FROM virtual_card vc
                 JOIN va_account a ON vc.owner_account_id = a.account_id
                 WHERE a.merchant_id = ?
                 ORDER BY vc.created_at DESC
-                """, ROW_MAPPER, merchantId);
+                LIMIT ? OFFSET ?
+                """, ROW_MAPPER, merchantId, size, (long) page * size);
     }
 
     public void updateStatus(String cardId, VirtualCardStatus status) {

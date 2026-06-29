@@ -3,12 +3,11 @@ package com.masonx.virtualaccount.vcc;
 import com.masonx.virtualaccount.vcc.dto.CreateVccRequest;
 import com.masonx.virtualaccount.vcc.dto.CreateVccResponse;
 import com.masonx.virtualaccount.vcc.dto.FundVccRequest;
+import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /**
  * Merchant-facing Virtual Credit Card management API.
@@ -49,8 +48,11 @@ public class VirtualCardController {
     }
 
     @GetMapping
-    public ResponseEntity<List<VccResponse>> list(@RequestParam String merchantId) {
-        return ResponseEntity.ok(vccService.listCards(merchantId));
+    public ResponseEntity<PagedResult<VccResponse>> list(
+            @RequestParam String merchantId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(vccService.listCards(merchantId, page, Math.min(size, 100)));
     }
 
     @DeleteMapping("/{cardId}")

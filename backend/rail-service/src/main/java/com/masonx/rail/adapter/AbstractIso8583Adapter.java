@@ -124,6 +124,20 @@ public abstract class AbstractIso8583Adapter implements PaymentRailAdapter {
             return new RailResponse(command.paymentId(), RailPaymentStatus.UNKNOWN,
                     null, null, correlationKey, "ISO8583 timeout — outcome unknown", Instant.now());
 
+        } catch (RuntimeException e) {
+            // "ISO8583 write failed" means the channel write itself failed — message never sent.
+            // Any other RuntimeException (interrupted thread, channel error) occurs after the
+            // send attempt: the request may have reached the network, so outcome is UNKNOWN.
+            if (e.getMessage() != null && e.getMessage().startsWith("ISO8583 write failed")) {
+                throw e;
+            }
+            log.warn("ISO8583 send-state uncertain paymentId={} STAN={}: {}",
+                    command.paymentId(), stan, e.getMessage(), e);
+            logService.logSend(command.paymentId(), networkName(), "UNKNOWN_SEND_ERROR",
+                    stan, rrn, maskedPan, null);
+            return new RailResponse(command.paymentId(), RailPaymentStatus.UNKNOWN,
+                    null, null, correlationKey, "Send error — outcome unknown: " + e.getMessage(), Instant.now());
+
         } catch (ISOException e) {
             throw new RuntimeException("ISO8583 pack error for paymentId=" + command.paymentId(), e);
         }

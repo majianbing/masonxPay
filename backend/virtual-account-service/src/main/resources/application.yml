@@ -24,6 +24,10 @@ spring:
 
 # Virtual Account service settings
 va:
+  internal:
+    # Shared secret for /internal/** service-to-service calls.
+    # Must match INTERNAL_AUTH_TOKEN in rail-simulator config.
+    auth-token: ${INTERNAL_AUTH_TOKEN:internal-dev-secret}
   signature:
     # HMAC-SHA256 secret for the tamper-evident balance chain.
     # MUST be set via VA_SIGNATURE_SECRET in production — never commit a real value.
@@ -34,6 +38,7 @@ va:
     node-id: ${VA_NODE_ID:0}
   kafka:
     settlement-topic: ${VA_SETTLEMENT_TOPIC:payment.settlement.events}
+    rail-settlement-topic: ${VA_RAIL_SETTLEMENT_TOPIC:rail.settlement.events}
     consumer:
       # VA is optional; when Kafka is absent the listener can be turned off.
       enabled: ${VA_KAFKA_CONSUMER_ENABLED:true}

@@ -166,7 +166,8 @@ class Iso8583ReversalSenderTest {
         return new ReversalTask(
                 "t1", "pmnt_1", 0, 3,
                 originalStan, originalRrn, "VISA_SIM",
-                Instant.now(), new BigDecimal("50.00"), "USD", "merch_1");
+                Instant.now(), new BigDecimal("50.00"), "USD", "merch_1",
+                null);  // maskedPan
     }
 
     private static ISOMsg mockApprovedResponse() {

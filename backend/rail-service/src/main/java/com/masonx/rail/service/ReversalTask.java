@@ -19,5 +19,6 @@ public record ReversalTask(
         Instant    originalTxTime,
         BigDecimal amount,
         String     currency,
-        String     merchantId
+        String     merchantId,
+        String     maskedPan      // null for non-card payments; used to identify card product on reversal
 ) {}

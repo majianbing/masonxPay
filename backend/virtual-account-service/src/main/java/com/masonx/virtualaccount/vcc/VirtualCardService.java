@@ -13,6 +13,7 @@ import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.CreateVccRequest;
 import com.masonx.virtualaccount.vcc.dto.CreateVccResponse;
 import com.masonx.virtualaccount.vcc.dto.FundVccRequest;
+import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+
 
 @Service
 public class VirtualCardService {
@@ -137,13 +139,16 @@ public class VirtualCardService {
         return toResponse(card, account);
     }
 
-    public List<VccResponse> listCards(String merchantId) {
-        return virtualCardRepo.findByMerchantId(merchantId).stream()
+    public PagedResult<VccResponse> listCards(String merchantId, int page, int size) {
+        long total = virtualCardRepo.countByMerchantId(merchantId);
+        List<VccResponse> content = virtualCardRepo.findByMerchantId(merchantId, page, size).stream()
                 .map(card -> {
                     VaAccount acct = accountRepo.findById(card.vccAccountId()).orElse(null);
                     return toResponse(card, acct);
                 })
                 .toList();
+        int totalPages = (int) Math.ceil((double) total / size);
+        return new PagedResult<>(content, page, size, total, totalPages);
     }
 
     /**

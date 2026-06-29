@@ -26,10 +26,12 @@ import static org.mockito.Mockito.*;
  */
 class ReversalDisciplineTest {
 
-    @Mock ReversalTaskRepository reversalRepo;
-    @Mock RailPaymentRepository  paymentRepo;
-    @Mock Iso8583ReversalSender  reversalSender;
-    @Mock Iso8583LogService      logService;
+    @Mock ReversalTaskRepository         reversalRepo;
+    @Mock RailPaymentRepository          paymentRepo;
+    @Mock Iso8583ReversalSender          reversalSender;
+    @Mock Iso8583LogService              logService;
+    @Mock RailSettlementEventPublisher   publisher;
+    @Mock RailPaymentResolvedPublisher   resolvedPublisher;
 
     private ReversalTaskService service;
 
@@ -37,7 +39,7 @@ class ReversalDisciplineTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         service = new ReversalTaskService(reversalRepo, paymentRepo, reversalSender, logService,
-                new SnowflakeIdGenerator(0));
+                new SnowflakeIdGenerator(0), publisher, resolvedPublisher);
     }
 
     // ── task creation ─────────────────────────────────────────────────────────
@@ -46,9 +48,9 @@ class ReversalDisciplineTest {
     void createTask_insertsRecord_withCorrectFields() {
         service.createTask("pmnt_1", "VISA_SIM", "000042", "012345678901", Instant.now());
 
-        ArgumentCaptor<String> idCap    = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> netwCap  = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> stanCap  = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> idCap   = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> netwCap = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> stanCap = ArgumentCaptor.forClass(String.class);
 
         verify(reversalRepo).insert(idCap.capture(), eq("pmnt_1"), netwCap.capture(),
                 stanCap.capture(), eq("012345678901"), any(Instant.class));
@@ -68,8 +70,10 @@ class ReversalDisciplineTest {
 
         service.executeReversals();
 
-        verify(paymentRepo).updateStatus("pmnt_1", "REVERSED");
+        verify(paymentRepo).updateStatus("pmnt_1", "merch_1", "REVERSED");
         verify(reversalRepo).markResolved("t1");
+        // Gateway-service must be notified so it can finalize the PROCESSING PaymentIntent.
+        verify(resolvedPublisher).publish("pmnt_1", "merch_1", "FAILED");
         verifyNoMoreInteractions(logService);
     }
 
@@ -86,8 +90,9 @@ class ReversalDisciplineTest {
         // Attempt 1 failed (attemptsSoFar=1 < maxAttempts=3) → requeue, not exhaust.
         verify(reversalRepo).requeueTask(eq("t1"), eq(30L));
         verify(reversalRepo, never()).exhaustTask(any());
-        verify(paymentRepo, never()).updateStatus(any(), eq("REVERSED"));
-        verify(paymentRepo, never()).updateStatus(any(), eq("REVERSAL_REQUIRED"));
+        verify(paymentRepo, never()).updateStatus(any(), any(), eq("REVERSED"));
+        verify(paymentRepo, never()).updateStatus(any(), any(), eq("REVERSAL_REQUIRED"));
+        verify(resolvedPublisher, never()).publish(any(), any(), any());
     }
 
     @Test
@@ -113,9 +118,10 @@ class ReversalDisciplineTest {
         service.executeReversals();
 
         verify(reversalRepo).exhaustTask("t1");
-        verify(paymentRepo).updateStatus("pmnt_1", "REVERSAL_REQUIRED");
+        verify(paymentRepo).updateStatus("pmnt_1", "merch_1", "REVERSAL_REQUIRED");
         verify(logService).logReconException("pmnt_1", "VISA_SIM", "REVERSAL_EXHAUSTED");
         verify(reversalRepo, never()).requeueTask(any(), anyLong());
+        verify(resolvedPublisher, never()).publish(any(), any(), any());
     }
 
     // ── scheduler resilience ──────────────────────────────────────────────────
@@ -157,6 +163,7 @@ class ReversalDisciplineTest {
         return new ReversalTask(
                 id, paymentId, attempts, maxAttempts,
                 "000042", "012345678901", "VISA_SIM",
-                Instant.now(), new BigDecimal("19.99"), "USD", "merch_1");
+                Instant.now(), new BigDecimal("19.99"), "USD", "merch_1",
+                null);   // maskedPan — null for non-prepaid test tasks
     }
 }

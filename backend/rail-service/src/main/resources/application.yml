@@ -36,6 +36,7 @@ rail:
       interval-ms: ${RAIL_BANK_POLLER_INTERVAL_MS:5000}
   kafka:
     settlement-topic: ${RAIL_SETTLEMENT_TOPIC:rail.settlement.events}
+    resolved-topic:   ${RAIL_RESOLVED_TOPIC:rail.payment.resolved}
 
 management:
   endpoints:
