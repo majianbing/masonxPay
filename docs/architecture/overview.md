@@ -4,7 +4,11 @@ MasonXPay is a payment operations platform built around a deterministic multi-pr
 
 ## System Map
 
-- `backend/`: Java 21 Spring Boot API, financial state transitions, provider adapters, routing, webhooks, sharding, Kafka workers, Redis hot path, migrations, and tests.
+- `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2).
+  - `common/`: shared error model, ID generation, tenant context.
+  - `contracts/`: shared event contracts (`EventEnvelope`, settlement DTOs).
+  - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
 - `dashboard/`: Next.js merchant and admin UI.
 - `sdk/server/`: TypeScript server SDK.
 - `sdk/browser/`: browser checkout SDK and all client-side payment UI.

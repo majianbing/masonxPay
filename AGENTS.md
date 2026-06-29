@@ -4,7 +4,11 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 
 ## Repository Map
 
-- `backend/`: Java 21 Spring Boot API, payment core, providers, sharding, Kafka workers, Redis hot path, migrations, tests.
+- `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
+  - `common/`: shared error model, ID generation, tenant context (`com.masonx.common`).
+  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs (`com.masonx.contracts`).
+  - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
 - `dashboard/`: Next.js merchant/admin UI.
 - `sdk/server/`, `sdk/browser/`: TypeScript SDKs. Browser checkout UI lives in `sdk/browser/src/index.ts`.
 - `monitor/`: Prometheus, Grafana, Kafka JMX assets.
@@ -32,15 +36,14 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Financial source of truth: Postgres payment tables and logical shards. Redis is a post-commit hot-path cache only, never authoritative.
 - Idempotency: DB-backed reservation/route records. Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
-- Backend: clean modular monolith — package boundaries are module boundaries; cross-module calls go through services/interfaces or outbox events.
+- Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger and VA accounts; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
 - AI control plane: advisory only. AI investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
 
 ## Current Phases
 
 - MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
 - Phase 4 (Merchant Operations): complete — analytics, webhook management, event replay, customer vault, disputes, and merchant audit log (4.6) all delivered.
-- High-throughput track H1-H5b and H7: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, and benchmark/simulator observability are done.
-- Next high-throughput work: H6 dashboard search/read projection hardening around Postgres-backed `payment_read_models`.
+- High-throughput track H1-H8 complete: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, benchmark/simulator observability, H6 read-model hardening, and capacity proof (~190 charges/s postgres-only, ~250/s with Redis+Kafka).
 - Advanced orchestration Phase O: O1-O5 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, outcome-action retry/fallback, and scheduled retry visibility for capture recovery. Track exact progress in `docs/planning/payment-orchestration-routing-retry-plan.md`.
 - AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
@@ -79,7 +82,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 
 ## Engineering Style
 
-- Java: 4-space indentation, package root `com.masonx.paygateway`, constructor injection, DTOs at API boundaries.
+- Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common`, `com.masonx.contracts`.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
 - Keep business logic out of controllers.
 - Add comments only when intent is non-obvious: a hidden constraint, a subtle invariant, a workaround for a known bug, or behavior that would surprise a reader. Do not explain what the code does; well-named identifiers already do that.

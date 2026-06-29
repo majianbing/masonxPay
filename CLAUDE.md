@@ -21,7 +21,11 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 
 ## Modules
 
-- `backend/`: Spring Boot API and payment core.
+- `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
+  - `common/`: shared utilities — error model, ID generation (`com.masonx.common`), tenant context.
+  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs (`com.masonx.contracts`).
+  - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
 - `dashboard/`: Next.js merchant portal and admin surfaces.
 - `sdk/browser/`: browser checkout UI and provider SDK integration.
 - `sdk/server/`: server SDK.
@@ -66,8 +70,10 @@ Next likely work:
 ```bash
 docker compose up --build
 docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml up --build
-cd backend && mvn compile
-cd backend && mvn test
+cd backend && mvn compile                                        # all modules
+cd backend && mvn test                                           # all modules
+cd backend && mvn -pl gateway-service test                       # gateway only
+cd backend && mvn -pl virtual-account-service test               # VA only
 cd dashboard && npm run build
 ```
 
@@ -92,7 +98,7 @@ Keep tests modular:
 
 ## Engineering Style
 
-- Java: 4-space indent, `com.masonx.paygateway` root, constructor injection, DTOs at API boundaries.
+- Java: 4-space indent, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common` (common), `com.masonx.contracts` (contracts).
 - TypeScript/React: 2-space indent, PascalCase components, camelCase functions, `@/` imports.
 - Business logic out of controllers. Comments only when intent is non-obvious. No broad `catch (Exception)` without a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
