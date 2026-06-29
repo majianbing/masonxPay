@@ -382,7 +382,7 @@ Acceptance criteria:
 - `docker compose up --build` starts all services including rail-service and rail-simulator
 - Existing gateway-service tests still pass
 
-Status: [ ]
+Status: [x]
 
 ---
 
@@ -411,7 +411,7 @@ Acceptance criteria:
 - VA VCC with insufficient balance → declined
 - DE2 never appears unmasked in logs
 
-Status: [ ]
+Status: [x]
 
 ---
 
@@ -437,7 +437,7 @@ Acceptance criteria:
 - PAN suffix 0005 → second 0110 silently ignored
 - No duplicate ledger entries under any scenario
 
-Status: [ ]
+Status: [x]
 
 ---
 

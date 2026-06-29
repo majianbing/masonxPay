@@ -58,6 +58,27 @@ public class VirtualCardRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /**
+     * Looks up an ACTIVE card by its masked PAN (first 6 + **** + last 4).
+     * Used by the issuer auth endpoint to identify the card from the simulator request.
+     */
+    public Optional<VirtualCard> findActiveByMaskedPan(String maskedPan) {
+        var rows = jdbc.query(
+                "SELECT * FROM virtual_card WHERE masked_pan = ? AND status = 'ACTIVE' LIMIT 1",
+                ROW_MAPPER, maskedPan);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /** Lists all cards (any status) linked to the given merchant via their owner account. */
+    public List<VirtualCard> findByMerchantId(String merchantId) {
+        return jdbc.query("""
+                SELECT vc.* FROM virtual_card vc
+                JOIN va_account a ON vc.owner_account_id = a.account_id
+                WHERE a.merchant_id = ?
+                ORDER BY vc.created_at DESC
+                """, ROW_MAPPER, merchantId);
+    }
+
     public void updateStatus(String cardId, VirtualCardStatus status) {
         jdbc.update(
                 "UPDATE virtual_card SET status = ?::va_virtual_card_status, updated_at = now() WHERE card_id = ?",

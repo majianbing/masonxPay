@@ -18,6 +18,8 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 rail:
+  id:
+    node-id: ${RAIL_NODE_ID:1}
   simulator:
     # Base URL of the rail-simulator (card-network-sim HTTP + ISO 8583 TCP host)
     host: ${RAIL_SIM_HOST:localhost}

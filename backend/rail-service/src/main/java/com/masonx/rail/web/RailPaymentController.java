@@ -6,7 +6,8 @@ import com.masonx.rail.canonical.BankAccountRef;
 import com.masonx.rail.canonical.CanonicalPaymentCommand;
 import com.masonx.rail.canonical.CardToken;
 import com.masonx.rail.canonical.RailResponse;
-import com.masonx.rail.router.RailRouter;
+import com.masonx.common.id.SnowflakeIdGenerator;
+import com.masonx.rail.service.RailPaymentService;
 import com.masonx.rail.web.dto.AuthorizeRequest;
 import com.masonx.rail.web.dto.AuthorizeResponse;
 import jakarta.validation.Valid;
@@ -16,7 +17,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1/rail")
@@ -24,18 +24,18 @@ public class RailPaymentController {
 
     private static final Logger log = LoggerFactory.getLogger(RailPaymentController.class);
 
-    private final RailRouter router;
+    private final RailPaymentService    paymentService;
+    private final SnowflakeIdGenerator  idGen;
 
-    public RailPaymentController(RailRouter router) {
-        this.router = router;
+    public RailPaymentController(RailPaymentService paymentService, SnowflakeIdGenerator idGen) {
+        this.paymentService = paymentService;
+        this.idGen          = idGen;
     }
 
-    /**
-     * Card authorization over ISO 8583. MR0: returns 501 until MR1 wires the adapter.
-     */
+    /** Card authorization over ISO 8583 — MR1. */
     @PostMapping("/authorize")
     public ResponseEntity<AuthorizeResponse> authorize(@Valid @RequestBody AuthorizeRequest req) {
-        String paymentId = "rp_" + UUID.randomUUID().toString().replace("-", "");
+        String paymentId = idGen.generate("rp_");
         log.info("Rail authorize request paymentId={} merchant={}", paymentId, req.merchantId());
 
         String network = resolveNetwork(req.network(), req.testPan());
@@ -54,7 +54,7 @@ public class RailPaymentController {
                 Map.of("network", network)
         );
 
-        RailResponse response = router.route(command);
+        RailResponse response = paymentService.authorize(command);
         return ResponseEntity.ok(new AuthorizeResponse(
                 response.railPaymentId(),
                 response.status(),
@@ -65,9 +65,7 @@ public class RailPaymentController {
         ));
     }
 
-    /**
-     * Bank credit transfer over ISO 20022 (pain.001). MR0: returns 501 until MR3 wires the adapter.
-     */
+    /** Bank credit transfer over ISO 20022 (pain.001) — wired in MR3. */
     @PostMapping("/bank-transfers")
     public ResponseEntity<Void> initiateBankTransfer() {
         return ResponseEntity.status(501).build();
@@ -77,10 +75,10 @@ public class RailPaymentController {
         if (explicit != null && !explicit.isBlank()) {
             return explicit.toUpperCase();
         }
-        // Derive from BIN: 4-prefix → VISA_SIM, 5-prefix → MC_SIM
-        if (pan != null && pan.startsWith("4")) {
-            return "VISA_SIM";
-        }
-        return "MC_SIM";
+        if (pan == null || pan.isBlank()) return "VISA_SIM";
+        // 5-prefix → MC_SIM; 4-prefix and BIN 999999 → VISA_SIM
+        // The simulator routes BIN 999999 to the VA issuer internally.
+        if (pan.startsWith("5")) return "MC_SIM";
+        return "VISA_SIM";
     }
 }

@@ -1,5 +1,6 @@
 package com.masonx.rail.router;
 
+import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.rail.canonical.CanonicalPaymentCommand;
 import com.masonx.rail.canonical.PaymentRailAdapter;
 import com.masonx.rail.canonical.RailResponse;
@@ -10,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Selects the appropriate {@link PaymentRailAdapter} for a command, persists the
@@ -25,11 +25,13 @@ public class RailRouter {
     private static final Logger log = LoggerFactory.getLogger(RailRouter.class);
 
     private final List<PaymentRailAdapter> adapters;
-    private final JdbcTemplate jdbc;
+    private final JdbcTemplate             jdbc;
+    private final SnowflakeIdGenerator     idGen;
 
-    public RailRouter(List<PaymentRailAdapter> adapters, JdbcTemplate jdbc) {
+    public RailRouter(List<PaymentRailAdapter> adapters, JdbcTemplate jdbc, SnowflakeIdGenerator idGen) {
         this.adapters = adapters;
-        this.jdbc = jdbc;
+        this.jdbc     = jdbc;
+        this.idGen    = idGen;
     }
 
     public RailResponse route(CanonicalPaymentCommand command) {
@@ -40,7 +42,7 @@ public class RailRouter {
                         "No adapter registered for rail=%s — coming in MR1".formatted(command.rail())));
 
         var decision = new RailRoutingDecision(
-                "rd_" + UUID.randomUUID().toString().replace("-", ""),
+                idGen.generate("rd_"),
                 command.paymentId(),
                 command.rail(),
                 command.metadata().getOrDefault("network", "UNKNOWN"),
@@ -60,6 +62,6 @@ public class RailRouter {
                 VALUES (?, ?, ?::rail_type, ?, ?, ?)
                 """,
                 d.id(), d.paymentId(), d.rail().name(),
-                d.network(), d.adapterClass(), d.decidedAt());
+                d.network(), d.adapterClass(), java.sql.Timestamp.from(d.decidedAt()));
     }
 }
