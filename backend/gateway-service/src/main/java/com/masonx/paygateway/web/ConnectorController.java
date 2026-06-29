@@ -146,13 +146,18 @@ public class ConnectorController {
                 null   // no 3DS return URL for connector preview
         ), creds);
 
+        // Rail-unknown: gateway has no synchronous outcome yet; async resolution via Kafka.
+        boolean railUnknown = "rail_unknown".equals(result.failureCode());
+
         // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest
         PaymentIntent intent = new PaymentIntent();
         intent.setMerchantId(merchantId);
         intent.setMode(ApiKeyMode.TEST);
         intent.setAmount(req.amount());
         intent.setCurrency(req.currency().toLowerCase());
-        intent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
+        intent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED
+                : railUnknown ? PaymentIntentStatus.PROCESSING
+                : PaymentIntentStatus.FAILED);
         intent.setResolvedProvider(account.getProvider());
         intent.setConnectorAccountId(account.getId());
         intent.setIdempotencyKey(idempotencyKey);
@@ -165,15 +170,18 @@ public class ConnectorController {
         paymentRequest.setCurrency(req.currency().toLowerCase());
         paymentRequest.setPaymentMethodType("card");
         paymentRequest.setConnectorAccountId(account.getId());
-        paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+        paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED
+                : railUnknown ? PaymentRequestStatus.PENDING
+                : PaymentRequestStatus.FAILED);
         paymentRequest.setProviderRequestId(result.providerPaymentId());
         paymentRequest.setFailureCode(result.failureCode());
         paymentRequest.setFailureMessage(result.failureMessage());
         paymentRequestRepository.save(paymentRequest);
 
+        String responseStatus = result.success() ? "SUCCEEDED" : railUnknown ? "PROCESSING" : "FAILED";
         return ResponseEntity.ok(new PreviewPaymentResponse(
                 result.success(),
-                result.success() ? "SUCCEEDED" : "FAILED",
+                responseStatus,
                 account.getProvider().name(),
                 account.getLabel(),
                 req.amount(),

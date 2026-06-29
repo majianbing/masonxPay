@@ -165,7 +165,8 @@ export default function PreviewPage() {
   const testCards = connector ? (TEST_CARDS[connector.provider] ?? []) : [];
   const test3dsCards = connector ? (TEST_3DS_CARDS[connector.provider] ?? []) : [];
 
-  // Direct create+confirm flow for SIMULATOR — bypasses the SDK so we can control the test PAN.
+  // Direct charge flow for SIMULATOR — uses the JWT-authenticated connector preview endpoint
+  // so the dashboard token is sufficient (no API key needed).
   async function runSimulatorDirect() {
     if (!activeMerchantId) return;
     const cents = Math.round(parseFloat(amount) * 100);
@@ -176,36 +177,29 @@ export default function PreviewPage() {
     setMounting(true);
 
     try {
-      const intent = await apiFetch<{ id: string }>(
-        `/api/v1/payment-intents`,
+      const resp = await apiFetch<{
+        success: boolean;
+        status: string;
+        providerPaymentId?: string;
+        failureCode?: string;
+        failureMessage?: string;
+      }>(
+        `/api/v1/merchants/${activeMerchantId}/connectors/${params.accountId}/preview`,
         {
           method: 'POST',
-          body: JSON.stringify({
-            amount: cents,
-            currency: currency.toLowerCase(),
-            idempotencyKey: crypto.randomUUID(),
-            paymentMethodType: 'card',
-          }),
+          body: JSON.stringify({ amount: cents, currency: currency.toLowerCase(), testCard: selectedTestPan }),
         },
       );
 
-      const confirmed = await apiFetch<{ id: string; status: string; failureCode?: string; failureMessage?: string }>(
-        `/api/v1/payment-intents/${intent.id}/confirm`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ paymentMethodId: selectedTestPan, paymentMethodType: 'card' }),
-        },
-      );
-
-      const isProcessing = confirmed.status === 'PROCESSING';
+      const isProcessing = resp.status === 'PROCESSING';
       setResult({
-        success: confirmed.status === 'SUCCEEDED',
-        status: confirmed.status,
-        paymentIntentId: confirmed.id,
-        failureCode: isProcessing ? 'rail_unknown' : (confirmed.failureCode ?? undefined),
+        success: resp.success,
+        status: resp.status,
+        paymentIntentId: resp.providerPaymentId ?? '',
+        failureCode: isProcessing ? 'rail_unknown' : (resp.failureCode ?? undefined),
         failureMessage: isProcessing
           ? 'Auth timed out — reversal in progress. Status will resolve to FAILED within ~60s.'
-          : (confirmed.failureMessage ?? undefined),
+          : (resp.failureMessage ?? undefined),
       });
     } catch (e) {
       setLinkError((e as Error).message ?? 'Test failed');

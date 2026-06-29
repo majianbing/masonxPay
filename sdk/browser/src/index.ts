@@ -710,24 +710,67 @@ export class GatewayEmbedded {
 
   // ── Mason Simulator ────────────────────────────────────────────────────────
 
+  private simulatorSelectedPan = '4111111111111111';
+
+  private static readonly SIMULATOR_PANS: { label: string; pan: string; desc: string }[] = [
+    { label: 'Approve',            pan: '4111111111111111', desc: 'Standard approve (last-4 = 1111)' },
+    { label: 'Insufficient funds', pan: '4111111111110001', desc: 'Issuer decline — insufficient funds' },
+    { label: 'Do not honor',       pan: '4111111111110002', desc: 'Hard decline' },
+    { label: 'Timeout → UNKNOWN',  pan: '4111111111110003', desc: 'Auth times out; status stays PROCESSING ~60s' },
+  ];
+
   private buildSimulatorForm(container: HTMLElement): void {
-    container.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 0;text-align:center;">
-        <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true">
-          <rect width="28" height="28" rx="6" fill="#312e81"/>
-          <path d="M7 19V9h3l4 6 4-6h3v10h-2.5v-6l-3.5 5h-2l-3.5-5v6H7Z" fill="#fff"/>
-        </svg>
-        <p style="font-size:14px;color:#374151;font-weight:500;margin:0;">Mason Simulator</p>
-        <p style="font-size:12px;color:#6b7280;margin:0;max-width:280px;line-height:1.5;">
-          TEST-only provider. It charges a synthetic card token so routing, capability, retry,
-          and hosted-checkout flows can be verified without an external PSP.
-        </p>
-      </div>`;
+    this.simulatorSelectedPan = GatewayEmbedded.SIMULATOR_PANS[0].pan;
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+
+    const label = document.createElement('p');
+    label.style.cssText = 'font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px;';
+    label.textContent = 'Rail test scenario';
+    wrap.appendChild(label);
+
+    GatewayEmbedded.SIMULATOR_PANS.forEach((p, i) => {
+      const row = document.createElement('label');
+      row.style.cssText = [
+        'display:flex;align-items:flex-start;gap:10px;padding:9px 11px;',
+        'border:1px solid #e2e8f0;border-radius:7px;cursor:pointer;',
+        'transition:background 0.1s,border-color 0.1s;',
+        i === 0 ? 'border-color:#6366f1;background:#eef2ff;' : '',
+      ].join('');
+
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'gw-sim-pan';
+      radio.value = p.pan;
+      radio.checked = i === 0;
+      radio.style.cssText = 'margin-top:2px;flex-shrink:0;accent-color:#6366f1;';
+
+      const text = document.createElement('div');
+      text.innerHTML = `
+        <span style="font-size:13px;font-weight:500;color:#1e293b;">${p.label}</span><br>
+        <span style="font-size:11px;color:#94a3b8;">${p.desc}</span>`;
+
+      row.appendChild(radio);
+      row.appendChild(text);
+
+      radio.addEventListener('change', () => {
+        this.simulatorSelectedPan = p.pan;
+        wrap.querySelectorAll('label').forEach((l, j) => {
+          (l as HTMLElement).style.borderColor = j === i ? '#6366f1' : '#e2e8f0';
+          (l as HTMLElement).style.background  = j === i ? '#eef2ff' : '';
+        });
+      });
+
+      wrap.appendChild(row);
+    });
+
+    container.appendChild(wrap);
     if (this.submitBtn) this.submitBtn.disabled = false;
   }
 
   private async submitSimulator(): Promise<void> {
-    await this.tokenizeAndSubmit('SIMULATOR', `sim_pm_${Date.now()}`);
+    await this.tokenizeAndSubmit('SIMULATOR', this.simulatorSelectedPan);
   }
 
   private async tokenizeAndSubmit(provider: string, providerPmId: string): Promise<void> {
