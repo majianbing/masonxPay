@@ -65,10 +65,13 @@ const TEST_3DS_CARDS: Record<string, { label: string; value: string; note: strin
   ],
 };
 
-const SIMULATOR_NOTE = {
-  title: 'One-click simulator payment',
-  body: 'No card number or external PSP sandbox is needed. The SDK submits a synthetic card token through the same hosted-checkout APIs used by payment links.',
-};
+// Rail test PANs — last-4 digits control the ISO 8583 simulator scenario.
+const RAIL_TEST_PANS: { label: string; pan: string; description: string }[] = [
+  { label: 'Approve',             pan: '4111111111111111', description: 'Standard approve (last-4 = 1111)' },
+  { label: 'Insufficient funds',  pan: '4111111111110001', description: 'Issuer decline — insufficient funds' },
+  { label: 'Do not honor',        pan: '4111111111110002', description: 'Hard decline' },
+  { label: 'Timeout → UNKNOWN',   pan: '4111111111110003', description: 'Auth times out; gateway stays PROCESSING until reversal resolves (~60s)' },
+];
 
 // ─── Result overlay ───────────────────────────────────────────────────────────
 
@@ -129,6 +132,7 @@ export default function PreviewPage() {
   const [result, setResult] = useState<CheckoutResult | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [mounting, setMounting] = useState(false);
+  const [selectedTestPan, setSelectedTestPan] = useState(RAIL_TEST_PANS[0].pan);
 
   const sdkContainerRef = useRef<HTMLDivElement>(null);
   const gwRef = useRef<GatewayEmbedded | null>(null);
@@ -161,7 +165,56 @@ export default function PreviewPage() {
   const testCards = connector ? (TEST_CARDS[connector.provider] ?? []) : [];
   const test3dsCards = connector ? (TEST_3DS_CARDS[connector.provider] ?? []) : [];
 
-  // Create a preview link then mount the SDK into the form panel
+  // Direct create+confirm flow for SIMULATOR — bypasses the SDK so we can control the test PAN.
+  async function runSimulatorDirect() {
+    if (!activeMerchantId) return;
+    const cents = Math.round(parseFloat(amount) * 100);
+    if (cents < 50) return;
+
+    setLinkError(null);
+    setResult(null);
+    setMounting(true);
+
+    try {
+      const intent = await apiFetch<{ id: string }>(
+        `/api/v1/payment-intents`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            amount: cents,
+            currency: currency.toLowerCase(),
+            idempotencyKey: crypto.randomUUID(),
+            paymentMethodType: 'card',
+          }),
+        },
+      );
+
+      const confirmed = await apiFetch<{ id: string; status: string; failureCode?: string; failureMessage?: string }>(
+        `/api/v1/payment-intents/${intent.id}/confirm`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ paymentMethodId: selectedTestPan, paymentMethodType: 'card' }),
+        },
+      );
+
+      const isProcessing = confirmed.status === 'PROCESSING';
+      setResult({
+        success: confirmed.status === 'SUCCEEDED',
+        status: confirmed.status,
+        paymentIntentId: confirmed.id,
+        failureCode: isProcessing ? 'rail_unknown' : (confirmed.failureCode ?? undefined),
+        failureMessage: isProcessing
+          ? 'Auth timed out — reversal in progress. Status will resolve to FAILED within ~60s.'
+          : (confirmed.failureMessage ?? undefined),
+      });
+    } catch (e) {
+      setLinkError((e as Error).message ?? 'Test failed');
+    } finally {
+      setMounting(false);
+    }
+  }
+
+  // Create a preview link then mount the SDK into the form panel (non-SIMULATOR providers)
   async function startPreview() {
     if (!activeMerchantId) return;
     const cents = Math.round(parseFloat(amount) * 100);
@@ -276,12 +329,32 @@ export default function PreviewPage() {
           {isSimulator && (
             <div className="space-y-2">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                Mason Simulator
+                Rail test scenario
               </h2>
-              <div className="bg-white border rounded-lg p-3 text-sm space-y-1.5">
-                <p className="font-medium">{SIMULATOR_NOTE.title}</p>
-                <p className="text-xs leading-5 text-muted-foreground">{SIMULATOR_NOTE.body}</p>
+              <div className="bg-white border rounded-lg divide-y text-sm">
+                {RAIL_TEST_PANS.map((p) => (
+                  <label
+                    key={p.pan}
+                    className="flex items-start gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50"
+                  >
+                    <input
+                      type="radio"
+                      name="testPan"
+                      value={p.pan}
+                      checked={selectedTestPan === p.pan}
+                      onChange={() => { setSelectedTestPan(p.pan); setResult(null); }}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <div>
+                      <p className="font-medium">{p.label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>
+                    </div>
+                  </label>
+                ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                PAN: <span className="font-mono">{selectedTestPan}</span>
+              </p>
             </div>
           )}
 
@@ -345,7 +418,7 @@ export default function PreviewPage() {
             <ResultOverlay
               result={result}
               currency={currency}
-              onReset={() => { sessionStorage.removeItem(SESSION_KEY); setResult(null); setLinkToken(null); }}
+              onReset={() => { sessionStorage.removeItem(SESSION_KEY); setResult(null); setLinkToken(null); setLinkError(null); }}
             />
           ) : (
             <div className="space-y-4">
@@ -357,16 +430,38 @@ export default function PreviewPage() {
                       Using <strong>{connector?.label ?? '…'}</strong>
                     </p>
                   </div>
-                  <Button
-                    className="w-full"
-                    size="lg"
-                    disabled={amountCents < 50 || mounting}
-                    onClick={startPreview}
-                  >
-                    {mounting ? 'Loading…' : `Launch ${amountCents >= 50
-                      ? new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amountCents / 100)
-                      : ''} checkout`}
-                  </Button>
+
+                  {isSimulator ? (
+                    // SIMULATOR: direct create+confirm with selected test PAN
+                    <div className="space-y-3">
+                      <div className="bg-gray-50 border rounded-lg px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                        <p><span className="font-medium">Scenario:</span> {RAIL_TEST_PANS.find(p => p.pan === selectedTestPan)?.label}</p>
+                        <p><span className="font-medium">PAN:</span> <span className="font-mono">{selectedTestPan}</span></p>
+                        <p><span className="font-medium">Amount:</span> {amountCents >= 50 ? new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amountCents / 100) : '—'}</p>
+                      </div>
+                      <Button
+                        className="w-full"
+                        size="lg"
+                        disabled={amountCents < 50 || mounting}
+                        onClick={runSimulatorDirect}
+                      >
+                        {mounting ? 'Processing…' : 'Pay via rail'}
+                      </Button>
+                    </div>
+                  ) : (
+                    // Real PSP providers: SDK-based hosted checkout
+                    <Button
+                      className="w-full"
+                      size="lg"
+                      disabled={amountCents < 50 || mounting}
+                      onClick={startPreview}
+                    >
+                      {mounting ? 'Loading…' : `Launch ${amountCents >= 50
+                        ? new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amountCents / 100)
+                        : ''} checkout`}
+                    </Button>
+                  )}
+
                   {linkError && (
                     <p className="text-xs text-red-500 text-center">{linkError}</p>
                   )}

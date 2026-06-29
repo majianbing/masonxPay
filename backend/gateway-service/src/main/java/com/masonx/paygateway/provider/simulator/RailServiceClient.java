@@ -6,6 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -36,6 +39,9 @@ public class RailServiceClient {
 
     private static final String DEFAULT_TEST_PAN = "4111111111111111"; // last-4 = 1111 → APPROVE
     private static final String DEFAULT_EXPIRY   = "12/25";
+    // A valid PAN is 12–19 digits; simulator tokens (e.g. "sim_pm_xxx") are not PANs.
+    private static final java.util.regex.Pattern PAN_PATTERN =
+            java.util.regex.Pattern.compile("\\d{12,19}");
 
     private final RestTemplate restTemplate;
     private final String baseUrl;
@@ -47,8 +53,12 @@ public class RailServiceClient {
 
     @SuppressWarnings("unchecked")
     public ChargeResult authorize(ChargeRequest request) {
-        String testPan = (request.paymentMethodId() != null && !request.paymentMethodId().isBlank())
-                ? request.paymentMethodId()
+        // Only use paymentMethodId as testPan if it looks like a numeric PAN.
+        // SDK synthetic tokens (e.g. "sim_pm_xxx") are not PANs and would fail
+        // the ISO 8583 PAN field encoding in rail-simulator.
+        String pmId = request.paymentMethodId();
+        String testPan = (pmId != null && PAN_PATTERN.matcher(pmId).matches())
+                ? pmId
                 : DEFAULT_TEST_PAN;
 
         // Amount: gateway stores smallest unit (cents); rail-service expects BigDecimal >= 0.01
@@ -63,9 +73,14 @@ public class RailServiceClient {
                 "expiry",         DEFAULT_EXPIRY
         );
 
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
         Map<String, Object> responseBody;
         try {
-            responseBody = restTemplate.postForObject(baseUrl + "/v1/rail/authorize", body, Map.class);
+            responseBody = restTemplate.postForObject(
+                    baseUrl + "/v1/rail/authorize", requestEntity, Map.class);
         } catch (HttpClientErrorException e) {
             log.warn("RailServiceClient: 4xx from rail-service for intent={}: {} {}",
                     request.paymentIntentId(), e.getStatusCode(), e.getMessage());
