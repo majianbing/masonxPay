@@ -25,10 +25,15 @@ rail:
     host: ${RAIL_SIM_HOST:localhost}
     http-port: ${RAIL_SIM_HTTP_PORT:9090}
     tcp-port: ${RAIL_SIM_TCP_PORT:9091}
+    # Base URL for ISO 20022 bank-sim HTTP endpoints
+    bank-url: ${RAIL_SIM_BANK_URL:http://localhost:9090}
     # Connection timeout for ISO 8583 TCP channel (ms)
     connect-timeout-ms: ${RAIL_SIM_CONNECT_TIMEOUT_MS:5000}
     # Read timeout — exceeding this transitions the payment to UNKNOWN state
     read-timeout-ms: ${RAIL_SIM_READ_TIMEOUT_MS:30000}
+  bank:
+    poller:
+      interval-ms: ${RAIL_BANK_POLLER_INTERVAL_MS:5000}
   kafka:
     settlement-topic: ${RAIL_SETTLEMENT_TOPIC:rail.settlement.events}
 

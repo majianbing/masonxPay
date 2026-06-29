@@ -10,6 +10,8 @@ import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.rail.service.RailPaymentService;
 import com.masonx.rail.web.dto.AuthorizeRequest;
 import com.masonx.rail.web.dto.AuthorizeResponse;
+import com.masonx.rail.web.dto.BankTransferRequest;
+import com.masonx.rail.web.dto.BankTransferResponse;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,10 +67,44 @@ public class RailPaymentController {
         ));
     }
 
-    /** Bank credit transfer over ISO 20022 (pain.001) — wired in MR3. */
+    /** Bank credit transfer over ISO 20022 (pain.001) — MR3. */
     @PostMapping("/bank-transfers")
-    public ResponseEntity<Void> initiateBankTransfer() {
-        return ResponseEntity.status(501).build();
+    public ResponseEntity<BankTransferResponse> initiateBankTransfer(
+            @Valid @RequestBody BankTransferRequest req) {
+        String paymentId = idGen.generate("rp_");
+        String network   = resolveBank(req.network());
+        log.info("Rail bank-transfer request paymentId={} merchant={} network={}",
+                paymentId, req.merchantId(), network);
+
+        var command = new CanonicalPaymentCommand(
+                paymentId,
+                req.merchantId(),
+                req.idempotencyKey(),
+                com.masonx.contracts.rail.PaymentRail.BANK_ISO20022,
+                com.masonx.contracts.rail.MoneyMovementType.BANK_CREDIT_TRANSFER,
+                req.amount(),
+                req.currency(),
+                null,
+                new BankAccountRef(req.debtorIban(), null, req.debtorName()),
+                new BankAccountRef(req.creditorIban(), null, req.creditorName()),
+                null,
+                Map.of("network", network)
+        );
+
+        RailResponse response = paymentService.authorize(command);
+        return ResponseEntity.ok(new BankTransferResponse(
+                response.railPaymentId(),
+                response.status(),
+                null,
+                response.networkRef(),
+                response.responseCode(),
+                response.failureReason()
+        ));
+    }
+
+    private String resolveBank(String explicit) {
+        if (explicit != null && !explicit.isBlank()) return explicit.toUpperCase();
+        return "SEPA_SIM";
     }
 
     private String resolveNetwork(String explicit, String pan) {
