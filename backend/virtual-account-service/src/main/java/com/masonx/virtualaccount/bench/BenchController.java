@@ -20,7 +20,8 @@ import java.util.*;
  *
  * POST /internal/bench/setup              → create N (tenant+external) account pairs
  * POST /internal/bench/post              → one 2-entry balanced posting (DEBIT cash / CREDIT ext)
- * GET  /internal/bench/verify/{accountId} → balance + seq-gapless + HMAC chain check
+ * POST /internal/bench/verify-duplicate  → proves inbox idempotency with one duplicate event
+ * GET  /internal/bench/verify/{accountId} → balance + seq + HMAC + LC journal checks
  */
 @RestController
 @RequestMapping("/internal/bench")
@@ -80,13 +81,45 @@ public class BenchController {
     @PostMapping("/post")
     public PostResponse post(@RequestBody PostRequest req) {
         String txId = idGenerator.generate("tx_");
+        VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
+                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
         ledger.postDirect(new PostTransaction(txId, List.of(
                 new EntryDraft(req.tenantAccountId(), Direction.DEBIT,
                         req.amount(), "USD", "bench_" + txId),
                 new EntryDraft(req.externalAccountId(), Direction.CREDIT,
                         req.amount(), "USD", "bench_" + txId)
-        ), TransactionType.INTERNAL, null, null, LocalDate.now(), Mode.LIVE, null, null));
+        ), TransactionType.INTERNAL, "VA bench posting", null, LocalDate.now(),
+                tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId()));
         return new PostResponse(true);
+    }
+
+    @PostMapping("/verify-duplicate")
+    public DuplicateVerifyResponse verifyDuplicate(@RequestBody PostRequest req) {
+        String eventId = "bench_dup_" + idGenerator.generate("");
+        String txId1 = idGenerator.generate("tx_");
+        String txId2 = idGenerator.generate("tx_");
+        VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
+                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
+
+        PostTransaction first = duplicateCheckTransaction(req, tenantAccount, txId1, eventId);
+        PostTransaction duplicate = duplicateCheckTransaction(req, tenantAccount, txId2, eventId);
+
+        boolean firstPosted = ledger.postIfNew(first, eventId, "BENCH_DUPLICATE_CHECK");
+        boolean duplicatePosted = ledger.postIfNew(duplicate, eventId, "BENCH_DUPLICATE_CHECK");
+
+        Integer entryCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM va_ledger_entry WHERE source_event_id = ?",
+                Integer.class, eventId);
+        Integer headerCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM va_transaction WHERE transaction_id IN (?, ?)",
+                Integer.class, txId1, txId2);
+
+        boolean ok = firstPosted && !duplicatePosted
+                && Objects.equals(entryCount, 2)
+                && Objects.equals(headerCount, 1);
+        return new DuplicateVerifyResponse(ok, firstPosted, duplicatePosted,
+                entryCount == null ? 0 : entryCount,
+                headerCount == null ? 0 : headerCount);
     }
 
     // ── Verify ────────────────────────────────────────────────────────────────
@@ -126,6 +159,16 @@ public class BenchController {
                 ? accountBalance.compareTo(BigDecimal.ZERO) == 0
                 : entries.get(entryCount - 1).balanceAfter().compareTo(accountBalance) == 0;
 
+        BigDecimal debitNet = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END), 0)
+                FROM va_ledger_entry
+                WHERE account_id = ?
+                """, BigDecimal.class, accountId);
+        BigDecimal expectedBalance = account.normalBalance() == NormalBalance.DEBIT
+                ? debitNet
+                : debitNet.negate();
+        boolean balanceSumOk = expectedBalance.compareTo(accountBalance) == 0;
+
         // Seq: must be 1, 2, 3, … N with no gaps or duplicates.
         boolean seqOk = true;
         Long firstGapAtSeq = null;
@@ -152,8 +195,82 @@ public class BenchController {
             }
         }
 
+        Integer missingHeaderCount = jdbc.queryForObject("""
+                WITH account_tx AS (
+                    SELECT DISTINCT transaction_id
+                    FROM va_ledger_entry
+                    WHERE account_id = ?
+                )
+                SELECT COUNT(*)
+                FROM account_tx atx
+                LEFT JOIN va_transaction tx ON tx.transaction_id = atx.transaction_id
+                WHERE tx.transaction_id IS NULL
+                """, Integer.class, accountId);
+
+        Integer unbalancedTransactionCount = jdbc.queryForObject("""
+                WITH account_tx AS (
+                    SELECT DISTINCT transaction_id
+                    FROM va_ledger_entry
+                    WHERE account_id = ?
+                )
+                SELECT COUNT(*)
+                FROM (
+                    SELECT le.transaction_id
+                    FROM va_ledger_entry le
+                    JOIN account_tx atx ON atx.transaction_id = le.transaction_id
+                    GROUP BY le.transaction_id
+                    HAVING COALESCE(SUM(CASE WHEN le.direction = 'DEBIT' THEN le.amount ELSE -le.amount END), 0) <> 0
+                ) broken
+                """, Integer.class, accountId);
+
+        int headerScopeMismatchCount = 0;
+        if (account.accountRole() == AccountRole.TENANT) {
+            Integer n = jdbc.queryForObject("""
+                    WITH account_tx AS (
+                        SELECT DISTINCT transaction_id
+                        FROM va_ledger_entry
+                        WHERE account_id = ?
+                    )
+                    SELECT COUNT(*)
+                    FROM va_transaction tx
+                    JOIN account_tx atx ON atx.transaction_id = tx.transaction_id
+                    WHERE tx.mode <> ?::va_mode
+                       OR tx.merchant_id IS DISTINCT FROM ?
+                       OR tx.org_id IS DISTINCT FROM ?
+                    """, Integer.class,
+                    accountId, account.mode().name(), account.merchantId(), account.orgId());
+            headerScopeMismatchCount = n == null ? 0 : n;
+        }
+
+        boolean journalOk = (missingHeaderCount == null || missingHeaderCount == 0)
+                && (unbalancedTransactionCount == null || unbalancedTransactionCount == 0)
+                && headerScopeMismatchCount == 0;
+
+        Boolean trialBalanceOk = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(CASE WHEN normal_balance = 'DEBIT' THEN balance ELSE 0 END), 0)
+                     = COALESCE(SUM(CASE WHEN normal_balance = 'CREDIT' THEN balance ELSE 0 END), 0)
+                FROM va_account
+                WHERE mode = ?::va_mode AND asset = ?
+                """, Boolean.class, account.mode().name(), account.asset());
+
         return new VerifyResponse(accountId, entryCount, accountBalance,
-                balanceOk, seqOk, chainOk, firstGapAtSeq, firstBrokenChainAtSeq);
+                balanceOk, balanceSumOk, seqOk, chainOk, journalOk,
+                missingHeaderCount == null ? 0 : missingHeaderCount,
+                unbalancedTransactionCount == null ? 0 : unbalancedTransactionCount,
+                headerScopeMismatchCount,
+                Boolean.TRUE.equals(trialBalanceOk),
+                firstGapAtSeq, firstBrokenChainAtSeq);
+    }
+
+    private PostTransaction duplicateCheckTransaction(PostRequest req, VaAccount tenantAccount,
+                                                      String txId, String eventId) {
+        return new PostTransaction(txId, List.of(
+                new EntryDraft(req.tenantAccountId(), Direction.DEBIT,
+                        req.amount(), "USD", eventId),
+                new EntryDraft(req.externalAccountId(), Direction.CREDIT,
+                        req.amount(), "USD", eventId)
+        ), TransactionType.INTERNAL, "VA bench duplicate check", null,
+                LocalDate.now(), tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId());
     }
 
     // ── DTOs ─────────────────────────────────────────────────────────────────
@@ -163,13 +280,25 @@ public class BenchController {
     public record PairInfo(int index, String tenantAccountId, String externalAccountId) {}
     public record PostRequest(String tenantAccountId, String externalAccountId, BigDecimal amount) {}
     public record PostResponse(boolean ok) {}
+    public record DuplicateVerifyResponse(
+            boolean ok,
+            boolean firstPosted,
+            boolean duplicatePosted,
+            int entryCount,
+            int headerCount) {}
     public record VerifyResponse(
             String accountId,
             int entryCount,
             BigDecimal accountBalance,
             boolean balanceOk,
+            boolean balanceSumOk,
             boolean seqOk,
             boolean chainOk,
+            boolean journalOk,
+            int missingHeaderCount,
+            int unbalancedTransactionCount,
+            int headerScopeMismatchCount,
+            boolean trialBalanceOk,
             Long firstGapAtSeq,
             Long firstBrokenChainAtSeq) {}
 }

@@ -22,15 +22,26 @@ Little's law comparison:
 - Gateway: 80 conns ÷ 0.42s hold ≈ **190 TPS ceiling**
 - VA:      40 conns ÷ 0.005s hold ≈ **8,000 TPS theoretical max**
 
-## Correctness invariants (VA-specific gate)
+## Correctness invariants (VA/LC-specific gate)
 
-After every run (except warmup), teardown verifies the hotspot pair or first 5 pairs:
+After every run except warmup, teardown verifies both accounts in the hotspot pair
+or both accounts in the first 5 pairs:
 
 1. **Balance OK** — `va_account.balance` == last entry's `balance_after`
-2. **Seq OK** — `entry_seq` is gapless: 1, 2, 3, … N with no duplicates
-3. **Chain OK** — HMAC chain is unbroken: each entry's signature recomputes correctly
+2. **Balance Sum OK** — account balance equals the signed sum of all posted entries,
+   using the account's normal balance
+3. **Seq OK** — `entry_seq` is gapless: 1, 2, 3, … N with no duplicates
+4. **Chain OK** — HMAC chain is unbroken: each entry's signature recomputes correctly
+5. **Journal OK** — every ledger entry has a persisted `va_transaction` header,
+   every transaction touching the verified account is net-zero, and tenant-account
+   journal headers carry the account's merchant/org/mode scope
+6. **Trial Balance OK** — the mode/asset trial balance remains balanced
+7. **Duplicate Event OK** — setup posts one duplicate event through `postIfNew`;
+   the first delivery posts exactly one journal and two lines, the duplicate is skipped
 
 A correctness failure means a concurrency bug regardless of the TPS number.
+The k6 script now calls `fail()` when any invariant is violated, so CI or shell
+exit status can treat correctness failures as failed runs.
 
 ## Scenarios
 
@@ -49,6 +60,11 @@ A correctness failure means a concurrency bug regardless of the TPS number.
 | spread  | VU n → pair (n % N)     | Baseline throughput, minimal lock conflict |
 | hotspot | all VUs → pair 0        | SELECT FOR UPDATE serialization ceiling  |
 
+Set `LC_CHECKS=false` only when you intentionally want a pure latency run
+without journal/trial-balance/duplicate-event checks. The default is `true`.
+Set `INTERNAL_TOKEN` if the bench service uses a non-default `X-Internal-Token`;
+the local default is `internal-dev-secret`.
+
 ## How to run
 
 ```bash
@@ -60,19 +76,16 @@ docker compose up --build
 k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=warmup
 
 # 3. Ramp — find the knee
-k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=ramp \
-  -e RAMP_TO=2000
+k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=ramp -e RAMP_TO=2000
 
 # 4. Soak at 150 TPS (the headline)
-k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=soak \
-  -e TARGET_RATE=150 -e DURATION=30m
+k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=soak -e TARGET_RATE=350 -e DURATION=6h
 
 # 5. Correctness check (50 VUs → pair 0, 5000 iterations, teardown verifies)
 k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=correctness
 
 # 6. Hotspot throughput (all VUs → 1 account, find SELECT FOR UPDATE ceiling)
-k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=soak \
-  -e CONTENTION=hotspot -e DURATION=5m
+k6 run k6/va-capacity.js -e BASE_URL=http://localhost:8087 -e SCENARIO=soak -e CONTENTION=hotspot -e DURATION=5m
 
 # 7. Wipe bench data and start fresh
 docker compose down -v && docker compose up --build
@@ -82,7 +95,7 @@ docker compose down -v && docker compose up --build
 
 - `va_post_ms p99 < 50ms`  — tighter than gateway's 100ms; justified (no connector call)
 - `va_sys_errors rate < 0.001`  — less than 0.1% errors
-- Correctness teardown must print `ALL PASS ✓`
+- Correctness teardown must print `ALL PASS`
 
 ## Results log
 

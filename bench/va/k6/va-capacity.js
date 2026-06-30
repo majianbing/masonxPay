@@ -38,10 +38,12 @@
  *   CONTENTION    spread|hotspot                     (see above)
  *   TOTAL_ITERS   shared iterations for correctness  (default 5000)
  *   AMOUNT        posting amount USD                 (default 10.00)
+ *   INTERNAL_TOKEN X-Internal-Token value             (default internal-dev-secret)
+ *   LC_CHECKS     true|false                         (default true)
  */
 
 import http from 'k6/http';
-import {check} from 'k6';
+import {check, fail} from 'k6';
 import exec from 'k6/execution';
 import {Trend, Rate} from 'k6/metrics';
 
@@ -55,6 +57,12 @@ const PAIR_COUNT = Number(__ENV.PAIR_COUNT || '100');
 const CONTENTION = __ENV.CONTENTION || (SCENARIO === 'correctness' ? 'hotspot' : 'spread');
 const TOTAL_ITERS = Number(__ENV.TOTAL_ITERS || '5000');
 const AMOUNT = __ENV.AMOUNT || '10.00';
+const INTERNAL_TOKEN = __ENV.INTERNAL_TOKEN || 'internal-dev-secret';
+const LC_CHECKS = (__ENV.LC_CHECKS || 'true') !== 'false';
+const JSON_HEADERS = {
+    'Content-Type': 'application/json',
+    'X-Internal-Token': INTERNAL_TOKEN,
+};
 
 // VU pool: at 5ms hold Little's law needs far fewer VUs than the gateway.
 // Size PRE_VUS conservatively; MAX_VUS covers the ramp ceiling.
@@ -107,7 +115,7 @@ function buildScenario() {
             return {
                 correctness: {
                     executor: 'shared-iterations', vus: 50,
-                    iterations: TOTAL_ITERS, maxDuration: '10m', ...common
+                    iterations: TOTAL_ITERS, maxDuration: '1h', ...common
                 }
             };
 
@@ -140,16 +148,28 @@ export const options = {
 export function setup() {
     const res = http.post(`${BASE_URL}/internal/bench/setup`,
         JSON.stringify({pairCount: PAIR_COUNT}),
-        {headers: {'Content-Type': 'application/json'}});
+        {headers: JSON_HEADERS});
 
     if (res.status !== 200) {
         throw new Error(`setup failed ${res.status}: ${res.body}`);
     }
 
     const data = res.json();
+    if (LC_CHECKS && data.pairs.length > 0) {
+        const dup = http.post(`${BASE_URL}/internal/bench/verify-duplicate`,
+            JSON.stringify({
+                tenantAccountId: data.pairs[0].tenantAccountId,
+                externalAccountId: data.pairs[0].externalAccountId,
+                amount: AMOUNT,
+            }),
+            {headers: JSON_HEADERS});
+        if (dup.status !== 200 || !dup.json('ok')) {
+            throw new Error(`duplicate verification failed ${dup.status}: ${dup.body}`);
+        }
+    }
     console.log(`setup: runId=${data.runId} pairs=${data.pairs.length} ` +
         `scenario=${SCENARIO} contention=${CONTENTION} ` +
-        `target=${TARGET_RATE}/s amount=${AMOUNT}`);
+        `target=${TARGET_RATE}/s amount=${AMOUNT} lcChecks=${LC_CHECKS}`);
     return {pairs: data.pairs, runId: data.runId};
 }
 
@@ -171,7 +191,7 @@ export function post(data) {
             amount: AMOUNT,
         }),
         {
-            headers: {'Content-Type': 'application/json'},
+            headers: JSON_HEADERS,
             tags: {pair: String(pairIdx)}
         });
 
@@ -182,7 +202,7 @@ export function post(data) {
 
 // ── teardown(): verify correctness invariants after the run ──────────────────
 // Skipped for warmup (discard run). Always runs for correctness scenario.
-// For soak/ramp: spot-checks first 5 pairs as a sanity signal.
+// For soak/ramp: spot-checks both accounts in the first 5 pairs as a sanity signal.
 export function teardown(data) {
     if (SCENARIO === 'warmup') return;
 
@@ -190,24 +210,41 @@ export function teardown(data) {
         ? [data.pairs[0]]
         : data.pairs.slice(0, Math.min(5, data.pairs.length));
 
-    console.log(`\nteardown: verifying ${pairsToVerify.length} account pair(s)...`);
+    const accountsToVerify = [];
+    for (const pair of pairsToVerify) {
+        accountsToVerify.push(pair.tenantAccountId);
+        accountsToVerify.push(pair.externalAccountId);
+    }
+
+    console.log(`\nteardown: verifying ${accountsToVerify.length} account(s) across ` +
+        `${pairsToVerify.length} pair(s)...`);
 
     let allOk = true;
-    for (const pair of pairsToVerify) {
-        const res = http.get(`${BASE_URL}/internal/bench/verify/${pair.tenantAccountId}`);
+    for (const accountId of accountsToVerify) {
+        const res = http.get(`${BASE_URL}/internal/bench/verify/${accountId}`, {
+            headers: {'X-Internal-Token': INTERNAL_TOKEN},
+        });
         if (res.status !== 200) {
-            console.error(`  VERIFY ERROR ${pair.tenantAccountId}: HTTP ${res.status}`);
+            console.error(`  VERIFY ERROR ${accountId}: HTTP ${res.status}`);
             allOk = false;
             continue;
         }
         const v = res.json();
-        const ok = v.balanceOk && v.seqOk && v.chainOk;
-        const parts = [ok ? 'PASS' : `FAIL balance=${v.balanceOk} seq=${v.seqOk} chain=${v.chainOk}`];
+        const ok = v.balanceOk && v.balanceSumOk && v.seqOk && v.chainOk
+            && (!LC_CHECKS || (v.journalOk && v.trialBalanceOk));
+        const parts = [ok ? 'PASS' : `FAIL balance=${v.balanceOk} balanceSum=${v.balanceSumOk} ` +
+            `seq=${v.seqOk} chain=${v.chainOk} journal=${v.journalOk} trialBalance=${v.trialBalanceOk}`];
         if (v.firstGapAtSeq) parts.push(`firstGap=${v.firstGapAtSeq}`);
         if (v.firstBrokenChainAtSeq) parts.push(`brokenChain=${v.firstBrokenChainAtSeq}`);
-        console.log(`  [${pair.tenantAccountId}] entries=${v.entryCount} ${parts.join(' ')}`);
+        if (v.missingHeaderCount) parts.push(`missingHeaders=${v.missingHeaderCount}`);
+        if (v.unbalancedTransactionCount) parts.push(`unbalancedTx=${v.unbalancedTransactionCount}`);
+        if (v.headerScopeMismatchCount) parts.push(`scopeMismatch=${v.headerScopeMismatchCount}`);
+        console.log(`  [${accountId}] entries=${v.entryCount} ${parts.join(' ')}`);
         if (!ok) allOk = false;
     }
 
-    console.log(`\n=== CORRECTNESS: ${allOk ? 'ALL PASS ✓' : 'INVARIANTS VIOLATED ✗'} ===`);
+    console.log(`\n=== CORRECTNESS: ${allOk ? 'ALL PASS' : 'INVARIANTS VIOLATED'} ===`);
+    if (!allOk) {
+        fail('VA ledger correctness invariants violated');
+    }
 }
