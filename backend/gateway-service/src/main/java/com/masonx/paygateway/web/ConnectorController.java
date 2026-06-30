@@ -1,9 +1,13 @@
 package com.masonx.paygateway.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.connector.ProviderAccountStatus;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
@@ -13,9 +17,13 @@ import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.ProviderAccountService;
 import com.masonx.paygateway.web.dto.*;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -28,6 +36,8 @@ import java.util.UUID;
 @RequestMapping("/api/v1/merchants/{merchantId}/connectors")
 public class ConnectorController {
 
+    private static final Logger log = LoggerFactory.getLogger(ConnectorController.class);
+
     private final ProviderAccountService service;
     private final ProviderAccountRepository providerAccountRepository;
     private final CredentialsCodec credentialsCodec;
@@ -35,6 +45,9 @@ public class ConnectorController {
     private final PaymentIntentRepository paymentIntentRepository;
     private final PaymentRequestRepository paymentRequestRepository;
     private final PaymentLinkRepository paymentLinkRepository;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
+    private final TransactionTemplate txTemplate;
 
     public ConnectorController(ProviderAccountService service,
                                ProviderAccountRepository providerAccountRepository,
@@ -42,7 +55,10 @@ public class ConnectorController {
                                PaymentProviderDispatcher dispatcher,
                                PaymentIntentRepository paymentIntentRepository,
                                PaymentRequestRepository paymentRequestRepository,
-                               PaymentLinkRepository paymentLinkRepository) {
+                               PaymentLinkRepository paymentLinkRepository,
+                               OutboxEventRepository outboxEventRepository,
+                               ObjectMapper objectMapper,
+                               PlatformTransactionManager transactionManager) {
         this.service = service;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
@@ -50,6 +66,9 @@ public class ConnectorController {
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.paymentLinkRepository = paymentLinkRepository;
+        this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
+        this.txTemplate = new TransactionTemplate(transactionManager);
     }
 
     @GetMapping
@@ -149,34 +168,54 @@ public class ConnectorController {
         // Rail-unknown: gateway has no synchronous outcome yet; async resolution via Kafka.
         boolean railUnknown = "rail_unknown".equals(result.failureCode());
 
-        // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest
-        PaymentIntent intent = new PaymentIntent();
-        intent.setMerchantId(merchantId);
-        intent.setMode(ApiKeyMode.TEST);
-        intent.setAmount(req.amount());
-        intent.setCurrency(req.currency().toLowerCase());
-        intent.setStatus(result.success() ? PaymentIntentStatus.SUCCEEDED
+        // Persist preview charge as a TEST-mode PaymentIntent + PaymentRequest, and write an
+        // outbox event in the same transaction so payment_read_models stays in sync.
+        // Provider call is intentionally outside the transaction (architecture rule).
+        PaymentIntentStatus intentStatus = result.success() ? PaymentIntentStatus.SUCCEEDED
                 : railUnknown ? PaymentIntentStatus.PROCESSING
-                : PaymentIntentStatus.FAILED);
-        intent.setResolvedProvider(account.getProvider());
-        intent.setConnectorAccountId(account.getId());
-        intent.setIdempotencyKey(idempotencyKey);
-        intent.setProviderPaymentId(result.providerPaymentId());
-        PaymentIntent savedIntent = paymentIntentRepository.save(intent);
+                : PaymentIntentStatus.FAILED;
+        String eventType = result.success() ? "payment_intent.succeeded"
+                : railUnknown ? "payment_intent.processing"
+                : "payment_intent.failed";
 
-        PaymentRequest paymentRequest = new PaymentRequest();
-        paymentRequest.setPaymentIntentId(savedIntent.getId());
-        paymentRequest.setAmount(req.amount());
-        paymentRequest.setCurrency(req.currency().toLowerCase());
-        paymentRequest.setPaymentMethodType("card");
-        paymentRequest.setConnectorAccountId(account.getId());
-        paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED
-                : railUnknown ? PaymentRequestStatus.PENDING
-                : PaymentRequestStatus.FAILED);
-        paymentRequest.setProviderRequestId(result.providerPaymentId());
-        paymentRequest.setFailureCode(result.failureCode());
-        paymentRequest.setFailureMessage(result.failureMessage());
-        paymentRequestRepository.save(paymentRequest);
+        PaymentIntent savedIntent = txTemplate.execute(status -> {
+            PaymentIntent intent = new PaymentIntent();
+            intent.setMerchantId(merchantId);
+            intent.setMode(ApiKeyMode.TEST);
+            intent.setAmount(req.amount());
+            intent.setCurrency(req.currency().toLowerCase());
+            intent.setStatus(intentStatus);
+            intent.setResolvedProvider(account.getProvider());
+            intent.setConnectorAccountId(account.getId());
+            intent.setIdempotencyKey(idempotencyKey);
+            intent.setProviderPaymentId(result.providerPaymentId());
+            PaymentIntent saved = paymentIntentRepository.save(intent);
+
+            PaymentRequest paymentRequest = new PaymentRequest();
+            paymentRequest.setPaymentIntentId(saved.getId());
+            paymentRequest.setAmount(req.amount());
+            paymentRequest.setCurrency(req.currency().toLowerCase());
+            paymentRequest.setPaymentMethodType("card");
+            paymentRequest.setConnectorAccountId(account.getId());
+            paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED
+                    : railUnknown ? PaymentRequestStatus.PENDING
+                    : PaymentRequestStatus.FAILED);
+            paymentRequest.setProviderRequestId(result.providerPaymentId());
+            paymentRequest.setFailureCode(result.failureCode());
+            paymentRequest.setFailureMessage(result.failureMessage());
+            paymentRequestRepository.save(paymentRequest);
+
+            List<PaymentRequest> attempts = List.of(paymentRequest);
+            PaymentIntentResponse payload = PaymentIntentResponse.from(saved, attempts, objectMapper, account.getLabel());
+            try {
+                String json = objectMapper.writeValueAsString(payload);
+                outboxEventRepository.save(new OutboxEvent(merchantId, eventType, saved.getId(), json));
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to serialize outbox payload for preview intent {}: {}", saved.getId(), e.getMessage());
+            }
+
+            return saved;
+        });
 
         String responseStatus = result.success() ? "SUCCEEDED" : railUnknown ? "PROCESSING" : "FAILED";
         return ResponseEntity.ok(new PreviewPaymentResponse(

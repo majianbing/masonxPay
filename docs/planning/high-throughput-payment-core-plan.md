@@ -452,9 +452,9 @@ To know when (if ever) that table approaches a ceiling, three layers are monitor
   via the existing `http_server_requests_seconds_bucket` histogram.
 - **DB-level**: table/index size and sequential-vs-index scan rates for
   `payment_read_models`, via a `postgres-exporter` service with custom queries
-  in `monitor/postgres-exporter/queries.yaml`. The GIN full-text search index
-  (`idx_payment_read_models_search`) is tracked separately, since it is the
-  most likely first casualty at scale.
+  in `monitor/postgres-exporter/queries.yaml`. The GIN trigram search index
+  (`idx_payment_read_models_search`, `gin_trgm_ops` on `lower(search_text)`)
+  is tracked separately, since it is the most likely first casualty at scale.
 - **Pipeline-level**: existing projection lag metrics
   (`payment.projection.read_model.count`, `payment.projection.failed.count`,
   `payment.projection.oldest_failed.age.seconds`).
