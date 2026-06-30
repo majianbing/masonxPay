@@ -6,9 +6,11 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 
 - `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
   - `common/`: shared error model, ID generation, tenant context (`com.masonx.common`).
-  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs (`com.masonx.contracts`).
+  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
-  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
+  - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091) and bank-rail-sim (HTTP, port 9090) (`com.masonx.railsim`).
 - `dashboard/`: Next.js merchant/admin UI.
 - `sdk/server/`, `sdk/browser/`: TypeScript SDKs. Browser checkout UI lives in `sdk/browser/src/index.ts`.
 - `monitor/`: Prometheus, Grafana, Kafka JMX assets.
@@ -46,7 +48,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Phase S (subscriptions and recurring billing) S1–S5: complete — customers, payment methods, subscriptions, invoices, off-session execution, retry/dunning, and dashboard operations.
 - High-throughput track H1–H8: complete — logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, read-model hardening, benchmark observability, and capacity proof (~190 charges/s postgres-only, ~250/s with Redis+Kafka).
 - Phase O (advanced orchestration) O1–O5 and O3b: complete — payment instruments, capability matrix, route policies, outcome-based fallback, scheduled retry. O6 (portable card) deferred until cross-PSP portability is a real requirement.
-- Phase MR (multi-rail infrastructure): active. ISO 8583 card rail, ISO 20022 bank rail, VCC product, ledger integration. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
+- Phase MR (multi-rail infrastructure) MR0–MR5: complete. ISO 8583 card rail (Netty/jPOS), ISO 20022 bank rail (HTTP/JAXB), VCC product, ledger integration, VA Account APIs, gateway→rail bridge. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 - Phase AI (AI-assisted control plane): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
