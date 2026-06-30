@@ -6,9 +6,11 @@ MasonXPay is a payment operations platform built around a deterministic multi-pr
 
 - `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2).
   - `common/`: shared error model, ID generation, tenant context.
-  - `contracts/`: shared event contracts (`EventEnvelope`, settlement DTOs).
+  - `contracts/`: shared event contracts (`EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
-  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
+  - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091), bank-rail-sim (HTTP, port 9090), BIN-based issuer routing, PAN/account-suffix behavior table.
 - `dashboard/`: Next.js merchant and admin UI.
 - `sdk/server/`: TypeScript server SDK.
 - `sdk/browser/`: browser checkout SDK and all client-side payment UI.

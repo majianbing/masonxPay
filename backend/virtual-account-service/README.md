@@ -1,10 +1,41 @@
 # virtual-account-service
 
-Double-entry ledger service for MasonXPay virtual accounts. Optional and independently deployable — the main payment gateway works without it.
+Double-entry ledger service for MasonXPay virtual accounts and card issuing. Optional and independently deployable — the main payment gateway works without it.
 
 Own database: `msx_virtual_account_test` (Postgres, separate from the gateway DB).  
 Design doc: [`docs/engineering/virtual-account-guide.md`](../../docs/engineering/virtual-account-guide.md)  
 Build progress: [`docs/changelog/virtual-account-service/roadmap.md`](../../docs/changelog/virtual-account-service/roadmap.md)
+
+## Phase MR additions
+
+Phase MR extended this service with card issuing and rail settlement capabilities:
+
+**New AccountTypes**
+
+| Type | Role | Description |
+|---|---|---|
+| `PREPAID_CARD` | TENANT | Ring-fenced wallet bound to a VirtualCard lifecycle |
+| `CARD_NETWORK_RECEIVABLE` | EXTERNAL | Amounts owed by card network between sale and settlement |
+| `BANK_RAIL_RECEIVABLE` | EXTERNAL | Amounts owed from bank rail between pain.001 and pacs.002 ACSC |
+| `SUSPENSE_UNKNOWN_TXN` | PLATFORM | Card transactions timed out — outcome unknown, reversal pending |
+
+**VirtualCard entity**  
+`virtual_card` table links `masked_pan` → `vcc_account_id` (PREPAID_CARD) and `owner_account_id` (WALLET). Lifecycle: ACTIVE → FROZEN / EXPIRED / CLOSED.
+
+**Card issuer endpoint**  
+`POST /internal/issuer/authorize` — called by `rail-simulator`'s card-network-sim for BIN 999999. Checks available balance on the PREPAID_CARD account, freezes the auth amount, returns approve/decline.
+
+**VA Account Management APIs** (all require `X-Internal-Token`)  
+- `POST /internal/va/accounts` — create a TENANT account (WALLET, CASH, etc.) for a merchant  
+- `GET /v1/va/accounts/{accountId}?merchantId=` — account balance and status; validates merchantId ownership  
+- `GET /v1/va/accounts?merchantId=&page=&size=` — paginated account list for a merchant
+
+**Rail settlement consumer**  
+`SettlementEventConsumer` extended to handle `RailSettlementEvent` from Kafka topic `rail.payment.settled`:
+- Card sale: DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD, release freeze
+- Bank settle: DR BANK_RAIL_RECEIVABLE / CR target account
+- Bank return: reverse the settlement journal
+- All journals idempotent on `source_event_id`
 
 ---
 

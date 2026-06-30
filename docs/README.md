@@ -24,6 +24,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [High-throughput payment core plan](planning/high-throughput-payment-core-plan.md)
 - [Payment orchestration, routing, retry, and instrument plan](planning/payment-orchestration-routing-retry-plan.md)
 - [Subscription and recurring billing plan](planning/subscription-recurring-billing-plan.md)
+- [Multi-rail ISO 8583 / ISO 20022 plan](planning/multi-rail-iso8583-iso20022-plan.md)
 - [AI-assisted operations control plane plan](planning/ai-control-plane-plan.md)
 
 ## Root Docs

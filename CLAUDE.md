@@ -24,9 +24,11 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 
 - `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
   - `common/`: shared utilities — error model, ID generation (`com.masonx.common`), tenant context.
-  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs (`com.masonx.contracts`).
+  - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
-  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
+  - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091) and bank-rail-sim (HTTP, port 9090).
 - `dashboard/`: Next.js merchant portal and admin surfaces.
 - `sdk/browser/`: browser checkout UI and provider SDK integration.
 - `sdk/server/`: server SDK.
@@ -59,10 +61,20 @@ High-throughput H1-H5b, H7, and H8 are complete:
 
 Phase 4 (Merchant Operations) is now complete: 4.6 merchant audit log delivered.
 
+Phase MR (Multi-Rail) is now complete (MR0–MR5):
+
+- MR0: module skeleton, canonical model, DB tables, Docker Compose.
+- MR1: ISO 8583 full auth flow — Netty TCP, jPOS codec, VisaSim/MastercardSim, VCC issuer (BIN 999999).
+- MR2: timeout/UNKNOWN/reversal discipline — UNKNOWN ≠ FAILED; 0400 reversal; late-response detection.
+- MR3: ISO 20022 bank rail — pain.001 → pain.002 → pacs.002 → camt.054; SepaSimAdapter + FedNowSimAdapter.
+- MR4: Kafka settlement events → VA ledger; reconciliation exceptions API.
+- MR5: VA Account Management APIs; gateway→rail bridge; `RailPaymentResolvedConsumer`.
+
+See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
+
 Next likely work:
 
-- Phase MR (active): multi-rail payment infrastructure — ISO 8583 card rail (Netty + jPOS), ISO 20022 bank rail (HTTP + JAXB), VCC product (funded virtual credit cards backed by VA double-entry ledger), two new Maven modules (`rail-service`, `rail-simulator`). See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
-- Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.
+- Phase AI (next): model-agnostic AI-assisted operations control plane — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/ai-control-plane-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
 - Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 

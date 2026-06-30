@@ -26,11 +26,19 @@ Hosted on Vercel + Render + Neon free tier. The first request may take around 30
 - High-throughput core: 64 logical payment shards, ShardingSphere-JDBC, Kafka outbox/workers, Redis hot path, and payment read projections.
 - Observability: Prometheus metrics, Grafana dashboards, Kafka JMX metrics, alert rules, and request tracing.
 - Benchmarks: k6 scenarios for create, confirm, refund, idempotency replay, get, and list flows.
+- Multi-rail infrastructure: ISO 8583 card rail (Netty + jPOS), ISO 20022 bank rail (HTTP + JAXB), two-sided network simulator, UNKNOWN state and reversal discipline, and Kafka-driven ledger settlement.
+- Virtual Credit Card (VCC) product: merchant-funded prepaid cards backed by the double-entry ledger; VA service acts as card issuer for BIN 999999.
 
 ## Repository Layout
 
 ```text
-backend/        Java 21 Spring Boot API
+backend/
+  common/                  Shared error model, ID generation, tenant context
+  contracts/               Shared event contracts (outbox, settlement, rail events)
+  gateway-service/         Payment gateway — intents, routing, providers, webhooks
+  virtual-account-service/ Double-entry ledger, VA accounts, VCC issuer
+  rail-service/            ISO 8583 / ISO 20022 rail client and reconciliation API
+  rail-simulator/          Two-sided network simulator (card-network + bank-rail)
 dashboard/      Next.js merchant dashboard and hosted checkout
 sdk/server/     TypeScript server SDK
 sdk/browser/    TypeScript browser checkout SDK
@@ -54,8 +62,12 @@ Open:
 | Service | URL |
 |---------|-----|
 | Dashboard | http://localhost:3000 |
-| Backend API | http://localhost:8080 |
-| Prometheus | http://localhost:9090 |
+| Backend API (gateway) | http://localhost:8080 |
+| Rail service API | http://localhost:8081 |
+| Virtual account service | http://localhost:8082 |
+| Rail simulator (HTTP) | http://localhost:9090 |
+| Rail simulator (ISO8583 TCP) | localhost:9091 |
+| Prometheus | http://localhost:9092 |
 | Grafana | http://localhost:3001 |
 
 Grafana login: `admin` / `admin`.
@@ -112,6 +124,7 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 - [Roadmap](docs/planning/roadmap.md)
 - [High-throughput payment core plan](docs/planning/high-throughput-payment-core-plan.md)
 - [Payment orchestration, routing, retry, and instrument plan](docs/planning/payment-orchestration-routing-retry-plan.md)
+- [Multi-rail ISO 8583 / ISO 20022 plan](docs/planning/multi-rail-iso8583-iso20022-plan.md)
 - [AI-assisted operations control plane](docs/planning/ai-control-plane-plan.md)
 - [Development guide](docs/engineering/development-guide.md)
 - [Connector development](docs/engineering/connector-development.md)
@@ -125,6 +138,8 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 | Database | PostgreSQL, Flyway, ShardingSphere-JDBC |
 | Async | Apache Kafka, Spring Kafka, transactional outbox |
 | Hot path | Redis, Redisson |
+| Card rail | Netty (TCP transport), jPOS (ISO 8583 codec / GenericPackager) |
+| Bank rail | HTTP + XML, JAXB POJOs (ISO 20022 pain/pacs/camt messages) |
 | Dashboard | Next.js 15, Tailwind CSS, shadcn/ui, TanStack Query |
 | SDKs | TypeScript server SDK and browser SDK |
 | Observability | Micrometer, Prometheus, Grafana, Kafka JMX |
