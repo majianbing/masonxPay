@@ -238,7 +238,7 @@ services:
   #   HTTP admin: host 9099 → container 9090
   #   TCP ISO 8583: host 9091 → container 9091
   rail-service:
-    profiles: ["rail"]
+    profiles: ["rail", "infra"]
     build:
       context: ./backend
       dockerfile: Dockerfile.rail
@@ -268,7 +268,7 @@ services:
       start_period: 60s
 
   rail-simulator:
-    profiles: ["rail"]
+    profiles: ["rail", "infra"]
     build:
       context: ./backend
       dockerfile: Dockerfile.railsim
