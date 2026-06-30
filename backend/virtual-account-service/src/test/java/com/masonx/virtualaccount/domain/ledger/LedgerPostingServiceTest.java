@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,7 @@ class LedgerPostingServiceTest {
 
     @Mock AccountRepository       accountRepo;
     @Mock LedgerEntryRepository   entryRepo;
+    @Mock TransactionRepository   txRepo;
     @Mock BalanceSignatureService  signatureService;
 
     LedgerPostingService service;
@@ -38,10 +40,16 @@ class LedgerPostingServiceTest {
     @BeforeEach
     void setUp() {
         service = new LedgerPostingService(
-                accountRepo, entryRepo, signatureService,
+                accountRepo, entryRepo, txRepo, signatureService,
                 new SnowflakeIdGenerator(0),
                 List.of(new AssetConsistencyValidator(), new NetZeroValidator()),
                 List.of(new InsufficientBalanceValidator()));
+    }
+
+    private PostTransaction tx(List<EntryDraft> entries) {
+        return new PostTransaction("tx_1", entries,
+                TransactionType.INTERNAL, null, null,
+                LocalDate.of(2026, 1, 1), Mode.LIVE, null, null);
     }
 
     // --- helpers ---
@@ -81,7 +89,7 @@ class LedgerPostingServiceTest {
 
     @Test
     void rejects_unbalanced_transaction() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 credit("ac_tenant", "100.00"),
                 debit("ac_external", "90.00")));  // 100 != 90
 
@@ -92,7 +100,7 @@ class LedgerPostingServiceTest {
 
     @Test
     void rejects_mixed_asset_transaction() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
                 new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "BTC", "evt_1")));
 
@@ -110,7 +118,7 @@ class LedgerPostingServiceTest {
         // "ac_1" sorts before "ac_ext" — it's locked first and throws before ac_ext is touched
         when(accountRepo.findByIdForUpdate("ac_1")).thenReturn(Optional.of(frozen));
 
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 debit("ac_1", "100.00"), credit("ac_ext", "100.00")));
 
         assertThatThrownBy(() -> service.post(tx))
@@ -127,7 +135,7 @@ class LedgerPostingServiceTest {
 
         // CASH is DEBIT-normal: CREDIT reduces the balance. Crediting 100 from a 50 balance → -50.
         // entryValidators fire before chain verification, so findLastChainHead is never called.
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 credit("ac_tenant", "100.00"), debit("ac_ext", "100.00")));
 
         assertThatThrownBy(() -> service.post(tx))
@@ -148,7 +156,7 @@ class LedgerPostingServiceTest {
 
         // Settlement: provider clears $100 to merchant.
         // CASH is DEBIT-normal — money in = DEBIT merchant, CREDIT external.
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 debit("ac_tenant",  "100.00"),
                 credit("ac_ext",    "100.00")));
 
@@ -167,7 +175,7 @@ class LedgerPostingServiceTest {
         when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
         when(signatureService.compute(any())).thenReturn("sig");
 
-        service.post(new PostTransaction("tx_1", List.of(
+        service.post(tx(List.of(
                 debit("ac_tenant", "100.00"), credit("ac_ext", "100.00"))));
 
         var captor = ArgumentCaptor.forClass(LedgerEntry.class);
@@ -185,7 +193,7 @@ class LedgerPostingServiceTest {
         when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
         when(signatureService.compute(any())).thenReturn("sig");
 
-        service.post(new PostTransaction("tx_1", List.of(
+        service.post(tx(List.of(
                 debit("ac_tenant", "100.00"), credit("ac_ext", "100.00"))));
 
         var sigCaptor = ArgumentCaptor.forClass(SignatureInput.class);
@@ -211,7 +219,7 @@ class LedgerPostingServiceTest {
         when(signatureService.verify(any(), eq(prevSig))).thenReturn(true);
         when(signatureService.compute(any())).thenReturn("new-sig");
 
-        service.post(new PostTransaction("tx_1", List.of(
+        service.post(tx(List.of(
                 debit("ac_tenant", "50.00"), credit("ac_ext", "50.00"))));
 
         var captor = ArgumentCaptor.forClass(SignatureInput.class);
@@ -235,7 +243,7 @@ class LedgerPostingServiceTest {
         // Exception fires on ac_tenant before ac_ext is reached — no ac_ext chain stub needed.
         when(entryRepo.findLastChainHead("ac_tenant")).thenReturn(Optional.of(head));
 
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 debit("ac_tenant", "50.00"), credit("ac_ext", "50.00")));
 
         assertThatThrownBy(() -> service.post(tx))
@@ -259,7 +267,7 @@ class LedgerPostingServiceTest {
         // Signature recomputation does not match stored signature → tampering detected.
         when(signatureService.verify(any(), eq("stored-sig"))).thenReturn(false);
 
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 debit("ac_tenant", "100.00"), credit("ac_ext", "100.00")));
 
         assertThatThrownBy(() -> service.post(tx))

@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Authenticates requests to {@code /internal/**} using a shared secret header.
+ * Authenticates service-to-service requests using a shared secret header.
  *
  * <p>Callers (e.g. rail-simulator) must send {@code X-Internal-Token: <configured-secret>}.
  * Missing or wrong tokens cause a 401 before the request reaches the controller.
@@ -36,7 +36,7 @@ public class InternalTokenFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain)
             throws ServletException, IOException {
-        if (request.getRequestURI().startsWith("/internal/")) {
+        if (requiresInternalAuth(request.getRequestURI())) {
             String token = request.getHeader(TOKEN_HEADER);
             if (!expectedToken.equals(token)) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED,
@@ -49,5 +49,11 @@ public class InternalTokenFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(auth);
         }
         filterChain.doFilter(request, response);
+    }
+
+    private boolean requiresInternalAuth(String uri) {
+        return uri.startsWith("/internal/")
+                || uri.startsWith("/v1/va/accounts")
+                || uri.startsWith("/v1/ledger/");
     }
 }

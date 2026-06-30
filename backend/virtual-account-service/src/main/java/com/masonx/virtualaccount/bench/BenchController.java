@@ -4,6 +4,8 @@ import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.*;
+
+import java.time.LocalDate;
 import com.masonx.virtualaccount.domain.po.VaAccount;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -83,7 +85,7 @@ public class BenchController {
                         req.amount(), "USD", "bench_" + txId),
                 new EntryDraft(req.externalAccountId(), Direction.CREDIT,
                         req.amount(), "USD", "bench_" + txId)
-        )));
+        ), TransactionType.INTERNAL, null, null, LocalDate.now(), Mode.LIVE, null, null));
         return new PostResponse(true);
     }
 

@@ -5,6 +5,7 @@ import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.virtualaccount.domain.api.SettlementHandler;
 import com.masonx.virtualaccount.domain.constant.AccountType;
 import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
 import com.masonx.virtualaccount.domain.ledger.EntryDraft;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -84,8 +86,15 @@ public class LedgerSettlementHandler implements SettlementHandler {
         String txId    = idGenerator.generate("tx_");
         List<EntryDraft> entries = buildEntries(cmd, tenantCash, externalClearing);
 
+        boolean moneyIn = cmd.direction() == Direction.CREDIT;
+        TransactionType entryType = moneyIn ? TransactionType.SETTLEMENT : TransactionType.REFUND;
+        String description = (moneyIn ? "Settlement " : "Refund ") + cmd.providerRef();
+        String orgIdStr = cmd.tenant().orgId() != null ? cmd.tenant().orgId().value().toString() : null;
+        String paymentRefId = cmd.paymentId() != null ? cmd.paymentId().toString() : null;
+
         boolean posted = ledger.postIfNew(
-                new PostTransaction(txId, entries),
+                new PostTransaction(txId, entries, entryType, description, paymentRefId,
+                        LocalDate.now(), cmd.tenant().mode(), orgIdStr, merchantId),
                 cmd.sourceEventId(), "settlement");
 
         if (posted) {

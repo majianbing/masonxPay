@@ -20,7 +20,7 @@ public class InboxRepository {
     /** @return true if this is the first time the event is seen (process it); false if duplicate (skip). */
     public boolean markProcessed(String eventId, String eventType) {
         int rows = jdbc.update(
-                "INSERT INTO va_inbox_event (event_id, event_type) VALUES (?, ?) ON CONFLICT (event_id) DO NOTHING",
+                "INSERT INTO va_inbox_event (event_id, event_type) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 eventId, eventType);
         return rows == 1;
     }

@@ -1,12 +1,15 @@
 package com.masonx.virtualaccount.domain.ledger.validator;
 
 import com.masonx.common.error.BusinessException;
+import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.ledger.EntryDraft;
 import com.masonx.virtualaccount.domain.ledger.PostTransaction;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -16,9 +19,15 @@ class NetZeroValidatorTest {
 
     private final NetZeroValidator validator = new NetZeroValidator();
 
+    private static PostTransaction tx(List<EntryDraft> entries) {
+        return new PostTransaction("tx_1", entries,
+                TransactionType.INTERNAL, null, null,
+                LocalDate.of(2026, 1, 1), Mode.LIVE, null, null);
+    }
+
     @Test
     void passes_when_debits_equal_credits() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100.00"), "USD", "evt_1"),
                 new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100.00"), "USD", "evt_1")));
 
@@ -27,7 +36,7 @@ class NetZeroValidatorTest {
 
     @Test
     void passes_for_three_way_split_that_balances() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100.00"), "USD", "evt_1"),
                 new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("60.00"),  "USD", "evt_1"),
                 new EntryDraft("ac_3", Direction.CREDIT, new BigDecimal("40.00"),  "USD", "evt_1")));
@@ -37,7 +46,7 @@ class NetZeroValidatorTest {
 
     @Test
     void rejects_when_debits_exceed_credits() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100.00"), "USD", "evt_1"),
                 new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("90.00"),  "USD", "evt_1")));
 
@@ -51,7 +60,7 @@ class NetZeroValidatorTest {
 
     @Test
     void rejects_when_credits_exceed_debits() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("50.00"),  "USD", "evt_1"),
                 new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100.00"), "USD", "evt_1")));
 
@@ -61,7 +70,7 @@ class NetZeroValidatorTest {
 
     @Test
     void rejects_debit_only_transaction() {
-        var tx = new PostTransaction("tx_1", List.of(
+        var tx = tx(List.of(
                 new EntryDraft("ac_1", Direction.DEBIT, new BigDecimal("100.00"), "USD", "evt_1")));
 
         assertThatThrownBy(() -> validator.validate(tx))

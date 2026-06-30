@@ -122,6 +122,19 @@ public class AccountRepository {
         return n != null ? n : 0L;
     }
 
+    /**
+     * Returns ALL accounts for a mode/asset combination — no LIMIT.
+     * Intended for trial balance report only. When account count grows, add
+     * pagination or a nightly-materialized snapshot (see docs/planning/ledger-completeness-plan.md).
+     */
+    public List<VaAccount> findAllByModeAndAsset(Mode mode, String asset) {
+        return jdbc.query("""
+                SELECT * FROM va_account
+                WHERE mode = ?::va_mode AND asset = ?
+                ORDER BY account_role, account_type, account_id
+                """, ROW_MAPPER, mode.name(), asset);
+    }
+
     /** Updates balance and frozen_balance atomically — called inside the posting transaction. */
     public void updateBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
         jdbc.update(

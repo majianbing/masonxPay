@@ -118,13 +118,17 @@ public class VirtualCardService {
             throw new IllegalStateException("Cannot fund card in status: " + card.status());
         }
 
+        VaAccount ownerAcct = accountRepo.findById(card.ownerAccountId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Owner account not found for card: " + cardId));
         String txId = idGen.generate("tx_fund_");
         PostTransaction tx = new PostTransaction(txId, List.of(
                 new EntryDraft(card.vccAccountId(), Direction.DEBIT,
                         req.amount(), card.currency(), txId),
                 new EntryDraft(card.ownerAccountId(), Direction.CREDIT,
                         req.amount(), card.currency(), txId)
-        ));
+        ), TransactionType.INTERNAL, "Fund card " + cardId, null,
+                LocalDate.now(), ownerAcct.mode(), ownerAcct.orgId(), ownerAcct.merchantId());
         ledger.postDirect(tx);
 
         return getCard(cardId);
@@ -178,7 +182,8 @@ public class VirtualCardService {
                             remaining, card.currency(), txId),
                     new EntryDraft(card.vccAccountId(), Direction.CREDIT,
                             remaining, card.currency(), txId)
-            )));
+            ), TransactionType.INTERNAL, "Close card sweep " + cardId, null,
+                    LocalDate.now(), ownerAccount.mode(), ownerAccount.orgId(), ownerAccount.merchantId()));
         }
 
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.CLOSED);

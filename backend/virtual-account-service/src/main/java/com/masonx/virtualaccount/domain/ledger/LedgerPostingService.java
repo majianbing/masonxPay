@@ -41,6 +41,7 @@ public class LedgerPostingService {
 
     private final AccountRepository accountRepo;
     private final LedgerEntryRepository entryRepo;
+    private final TransactionRepository txRepo;
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator idGenerator;
     private final List<TransactionValidator> txValidators;
@@ -48,12 +49,14 @@ public class LedgerPostingService {
 
     public LedgerPostingService(AccountRepository accountRepo,
                                 LedgerEntryRepository entryRepo,
+                                TransactionRepository txRepo,
                                 BalanceSignatureService signatureService,
                                 SnowflakeIdGenerator idGenerator,
                                 List<TransactionValidator> txValidators,
                                 List<EntryValidator> entryValidators) {
         this.accountRepo = accountRepo;
         this.entryRepo = entryRepo;
+        this.txRepo = txRepo;
         this.signatureService = signatureService;
         this.idGenerator = idGenerator;
         this.txValidators = txValidators;
@@ -62,6 +65,9 @@ public class LedgerPostingService {
 
     @Transactional
     void post(PostTransaction tx) {
+        // Persist journal entry header first — same DB transaction as all entry inserts.
+        txRepo.insert(tx);
+
         // Phase 1: transaction-level validation — stateless, pre-lock.
         for (TransactionValidator v : txValidators) {
             v.validate(tx);
@@ -126,6 +132,7 @@ public class LedgerPostingService {
                     signature,
                     draft.sourceEventId(),
                     EntryStatus.POSTED,
+                    tx.effectiveDate(),
                     Instant.now());
 
             entryRepo.insert(entry);

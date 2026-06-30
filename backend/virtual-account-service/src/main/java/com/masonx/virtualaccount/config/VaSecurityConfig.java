@@ -23,6 +23,7 @@ public class VaSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/internal/**").hasRole("INTERNAL")
                         .requestMatchers("/v1/va/accounts/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/ledger/**").hasRole("INTERNAL")
                         .anyRequest().permitAll()
                 )
                 .build();

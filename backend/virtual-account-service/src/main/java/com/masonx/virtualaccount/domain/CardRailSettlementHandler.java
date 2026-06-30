@@ -7,6 +7,7 @@ import com.masonx.contracts.rail.RailSettlementEvent;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.AccountType;
 import com.masonx.virtualaccount.domain.constant.Direction;
+import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
 import com.masonx.virtualaccount.domain.ledger.EntryDraft;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -97,7 +99,9 @@ public class CardRailSettlementHandler {
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(receivable.accountId(),   Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(cardAccount.accountId(),  Direction.CREDIT, event.amount(), event.asset(), eventId)
-        )), eventId, "rail-card-sale");
+        ), TransactionType.CARD_SALE, "Card sale " + event.maskedPan(), event.railPaymentId(),
+                LocalDate.now(), cardAccount.mode(), cardAccount.orgId(), cardAccount.merchantId()),
+                eventId, "rail-card-sale");
 
         if (posted) {
             // Release the freeze set at auth time (0100/0110).
@@ -147,7 +151,9 @@ public class CardRailSettlementHandler {
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(receivable.accountId(), Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(wallet.accountId(),     Direction.CREDIT, event.amount(), event.asset(), eventId)
-        )), eventId, "rail-bank-settle");
+        ), TransactionType.BANK_TRANSFER, "Bank credit transfer " + event.networkName(),
+                event.railPaymentId(), LocalDate.now(), RAIL_MODE, null, event.merchantId()),
+                eventId, "rail-bank-settle");
 
         if (posted) {
             log.info("Bank transfer journal posted: eventId={} merchant={} amount={}",
@@ -171,7 +177,9 @@ public class CardRailSettlementHandler {
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(wallet.accountId(),     Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(receivable.accountId(), Direction.CREDIT, event.amount(), event.asset(), eventId)
-        )), eventId, "rail-bank-return");
+        ), TransactionType.REVERSAL, "Bank return " + event.networkName(),
+                event.railPaymentId(), LocalDate.now(), RAIL_MODE, null, event.merchantId()),
+                eventId, "rail-bank-return");
 
         if (posted) {
             log.info("Bank return journal posted: eventId={} merchant={} amount={}",

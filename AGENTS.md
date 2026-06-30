@@ -27,6 +27,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Product and phase roadmap: `docs/planning/roadmap.md`
 - High-throughput payment core plan: `docs/planning/high-throughput-payment-core-plan.md`
 - Multi-rail ISO 8583 / ISO 20022 plan: `docs/planning/multi-rail-iso8583-iso20022-plan.md`
+- Ledger completeness plan: `docs/planning/ledger-completeness-plan.md`
 - AI-assisted operations control-plane plan: `docs/planning/ai-control-plane-plan.md`
 - Detailed development guide: `docs/engineering/development-guide.md`
 - Connector development guide: `docs/engineering/connector-development.md`
@@ -49,6 +50,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - High-throughput track H1–H8: complete — logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, read-model hardening, benchmark observability, and capacity proof (~190 charges/s postgres-only, ~250/s with Redis+Kafka).
 - Phase O (advanced orchestration) O1–O5 and O3b: complete — payment instruments, capability matrix, route policies, outcome-based fallback, scheduled retry. O6 (portable card) deferred until cross-PSP portability is a real requirement.
 - Phase MR (multi-rail infrastructure) MR0–MR5: complete. ISO 8583 card rail (Netty/jPOS), ISO 20022 bank rail (HTTP/JAXB), VCC product, ledger integration, VA Account APIs, gateway→rail bridge. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
+- Phase LC (ledger completeness): complete — persisted journal headers (`va_transaction`), GL query APIs, effective-date account statements, and trial balance reporting. See `docs/planning/ledger-completeness-plan.md`.
 - Phase AI (AI-assisted control plane): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
@@ -78,6 +80,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Raw PAN, track data, and CVV must never enter MasonXPay core services. In `rail-service` and `rail-simulator`, ISO 8583 DE2 fields must be masked before any log write or DB persistence — the simulator uses test PANs only, never real cardholder data. `VirtualCard.maskedPan` stores only the masked form. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that may cross service boundaries in any future real-network phase. Any PCI-scoped component must be separately deployed and isolated.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
+- Keep the VA ledger accounting-grade: ledger entries are append-only; journal headers must carry merchant/mode scope; account statements must compute balances from signed entry sums by `effective_date` and account normal balance, not from posting-order `balance_after` snapshots.
 - Prefer mature infrastructure components for Redis, Kafka, database access, mapping, retries, rate limiting, and similar cross-cutting behavior.
 - Keep submodules clean and focused; avoid turning one module into a catch-all.
 - Keep the backend as a clean modular monolith. Treat package boundaries as module boundaries: payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, and dashboard/API entrypoints should each own one concern. Cross-module calls should go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
