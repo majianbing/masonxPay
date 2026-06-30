@@ -104,6 +104,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+        required: false   # skipped when Kafka is not in the active profile
     ports:
       - "8080:8080"
     environment:
