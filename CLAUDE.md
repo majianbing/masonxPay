@@ -14,6 +14,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `docs/planning/high-throughput-payment-core-plan.md`: sharding, Kafka, Redis, projections, and preview design.
 - `docs/planning/payment-orchestration-routing-retry-plan.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
 - `docs/planning/ai-control-plane-plan.md`: AI-assisted payment operations control-plane design.
+- `docs/planning/multi-rail-iso8583-iso20022-plan.md`: Phase MR — ISO8583 card rail, ISO 20022 bank rail, VCC product, ledger integration milestone tracker.
 - `docs/engineering/development-guide.md`: engineering docs index.
 - `docs/engineering/connector-development.md`: connector implementation workflow.
 - `docs/engineering/testing-strategy.md`: test coverage and placement rules.
@@ -60,10 +61,10 @@ Phase 4 (Merchant Operations) is now complete: 4.6 merchant audit log delivered.
 
 Next likely work:
 
-- Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy, reconciliation. Lower priority; deferred until core tracks mature.
-- H6: dashboard search/read projection hardening, search polish, and operational readiness around `payment_read_models`.
-- Phase O: O1-O5 and O3b routing UI consolidation are done; next orchestration work is O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
+- Phase MR (active): multi-rail payment infrastructure — ISO 8583 card rail (Netty + jPOS), ISO 20022 bank rail (HTTP + JAXB), VCC product (funded virtual credit cards backed by VA double-entry ledger), two new Maven modules (`rail-service`, `rail-simulator`). See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 - Phase AI: model-agnostic AI-assisted operations control plane after deterministic orchestration is mature.
+- Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
+- Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 
 ## Key Commands
 

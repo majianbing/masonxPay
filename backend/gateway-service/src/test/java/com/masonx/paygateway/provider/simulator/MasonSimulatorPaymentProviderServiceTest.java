@@ -137,6 +137,6 @@ class MasonSimulatorPaymentProviderServiceTest {
         properties.setJitterMs(0);
         properties.setFailureRate(0);
         properties.setTimeoutRate(0);
-        return new MasonSimulatorPaymentProviderService(properties);
+        return new MasonSimulatorPaymentProviderService(properties, null);
     }
 }

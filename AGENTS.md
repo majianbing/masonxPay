@@ -1,6 +1,6 @@
 # MasonXPay Agent Guide
 
-MasonXPay is evolving from a payment gateway into a payment operations platform. The core product is a multi-provider payment gateway; the scale track adds sharding, Kafka, Redis, projections, and preview operations; the future AI control plane remains advisory and never executes payment decisions directly.
+MasonXPay is a multi-provider payment gateway and payment operations platform. It covers the full stack from PSP integration (Stripe, Square, Braintree, Mollie) through orchestration, subscriptions, and a high-throughput Kafka/Redis/sharding core, and extends into a multi-rail payment infrastructure layer (ISO 8583 card rail and ISO 20022 bank rail) with a Virtual Credit Card product backed by a double-entry ledger. The AI control plane is advisory only and never executes payment decisions directly.
 
 ## Repository Map
 
@@ -24,6 +24,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Payment core invariants: `docs/architecture/payment-core.md`
 - Product and phase roadmap: `docs/planning/roadmap.md`
 - High-throughput payment core plan: `docs/planning/high-throughput-payment-core-plan.md`
+- Multi-rail ISO 8583 / ISO 20022 plan: `docs/planning/multi-rail-iso8583-iso20022-plan.md`
 - AI-assisted operations control-plane plan: `docs/planning/ai-control-plane-plan.md`
 - Detailed development guide: `docs/engineering/development-guide.md`
 - Connector development guide: `docs/engineering/connector-development.md`
@@ -36,16 +37,17 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Financial source of truth: Postgres payment tables and logical shards. Redis is a post-commit hot-path cache only, never authoritative.
 - Idempotency: DB-backed reservation/route records. Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
-- Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger and VA accounts; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
+- Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger, VA accounts, and card issuance for VCCs; `rail-service` (Phase MR) owns the ISO 8583 and ISO 20022 acquirer-side clients; `rail-simulator` (Phase MR) owns the card-network and bank-rail simulators; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
 - AI control plane: advisory only. AI investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
 
 ## Current Phases
 
-- MVP/core gateway: complete enough for multi-provider payment flows, hosted checkout, dashboard, webhooks, RBAC, MFA, and observability.
-- Phase 4 (Merchant Operations): complete — analytics, webhook management, event replay, customer vault, disputes, and merchant audit log (4.6) all delivered.
-- High-throughput track H1-H8 complete: logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, benchmark/simulator observability, H6 read-model hardening, and capacity proof (~190 charges/s postgres-only, ~250/s with Redis+Kafka).
-- Advanced orchestration Phase O: O1-O5 plus O3b routing UI consolidation are done. Current work includes provider-scoped `PaymentInstrument` rows from hosted checkout, seeded capability-aware route policies, connector capability management UI, route-policy list/create/edit/simulation UI, dry-run route simulation, simulator-backed local testing, audit-backed publish/archive, strict route-condition validation, outcome-action retry/fallback, and scheduled retry visibility for capture recovery. Track exact progress in `docs/planning/payment-orchestration-routing-retry-plan.md`.
-- AI operations control plane: planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
+- Phases 0–4 (gateway, correctness, observability, orchestration intelligence, merchant operations): complete.
+- Phase S (subscriptions and recurring billing) S1–S5: complete — customers, payment methods, subscriptions, invoices, off-session execution, retry/dunning, and dashboard operations.
+- High-throughput track H1–H8: complete — logical payment sharding, state/idempotency hardening, Kafka outbox/workers, Redis hot path, preview profile, read-model hardening, benchmark observability, and capacity proof (~190 charges/s postgres-only, ~250/s with Redis+Kafka).
+- Phase O (advanced orchestration) O1–O5 and O3b: complete — payment instruments, capability matrix, route policies, outcome-based fallback, scheduled retry. O6 (portable card) deferred until cross-PSP portability is a real requirement.
+- Phase MR (multi-rail infrastructure): active. ISO 8583 card rail, ISO 20022 bank rail, VCC product, ledger integration. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
+- Phase AI (AI-assisted control plane): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
 
@@ -68,10 +70,10 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 - Webhook/outbox writes must stay atomic with payment state.
 - Every action that moves funds — charge, capture, refund, recurring invoice payment — must have an idempotency guarantee: a deterministic key derived from stable identifiers (never random UUIDs) sent to the provider, and an idempotent DB state check before executing so retries and concurrent workers cannot double-charge or double-refund.
 - Do not add `@Transactional` to methods that perform remote provider calls; keep DB transactions short and around state changes.
-- Every new non-sharded table added via Flyway migration must also be registered in `DataSourceConfig.singleTables()` so ShardingSphere routes it directly to ds_0 without SQL interception. Omitting this causes ShardingSphere to fail on Postgres-specific syntax (e.g. FOR UPDATE SKIP LOCKED, JSON operators).
+- In `gateway-service`: every new non-sharded table added via Flyway migration must also be registered in `DataSourceConfig.singleTables()` so ShardingSphere routes it directly to ds_0 without SQL interception. Omitting this causes ShardingSphere to fail on Postgres-specific syntax (e.g. FOR UPDATE SKIP LOCKED, JSON operators). This rule applies only to `gateway-service` — `virtual-account-service`, `rail-service`, and `rail-simulator` do not use ShardingSphere.
 - Every merchant-facing list API that can grow beyond 50 items must use Spring Data `Pageable` with `@PageableDefault(size=20)` and return `Page<T>`. Frontend list components must bind a `page` state to the query key and render prev/next controls. Unbounded `List<T>` responses are only acceptable for small, bounded sets (e.g. items on a single record).
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument or explicit customer re-authorization.
-- Raw PAN, track data, and CVV must never enter MasonXPay core services at any phase — including future direct-acquiring phases. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that may cross the MasonXPay service boundary. Any future PCI-scoped component must be a separately deployed, isolated service.
+- Raw PAN, track data, and CVV must never enter MasonXPay core services. In `rail-service` and `rail-simulator`, ISO 8583 DE2 fields must be masked before any log write or DB persistence — the simulator uses test PANs only, never real cardholder data. `VirtualCard.maskedPan` stores only the masked form. Network tokens (Visa VTS DPAN / Mastercard MDES) are the only card references that may cross service boundaries in any future real-network phase. Any PCI-scoped component must be separately deployed and isolated.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Keep Postgres/sharded payment tables authoritative for financial state. Redis, Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Prefer mature infrastructure components for Redis, Kafka, database access, mapping, retries, rate limiting, and similar cross-cutting behavior.
@@ -82,7 +84,7 @@ MasonXPay is evolving from a payment gateway into a payment operations platform.
 
 ## Engineering Style
 
-- Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common`, `com.masonx.contracts`.
+- Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.rail` (rail-service), `com.masonx.railsim` (rail-simulator), `com.masonx.common`, `com.masonx.contracts`.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
 - Keep business logic out of controllers.
 - Add comments only when intent is non-obvious: a hidden constraint, a subtle invariant, a workaround for a known bug, or behavior that would surprise a reader. Do not explain what the code does; well-named identifiers already do that.

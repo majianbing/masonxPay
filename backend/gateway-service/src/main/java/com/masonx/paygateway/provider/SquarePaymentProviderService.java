@@ -86,7 +86,7 @@ public class SquarePaymentProviderService
             JsonNode payment = response != null ? response.path("payment") : null;
             if (payment == null || payment.isMissingNode()) {
                 return new ChargeResult(false, null, null, "unexpected_response",
-                        "No payment object in Square response", true, false, null, null, null);
+                        "No payment object in Square response", true, false, false, null, null, null);
             }
 
             String status      = payment.path("status").asText("");
@@ -97,17 +97,17 @@ public class SquarePaymentProviderService
             if (!succeeded) {
                 String errorCode = payment.path("delay_action").asText("card_declined");
                 return new ChargeResult(false, paymentId, responseJson, errorCode,
-                        "Payment status: " + status, false, false, null, null, null);
+                        "Payment status: " + status, false, false, false, null, null, null);
             }
-            return new ChargeResult(true, paymentId, responseJson, null, null, false, false, null, null, null);
+            return new ChargeResult(true, paymentId, responseJson, null, null, false, false, false, null, null, null);
 
         } catch (HttpClientErrorException e) {
             String code = parseSquareErrorCode(e.getResponseBodyAsString());
             log.error("Square charge failed: {} — {}", e.getStatusCode(), code);
-            return new ChargeResult(false, null, null, code, e.getMessage(), false, false, null, null, null);
+            return new ChargeResult(false, null, null, code, e.getMessage(), false, false, false, null, null, null);
         } catch (Exception e) {
             log.error("Square charge error", e);
-            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
+            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, false, null, null, null);
         }
     }
 

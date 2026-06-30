@@ -81,7 +81,7 @@ public class MolliePaymentProviderService
 
             if (response == null) {
                 return new ChargeResult(false, null, null, "unexpected_response",
-                        "Empty response from Mollie", true, false, null, null, null);
+                        "Empty response from Mollie", true, false, false, null, null, null);
             }
 
             String molliePaymentId = response.path("id").asText(null);
@@ -92,17 +92,17 @@ public class MolliePaymentProviderService
             if (checkoutUrl == null || checkoutUrl.isBlank()) {
                 return new ChargeResult(false, molliePaymentId, responseJson, "no_checkout_url",
                         "Mollie did not return a checkout URL (status=" + status + ")",
-                        false, false, null, null, null);
+                        false, false, false, null, null, null);
             }
             return ChargeResult.actionRequired(molliePaymentId, responseJson, "redirect_url", checkoutUrl, null);
 
         } catch (HttpClientErrorException e) {
             String code = parseMollieErrorCode(e.getResponseBodyAsString());
             log.error("Mollie charge failed: {} — {}", e.getStatusCode(), code);
-            return new ChargeResult(false, null, null, code, e.getMessage(), false, false, null, null, null);
+            return new ChargeResult(false, null, null, code, e.getMessage(), false, false, false, null, null, null);
         } catch (Exception e) {
             log.error("Mollie charge error", e);
-            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
+            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, false, null, null, null);
         }
     }
 

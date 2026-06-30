@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE isopackager SYSTEM "genericpackager.dtd">
+<!-- MasonXPay ISO 8583 packager: only fields used by rail-service/rail-simulator.
+     DE2 (PAN) is always masked before any log or DB write. -->
+<isopackager>
+
+  <!-- MTI: 4 ASCII digits, e.g. "0100" -->
+  <isofield id="0"  length="4"  name="MESSAGE TYPE INDICATOR"        class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- Primary bitmap: 8 bytes binary (64 bits) -->
+  <isofield id="1"  length="8"  name="BIT MAP PRIMARY"               class="org.jpos.iso.IFB_BITMAP"/>
+
+  <!-- DE2: PAN — LLVAR numeric, max 19 digits -->
+  <isofield id="2"  length="19" name="PAN"                           class="org.jpos.iso.IFA_LLNUM"/>
+
+  <!-- DE3: Processing code — 6 ASCII digits (000000=auth, 200000=sale, 400000=reversal) -->
+  <isofield id="3"  length="6"  name="PROCESSING CODE"               class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE4: Amount in minor units, 12 digits zero-padded (e.g. "000000005000" = $50.00) -->
+  <isofield id="4"  length="12" name="AMOUNT TRANSACTION"            class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE7: Transmission date/time — MMDDHHmmss (10 digits) -->
+  <isofield id="7"  length="10" name="TRANSMISSION DATE AND TIME"    class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE11: System Trace Audit Number — 6 digits, NOT globally unique -->
+  <isofield id="11" length="6"  name="SYSTEMS TRACE AUDIT NUMBER"    class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE12: Local transaction time — HHmmss -->
+  <isofield id="12" length="6"  name="TIME LOCAL TRANSACTION"        class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE13: Local transaction date — MMDD -->
+  <isofield id="13" length="4"  name="DATE LOCAL TRANSACTION"        class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- DE32: Acquiring institution ID — LLVAR numeric, max 11 -->
+  <isofield id="32" length="11" name="ACQUIRING INSTITUTION ID CODE" class="org.jpos.iso.IFA_LLNUM"/>
+
+  <!-- DE37: Retrieval Reference Number — 12 alphanumeric chars, NOT globally unique -->
+  <isofield id="37" length="12" name="RETRIEVAL REFERENCE NUMBER"    class="org.jpos.iso.IF_CHAR"/>
+
+  <!-- DE38: Authorization ID — 6 alphanum chars, set by issuer on approval -->
+  <isofield id="38" length="6"  name="AUTHORIZATION ID RESPONSE"     class="org.jpos.iso.IF_CHAR"/>
+
+  <!-- DE39: Response code — 2 chars (00=approved, 51=insufficient funds, etc.) -->
+  <isofield id="39" length="2"  name="RESPONSE CODE"                 class="org.jpos.iso.IF_CHAR"/>
+
+  <!-- DE41: Card acceptor terminal ID — 8 alphanum chars -->
+  <isofield id="41" length="8"  name="CARD ACCEPTOR TERMINAL ID"     class="org.jpos.iso.IF_CHAR"/>
+
+  <!-- DE42: Card acceptor ID code (merchant ID) — 15 alphanum chars -->
+  <isofield id="42" length="15" name="CARD ACCEPTOR ID CODE"         class="org.jpos.iso.IF_CHAR"/>
+
+  <!-- DE49: Transaction currency code — ISO 4217 numeric (840=USD, 978=EUR) -->
+  <isofield id="49" length="3"  name="CURRENCY CODE TRANSACTION"     class="org.jpos.iso.IFA_NUMERIC"/>
+
+  <!-- Secondary bitmap: 8 bytes binary (bits 65–128); present when bit 1 of primary is set -->
+  <isofield id="65" length="8"  name="BIT MAP SECONDARY"             class="org.jpos.iso.IFB_BITMAP"/>
+
+  <!-- DE90: Original data elements — 42 numeric digits (used in 0400 reversals, MR2) -->
+  <isofield id="90" length="42" name="ORIGINAL DATA ELEMENTS"        class="org.jpos.iso.IFA_NUMERIC"/>
+
+</isopackager>

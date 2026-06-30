@@ -14,6 +14,9 @@ services:
       # Creates msx_virtual_account on first init (POSTGRES_DB only makes one DB)
       - source: va_init_db
         target: /docker-entrypoint-initdb.d/01-create-virtual-account-db.sql
+      # Creates msx_rail on first init
+      - source: rail_init_db
+        target: /docker-entrypoint-initdb.d/02-create-rail-db.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -41,7 +44,7 @@ services:
 
   # ── Kafka ──────────────────────────────────────────────────────────────────
   kafka:
-    profiles: ["infra", "virtual-account"]
+    profiles: ["infra", "virtual-account", "rail"]
     build:
       context: ./monitor/kafka
       dockerfile: Dockerfile
@@ -149,6 +152,11 @@ services:
       PROVIDER_SIMULATOR_JITTER_MS: ${PROVIDER_SIMULATOR_JITTER_MS:-25}
       PROVIDER_SIMULATOR_FAILURE_RATE: ${PROVIDER_SIMULATOR_FAILURE_RATE:-0.0}
       PROVIDER_SIMULATOR_TIMEOUT_RATE: ${PROVIDER_SIMULATOR_TIMEOUT_RATE:-0.0}
+      # MR5-B: gateway → rail bridge (active when --profile rail is used)
+      RAIL_ENABLED: ${RAIL_ENABLED:-false}
+      RAIL_BASE_URL: ${RAIL_BASE_URL:-http://rail-service:8081}
+      RAIL_RESOLVED_TOPIC: ${RAIL_RESOLVED_TOPIC:-rail.payment.resolved}
+      RAIL_RESOLVED_CONSUMER_GROUP_ID: ${RAIL_RESOLVED_CONSUMER_GROUP_ID:-gateway-rail-resolved}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -224,6 +232,53 @@ services:
     ports:
       - "3000:3000"
 
+  # ── Rail service (ISO 8583 / ISO 20022; profile: rail) ─────────────────────
+  # Enable with: docker compose --profile rail up --build
+  # Brings up Kafka + rail-service + rail-simulator. rail-simulator exposes:
+  #   HTTP admin: host 9099 → container 9090
+  #   TCP ISO 8583: host 9091 → container 9091
+  rail-service:
+    profiles: ["rail"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.rail
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      RAIL_DB_NAME: ${RAIL_DB_NAME:-msx_rail}
+      RAIL_DB_USERNAME: ${DB_USERNAME:-pay_app_user}
+      RAIL_DB_PASSWORD: ${DB_PASSWORD:-password123}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RAIL_SIMULATOR_HOST: rail-simulator
+      RAIL_SIMULATOR_HTTP_PORT: 9090
+      RAIL_SIMULATOR_TCP_PORT: 9091
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8081 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  rail-simulator:
+    profiles: ["rail"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.railsim
+    restart: unless-stopped
+    ports:
+      - "9099:9090"   # HTTP admin — 9090 reserved for Prometheus in infra profile
+      - "9091:9091"   # TCP ISO 8583 channel
+    environment:
+      VA_ISSUER_URL: http://virtual-account:8086/internal/issuer/authorize
+
   # ── Virtual Account service (optional; profile: virtual-account) ────────────
   # Enable with:  docker compose --profile virtual-account up --build
   # Brings up Kafka (shared profile) + this service; uses the msx_virtual_account
@@ -262,3 +317,7 @@ configs:
   va_init_db:
     content: |
       CREATE DATABASE msx_virtual_account;
+  # Inline Postgres init: creates the Rail database. Runs only on a fresh volume.
+  rail_init_db:
+    content: |
+      CREATE DATABASE msx_rail;

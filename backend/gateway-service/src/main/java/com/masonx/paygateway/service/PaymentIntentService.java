@@ -316,6 +316,22 @@ public class PaymentIntentService {
                 intent.setProviderPaymentId(finalResult.providerPaymentId());
                 intent.setProviderResponse(finalResult.providerResponseJson());
                 eventType = manualCapture ? "payment_intent.requires_capture" : "payment_intent.succeeded";
+            } else if (finalResult != null && finalResult.pendingAsyncResolution()) {
+                // Rail auth timed out — stay PROCESSING. Store the railPaymentId so
+                // RailPaymentResolvedConsumer can look this intent up by providerPaymentId.
+                intent.setProviderPaymentId(finalResult.providerPaymentId());
+                if (retryResult.usedCandidate() != null) {
+                    intent.setResolvedProvider(retryResult.usedCandidate().provider());
+                    intent.setConnectorAccountId(retryResult.accountId());
+                }
+                if (intent.getTraceId() == null && traceId != null) {
+                    intent.setTraceId(traceId);
+                }
+                PaymentIntent saved = paymentIntentRepository.save(intent);
+                List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
+                metrics.recordIntentConfirmed(retryResult.providerName(),
+                        PaymentIntentStatus.PROCESSING.name(), "rail_unknown");
+                return PaymentIntentResponse.from(saved, attempts, objectMapper, null);
             } else {
                 intent.setStatus(PaymentIntentStatus.FAILED);
                 if (retryResult.usedCandidate() != null) {
@@ -344,6 +360,40 @@ public class PaymentIntentService {
                     failureCode);
 
             return response;
+        });
+    }
+
+    /**
+     * Called by {@link com.masonx.paygateway.kafka.RailPaymentResolvedConsumer} to finalize
+     * an intent that was left in PROCESSING state after a rail auth timeout (UNKNOWN).
+     *
+     * <p>Idempotent: if the intent is already in a terminal state (resolved by an earlier
+     * duplicate event or a manual reconciliation), the call is a safe no-op.
+     */
+    @Transactional
+    public void resolveRailPayment(String railPaymentId, String outcome) {
+        paymentIntentRepository.findByProviderPaymentId(railPaymentId).ifPresent(stale -> {
+            // Re-read with a write lock so concurrent duplicate events don't race.
+            PaymentIntent intent = paymentIntentRepository
+                    .findByIdProcessingForUpdate(stale.getId())
+                    .orElse(null);
+            if (intent == null) {
+                log.info("resolveRailPayment: intent for railPaymentId={} already resolved — skipping", railPaymentId);
+                return;
+            }
+            boolean succeeded = "SUCCEEDED".equals(outcome);
+            intent.setStatus(succeeded ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
+            PaymentIntent saved = paymentIntentRepository.save(intent);
+            List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
+            PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+            String eventType = succeeded ? "payment_intent.succeeded" : "payment_intent.failed";
+            writeOutboxEvent(saved.getMerchantId(), eventType, saved.getId(), response);
+            metrics.recordIntentConfirmed(
+                    saved.getResolvedProvider() != null ? saved.getResolvedProvider().name() : null,
+                    saved.getStatus().name(),
+                    succeeded ? null : "rail_resolved_failed");
+            log.info("resolveRailPayment: intent={} resolved to {} via rail outcome={}",
+                    intent.getId(), intent.getStatus(), outcome);
         });
     }
 

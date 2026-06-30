@@ -330,12 +330,12 @@ class PaymentRetryOrchestratorServiceTest {
 
     private ChargeResult success(String providerPaymentId) {
         return new ChargeResult(true, providerPaymentId, "{}", null, null,
-                false, false, null, null, null);
+                false, false, false, null, null, null);
     }
 
     private ChargeResult failed(String code) {
         return new ChargeResult(false, null, "{}", code, code,
-                true, false, null, null, null);
+                true, false, false, null, null, null);
     }
 
     private static final class NoopTransactionManager extends AbstractPlatformTransactionManager {

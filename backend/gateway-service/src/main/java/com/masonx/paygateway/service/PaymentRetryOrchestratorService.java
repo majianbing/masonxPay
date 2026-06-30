@@ -122,6 +122,13 @@ public class PaymentRetryOrchestratorService {
                     return new Result(lastResult, usedCandidate, attempts);
                 }
 
+                // Rail UNKNOWN: payment is in flight and a reversal has been dispatched.
+                // Do not retry — PaymentIntentService will keep the intent as PROCESSING and
+                // resolve it asynchronously via RailPaymentResolvedConsumer.
+                if ("rail_unknown".equals(result.failureCode())) {
+                    return new Result(lastResult, usedCandidate, attempts);
+                }
+
                 boolean retryable = failoverPolicy.isRetryable(result.failureCode());
                 circuitBreaker.recordFailure(candidate.accountId(), retryable);
                 OutcomeAction action = outcomeAction(candidate, result, retryable);
@@ -152,7 +159,7 @@ public class PaymentRetryOrchestratorService {
 
     private ChargeResult failedAttempt(String failureCode, String message) {
         return new ChargeResult(false, null, null, failureCode, message,
-                true, false, null, null, null);
+                true, false, false, null, null, null);
     }
 
     private OutcomeAction outcomeAction(RouteCandidate candidate, ChargeResult result, boolean retryable) {

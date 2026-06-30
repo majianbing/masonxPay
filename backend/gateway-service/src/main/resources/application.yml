@@ -167,6 +167,14 @@ app:
       prefix: ${STORAGE_S3_PREFIX:}       # optional key prefix, e.g. "masonxpay/"
       presigned-url-expiry-seconds: ${STORAGE_S3_PRESIGNED_TTL:3600}
 
+  rail:
+    enabled: ${RAIL_ENABLED:false}
+    base-url: ${RAIL_BASE_URL:http://localhost:8081}
+    resolved-topic: ${RAIL_RESOLVED_TOPIC:rail.payment.resolved}
+    kafka:
+      consumer:
+        group-id: ${RAIL_RESOLVED_CONSUMER_GROUP_ID:gateway-rail-resolved}
+
   provider-simulator:
     enabled: ${PROVIDER_SIMULATOR_ENABLED:false}
     base-latency-ms: ${PROVIDER_SIMULATOR_BASE_LATENCY_MS:25}

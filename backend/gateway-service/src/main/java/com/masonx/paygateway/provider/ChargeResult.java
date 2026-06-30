@@ -5,7 +5,7 @@ package com.masonx.paygateway.provider;
  *
  * For standard outcomes (success / failure):
  *   new ChargeResult(success, providerPaymentId, json, failureCode, failureMessage, retryable,
- *                    false, null, null, null)
+ *                    false, false, null, null, null)
  *
  * For 3DS / SCA challenges use the static factory:
  *   ChargeResult.actionRequired(providerPaymentId, json, actionType, actionUrl, clientSecret)
@@ -21,6 +21,7 @@ public record ChargeResult(
         String  failureCode,
         String  failureMessage,
         boolean retryable,
+        boolean pendingAsyncResolution, // true only for rail UNKNOWN state
         // 3DS / SCA fields — all null/false for non-action outcomes
         boolean requiresAction,
         String  actionType,      // "stripe_sdk" | "redirect_url"
@@ -31,6 +32,6 @@ public record ChargeResult(
     public static ChargeResult actionRequired(String providerPaymentId, String providerResponseJson,
                                               String actionType, String actionUrl, String clientSecret) {
         return new ChargeResult(false, providerPaymentId, providerResponseJson,
-                null, null, false, true, actionType, actionUrl, clientSecret);
+                null, null, false, false, true, actionType, actionUrl, clientSecret);
     }
 }

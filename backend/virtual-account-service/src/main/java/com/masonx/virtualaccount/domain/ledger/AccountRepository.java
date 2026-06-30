@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -100,6 +101,25 @@ public class AccountRepository {
                 LIMIT 1
                 """, ROW_MAPPER, asset, type.name());
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /** Returns all TENANT accounts for a merchant, ordered by created_at desc, paginated. */
+    public List<VaAccount> findTenantAccountsByMerchant(String merchantId, int page, int size) {
+        return jdbc.query("""
+                SELECT * FROM va_account
+                WHERE account_role = 'TENANT'
+                  AND merchant_id = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """, ROW_MAPPER, merchantId, size, (long) page * size);
+    }
+
+    public long countTenantAccountsByMerchant(String merchantId) {
+        Long n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM va_account
+                WHERE account_role = 'TENANT' AND merchant_id = ?
+                """, Long.class, merchantId);
+        return n != null ? n : 0L;
     }
 
     /** Updates balance and frozen_balance atomically — called inside the posting transaction. */

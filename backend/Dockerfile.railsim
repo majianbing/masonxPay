@@ -1,0 +1,29 @@
+# Rail simulator image. Build context is ./backend (the reactor root).
+# ── Stage 1: Build ──────────────────────────────────────────────────────────
+FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /app
+
+COPY pom.xml .
+COPY common/pom.xml common/pom.xml
+COPY contracts/pom.xml contracts/pom.xml
+COPY gateway-service/pom.xml gateway-service/pom.xml
+COPY virtual-account-service/pom.xml virtual-account-service/pom.xml
+COPY rail-service/pom.xml rail-service/pom.xml
+COPY rail-simulator/pom.xml rail-simulator/pom.xml
+RUN mvn -B -pl rail-simulator -am dependency:go-offline
+
+COPY common/src common/src
+COPY contracts/src contracts/src
+COPY rail-simulator/src rail-simulator/src
+RUN mvn -B -pl rail-simulator -am -DskipTests package
+
+# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jdk-alpine
+WORKDIR /app
+
+COPY --from=builder /app/rail-simulator/target/*.jar app.jar
+
+EXPOSE 9090
+# 9091 is the TCP port for ISO 8583 — opened by the Netty server inside the app
+EXPOSE 9091
+ENTRYPOINT ["java", "-jar", "app.jar"]

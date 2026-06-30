@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * In-process fake PSP used by H7 benchmarks.
@@ -32,9 +33,12 @@ public class MasonSimulatorPaymentProviderService
         implements ReusablePaymentMethodProviderService {
 
     private final ProviderSimulatorProperties properties;
+    private final Optional<RailServiceClient> railClient;
 
-    public MasonSimulatorPaymentProviderService(ProviderSimulatorProperties properties) {
+    public MasonSimulatorPaymentProviderService(ProviderSimulatorProperties properties,
+                                                @Autowired(required = false) RailServiceClient railClient) {
         this.properties = properties;
+        this.railClient = Optional.ofNullable(railClient);
     }
 
     @Override
@@ -49,15 +53,20 @@ public class MasonSimulatorPaymentProviderService
 
     @Override
     protected ChargeResult sendCharge(ChargeRequest request, SimulatorCredentials creds) {
+        // When rail-service is wired in, delegate to the real ISO 8583 rail.
+        if (railClient.isPresent()) {
+            return railClient.get().authorize(request);
+        }
+        // ── In-process fallback (benchmark / unit-test mode) ──────────────────
         simulateLatencyAndTimeout();
         if (shouldFail(creds)) {
             return new ChargeResult(false, null, json("charge", "failed", null),
                     "simulator_declined", "Mason Simulator synthetic decline",
-                    false, false, null, null, null);
+                    false, false, false, null, null, null);
         }
         String providerPaymentId = "sim_pay_" + request.paymentIntentId();
         return new ChargeResult(true, providerPaymentId, json("charge", "succeeded", providerPaymentId),
-                null, null, false, false, null, null, null);
+                null, null, false, false, false, null, null, null);
     }
 
     @Override

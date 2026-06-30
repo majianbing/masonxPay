@@ -209,7 +209,7 @@ class PaymentIntentServiceTest {
                 eq(PaymentRetryContext.sameAccountOnly())))
                 .thenReturn(new PaymentRetryOrchestratorService.Result(
                         new ChargeResult(true, "pi_provider_123", "{}", null, null,
-                                false, false, null, null, null),
+                                false, false, false, null, null, null),
                         new RouteCandidate(primary), 1));
         when(paymentIntentRepository.findByIdForUpdate(intentId)).thenReturn(Optional.of(pi));
         when(outboxEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));

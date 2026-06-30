@@ -9,6 +9,8 @@ COPY common/pom.xml common/pom.xml
 COPY contracts/pom.xml contracts/pom.xml
 COPY gateway-service/pom.xml gateway-service/pom.xml
 COPY virtual-account-service/pom.xml virtual-account-service/pom.xml
+COPY rail-service/pom.xml rail-service/pom.xml
+COPY rail-simulator/pom.xml rail-simulator/pom.xml
 RUN mvn -B -pl gateway-service -am dependency:go-offline
 
 # Build only gateway-service and its reactor dependencies (common, contracts).
