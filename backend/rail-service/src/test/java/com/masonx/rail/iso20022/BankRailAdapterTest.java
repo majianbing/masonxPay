@@ -114,7 +114,7 @@ class BankRailAdapterTest {
 
     private static CanonicalPaymentCommand command(String creditorIban) {
         return new CanonicalPaymentCommand(
-                "rp_test_001", "merch_001", "idem_001",
+                "rp_test_001", "merch_001", "TEST", "idem_001",
                 PaymentRail.BANK_ISO20022, MoneyMovementType.BANK_CREDIT_TRANSFER,
                 new BigDecimal("100.00"), "EUR",
                 null,

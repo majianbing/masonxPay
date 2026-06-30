@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
  * <p>Two security zones:
  * <ul>
  *   <li>{@code POST /internal/va/accounts} — requires {@code X-Internal-Token} (platform admin).
- *   <li>{@code GET /v1/va/accounts/**} — merchant-facing (no auth beyond tenant scoping).
+ *   <li>{@code GET /v1/va/accounts/**} — requires {@code X-Internal-Token}; merchantId validated against account ownership.
  * </ul>
  */
 @RestController
@@ -33,8 +33,9 @@ public class VaAccountController {
 
     /** Returns a single account by ID with live balance. */
     @GetMapping("/v1/va/accounts/{accountId}")
-    public ResponseEntity<AccountResponse> get(@PathVariable String accountId) {
-        return ResponseEntity.ok(service.getAccount(accountId));
+    public ResponseEntity<AccountResponse> get(@PathVariable String accountId,
+                                               @RequestParam String merchantId) {
+        return ResponseEntity.ok(service.getAccount(accountId, merchantId));
     }
 
     /** Lists all TENANT accounts for a merchant, paginated. */

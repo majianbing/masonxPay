@@ -159,7 +159,7 @@ public class PaymentRetryOrchestratorService {
 
     private ChargeResult failedAttempt(String failureCode, String message) {
         return new ChargeResult(false, null, null, failureCode, message,
-                true, false, null, null, null);
+                true, false, false, null, null, null);
     }
 
     private OutcomeAction outcomeAction(RouteCandidate candidate, ChargeResult result, boolean retryable) {

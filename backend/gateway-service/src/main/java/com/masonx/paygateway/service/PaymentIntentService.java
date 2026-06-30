@@ -316,7 +316,7 @@ public class PaymentIntentService {
                 intent.setProviderPaymentId(finalResult.providerPaymentId());
                 intent.setProviderResponse(finalResult.providerResponseJson());
                 eventType = manualCapture ? "payment_intent.requires_capture" : "payment_intent.succeeded";
-            } else if (finalResult != null && "rail_unknown".equals(finalResult.failureCode())) {
+            } else if (finalResult != null && finalResult.pendingAsyncResolution()) {
                 // Rail auth timed out — stay PROCESSING. Store the railPaymentId so
                 // RailPaymentResolvedConsumer can look this intent up by providerPaymentId.
                 intent.setProviderPaymentId(finalResult.providerPaymentId());

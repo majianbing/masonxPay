@@ -114,7 +114,7 @@ public class BraintreePaymentProviderService
 
             if (result.isSuccess()) {
                 Transaction tx = result.getTarget();
-                return new ChargeResult(true, tx.getId(), null, null, null, false, false, null, null, null);
+                return new ChargeResult(true, tx.getId(), null, null, null, false, false, false, null, null, null);
             }
 
             Transaction tx = result.getTransaction();
@@ -127,15 +127,15 @@ public class BraintreePaymentProviderService
                 boolean retryable = tx.getStatus() == Transaction.Status.GATEWAY_REJECTED;
                 return new ChargeResult(false, tx.getId(), null, failureCode,
                         tx.getProcessorResponseText() != null ? tx.getProcessorResponseText() : result.getMessage(),
-                        retryable, false, null, null, null);
+                        retryable, false, false, null, null, null);
             }
 
             return new ChargeResult(false, null, null, "validation_error", result.getMessage(),
-                    false, false, null, null, null);
+                    false, false, false, null, null, null);
 
         } catch (Exception e) {
             log.error("Braintree charge error", e);
-            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, null, null, null);
+            return new ChargeResult(false, null, null, "gateway_error", e.getMessage(), true, false, false, null, null, null);
         }
     }
 

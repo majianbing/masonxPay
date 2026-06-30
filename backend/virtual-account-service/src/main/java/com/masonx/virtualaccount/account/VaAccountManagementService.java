@@ -8,7 +8,9 @@ import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
 import com.masonx.virtualaccount.domain.po.VaAccount;
 import com.masonx.virtualaccount.vcc.dto.PagedResult;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -48,10 +50,13 @@ public class VaAccountManagementService {
         return toResponse(account);
     }
 
-    public AccountResponse getAccount(String accountId) {
-        return accountRepo.findById(accountId)
-                .map(this::toResponse)
-                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+    public AccountResponse getAccount(String accountId, String merchantId) {
+        VaAccount account = accountRepo.findById(accountId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
+        if (!account.merchantId().equals(merchantId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
+        }
+        return toResponse(account);
     }
 
     public PagedResult<AccountResponse> listAccounts(String merchantId, int page, int size) {

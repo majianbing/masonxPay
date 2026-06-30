@@ -102,24 +102,24 @@ public class RailServiceClient {
             case "APPROVED" -> new ChargeResult(
                     true, railPaymentId,
                     "{\"rail\":\"APPROVED\",\"id\":\"" + railPaymentId + "\"}",
-                    null, null, false, false, null, null, null);
+                    null, null, false, false, false, null, null, null);
             case "DECLINED" -> declined("simulator_declined",
                     (String) responseBody.getOrDefault("failureReason", "Rail DECLINED"));
             case "UNKNOWN"  -> new ChargeResult(
                     false, railPaymentId,
                     "{\"rail\":\"UNKNOWN\",\"id\":\"" + railPaymentId + "\"}",
                     "rail_unknown", "Rail auth timed out — awaiting reversal resolution",
-                    false, false, null, null, null);
+                    false, true, false, null, null, null);
             default         -> exception("provider_exception",
                     "Rail service returned unexpected status: " + status);
         };
     }
 
     private ChargeResult declined(String code, String message) {
-        return new ChargeResult(false, null, null, code, message, false, false, null, null, null);
+        return new ChargeResult(false, null, null, code, message, false, false, false, null, null, null);
     }
 
     private ChargeResult exception(String code, String message) {
-        return new ChargeResult(false, null, null, code, message, true, false, null, null, null);
+        return new ChargeResult(false, null, null, code, message, true, false, false, null, null, null);
     }
 }

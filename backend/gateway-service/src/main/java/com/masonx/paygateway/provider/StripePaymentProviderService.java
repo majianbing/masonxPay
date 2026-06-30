@@ -101,11 +101,11 @@ public class StripePaymentProviderService
                     failureCode,
                     succeeded ? null : pi.getLastPaymentError() != null
                             ? pi.getLastPaymentError().getMessage() : "Payment did not succeed",
-                    false, false, null, null, null
+                    false, false, false, null, null, null
             );
         } catch (StripeException e) {
             log.error("Stripe charge failed: {} — {}", e.getCode(), e.getMessage());
-            return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true, false, null, null, null);
+            return new ChargeResult(false, null, null, e.getCode(), e.getMessage(), true, false, false, null, null, null);
         }
     }
 

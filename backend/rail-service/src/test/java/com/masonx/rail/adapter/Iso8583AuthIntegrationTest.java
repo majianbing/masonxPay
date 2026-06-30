@@ -113,6 +113,7 @@ class Iso8583AuthIntegrationTest {
         CanonicalPaymentCommand command = new CanonicalPaymentCommand(
                 "rp_test_" + testPan,
                 "merchant_001",
+                "TEST",
                 "idem_" + testPan,
                 PaymentRail.CARD_ISO8583,
                 MoneyMovementType.CARD_AUTH,

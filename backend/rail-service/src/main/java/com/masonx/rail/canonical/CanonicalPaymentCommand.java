@@ -20,6 +20,7 @@ import java.util.Map;
 public record CanonicalPaymentCommand(
         String paymentId,
         String merchantId,
+        String mode,               // "TEST" or "LIVE"
         String idempotencyKey,
         PaymentRail rail,
         MoneyMovementType type,

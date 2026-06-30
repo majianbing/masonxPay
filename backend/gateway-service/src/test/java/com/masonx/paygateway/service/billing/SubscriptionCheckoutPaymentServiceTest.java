@@ -203,7 +203,7 @@ class SubscriptionCheckoutPaymentServiceTest {
         when(paymentIntentRepository.save(any(PaymentIntent.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(dispatcher.charge(any(), any(), any()))
                 .thenReturn(new ChargeResult(false, "sim_pay_failed", "{}", "card_declined",
-                        "Card declined", false, false, null, null, null));
+                        "Card declined", false, false, false, null, null, null));
 
         var response = service.checkout(token, gatewayToken);
 
@@ -283,7 +283,7 @@ class SubscriptionCheckoutPaymentServiceTest {
                 .thenReturn(List.of(subscriptionItem(merchantId, subscriptionId)));
         when(paymentIntentRepository.save(any(PaymentIntent.class))).thenAnswer(inv -> inv.getArgument(0));
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, null, null, null));
+                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, false, null, null, null));
         when(customerPaymentMethodRepository.findByMerchantIdAndCustomerIdAndPaymentInstrumentId(
                 merchantId, customerId, instrumentId)).thenReturn(Optional.empty());
 

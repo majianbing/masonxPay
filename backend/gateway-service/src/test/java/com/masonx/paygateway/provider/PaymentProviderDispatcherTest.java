@@ -52,7 +52,7 @@ class PaymentProviderDispatcherTest {
     @Test
     void charge_success_logsStartAndEndAtInfo() {
         ChargeRequest req = chargeRequest();
-        ChargeResult result = new ChargeResult(true, "pi_123", "{}", null, null, false, false, null, null, null);
+        ChargeResult result = new ChargeResult(true, "pi_123", "{}", null, null, false, false, false, null, null, null);
         when(mockService.charge(req, creds)).thenReturn(result);
 
         dispatcher.charge(PaymentProvider.SIMULATOR, req, creds);
@@ -75,7 +75,7 @@ class PaymentProviderDispatcherTest {
     @Test
     void charge_softFailure_logsEndAtWarn() {
         ChargeRequest req = chargeRequest();
-        ChargeResult failed = new ChargeResult(false, null, "{}", "card_declined", "Your card was declined", false, false, null, null, null);
+        ChargeResult failed = new ChargeResult(false, null, "{}", "card_declined", "Your card was declined", false, false, false, null, null, null);
         when(mockService.charge(req, creds)).thenReturn(failed);
 
         dispatcher.charge(PaymentProvider.SIMULATOR, req, creds);

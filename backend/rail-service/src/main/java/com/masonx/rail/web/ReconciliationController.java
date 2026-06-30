@@ -5,6 +5,7 @@ import com.masonx.rail.service.ReconciliationRepository.ReconException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -17,7 +18,7 @@ import java.util.List;
  * Intended for operations dashboards and manual reconciliation workflows.
  */
 @RestController
-@RequestMapping("/v1/rail/reconciliation")
+@RequestMapping("/internal/rail/reconciliation")
 public class ReconciliationController {
 
     private final ReconciliationRepository reconRepo;
@@ -27,8 +28,8 @@ public class ReconciliationController {
     }
 
     @GetMapping("/exceptions")
-    public ResponseEntity<ExceptionsResponse> exceptions() {
-        List<ReconException> list = reconRepo.findExceptions();
+    public ResponseEntity<ExceptionsResponse> exceptions(@RequestParam String merchantId) {
+        List<ReconException> list = reconRepo.findExceptions(merchantId);
         return ResponseEntity.ok(new ExceptionsResponse(list, list.size()));
     }
 

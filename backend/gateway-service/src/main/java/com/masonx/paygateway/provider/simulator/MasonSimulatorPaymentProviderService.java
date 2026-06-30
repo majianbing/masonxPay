@@ -62,11 +62,11 @@ public class MasonSimulatorPaymentProviderService
         if (shouldFail(creds)) {
             return new ChargeResult(false, null, json("charge", "failed", null),
                     "simulator_declined", "Mason Simulator synthetic decline",
-                    false, false, null, null, null);
+                    false, false, false, null, null, null);
         }
         String providerPaymentId = "sim_pay_" + request.paymentIntentId();
         return new ChargeResult(true, providerPaymentId, json("charge", "succeeded", providerPaymentId),
-                null, null, false, false, null, null, null);
+                null, null, false, false, false, null, null, null);
     }
 
     @Override

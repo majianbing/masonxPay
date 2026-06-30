@@ -109,7 +109,7 @@ class InvoicePaymentServiceTest {
 
         stubHappyPath(invoice, sub, instrument, account);
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, null, null, null));
+                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, false, null, null, null));
 
         InvoicePaymentResponse response = service.pay(merchantId, invoiceId);
 
@@ -136,7 +136,7 @@ class InvoicePaymentServiceTest {
 
         stubHappyPath(invoice, sub, instrument, account);
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(false, null, "{}", "card_declined", "Card declined", false, false, null, null, null));
+                .thenReturn(new ChargeResult(false, null, "{}", "card_declined", "Card declined", false, false, false, null, null, null));
 
         InvoicePaymentResponse response = service.pay(merchantId, invoiceId);
 
@@ -203,7 +203,7 @@ class InvoicePaymentServiceTest {
         stubHappyPath(invoice, sub, instrument, account);
         // Provider asks for 3DS — not possible off-session
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(false, null, "{}", null, null, false, true, "redirect_url", "https://bank.example.com/3ds", null));
+                .thenReturn(new ChargeResult(false, null, "{}", null, null, false, false, true, "redirect_url", "https://bank.example.com/3ds", null));
 
         InvoicePaymentResponse response = service.pay(merchantId, invoiceId);
 
@@ -221,7 +221,7 @@ class InvoicePaymentServiceTest {
 
         stubHappyPath(invoice, sub, instrument, account);
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, null, null, null));
+                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, false, null, null, null));
 
         service.pay(merchantId, invoiceId);
 
@@ -250,7 +250,7 @@ class InvoicePaymentServiceTest {
         when(attemptRepository.findByMerchantIdAndInvoiceIdOrderByAttemptNumberAsc(merchantId, invoiceId))
                 .thenReturn(List.of(prior1, prior2));
         when(dispatcher.charge(any(), any(), any()))
-                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, null, null, null));
+                .thenReturn(new ChargeResult(true, "sim_pay_ok", "{}", null, null, false, false, false, null, null, null));
 
         InvoicePaymentResponse response = service.pay(merchantId, invoiceId);
 

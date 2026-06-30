@@ -22,6 +22,7 @@ public class VaSecurityConfig {
                 .addFilterBefore(internalTokenFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/internal/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/va/accounts/**").hasRole("INTERNAL")
                         .anyRequest().permitAll()
                 )
                 .build();

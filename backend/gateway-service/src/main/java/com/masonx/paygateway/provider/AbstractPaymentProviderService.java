@@ -182,7 +182,7 @@ public abstract class AbstractPaymentProviderService<C extends ProviderCredentia
         return new ChargeResult(false, null, null,
                 "connector_not_configured",
                 "No active " + brand() + " connector found. Add one under Settings → Connectors.",
-                false, false, null, null, null);
+                false, false, false, null, null, null);
     }
 
     protected RefundResult missingConnectorRefund() {

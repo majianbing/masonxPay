@@ -44,6 +44,7 @@ public class RailPaymentController {
         var command = new CanonicalPaymentCommand(
                 paymentId,
                 req.merchantId(),
+                "TEST",
                 req.idempotencyKey(),
                 PaymentRail.CARD_ISO8583,
                 MoneyMovementType.CARD_AUTH,
@@ -79,6 +80,7 @@ public class RailPaymentController {
         var command = new CanonicalPaymentCommand(
                 paymentId,
                 req.merchantId(),
+                "TEST",
                 req.idempotencyKey(),
                 com.masonx.contracts.rail.PaymentRail.BANK_ISO20022,
                 com.masonx.contracts.rail.MoneyMovementType.BANK_CREDIT_TRANSFER,

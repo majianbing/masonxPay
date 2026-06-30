@@ -57,12 +57,13 @@ public class RailPaymentRepository {
         String maskedPan = cmd.cardToken() != null ? cmd.cardToken().masked() : null;
         jdbc.update("""
                 INSERT INTO rail_payment
-                    (payment_id, merchant_id, rail, network, movement_type,
+                    (payment_id, merchant_id, mode, rail, network, movement_type,
                      amount, currency, status, idempotency_key, original_payment_id, masked_pan)
-                VALUES (?, ?, ?::rail_type, ?, ?::rail_movement, ?, ?, ?::rail_status, ?, ?, ?)
+                VALUES (?, ?, ?, ?::rail_type, ?, ?::rail_movement, ?, ?, ?::rail_status, ?, ?, ?)
                 """,
                 cmd.paymentId(),
                 cmd.merchantId(),
+                cmd.mode(),
                 cmd.rail().name(),
                 cmd.metadata().getOrDefault("network", "UNKNOWN"),
                 cmd.type().name(),
