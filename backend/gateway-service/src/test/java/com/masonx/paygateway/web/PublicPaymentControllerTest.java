@@ -32,9 +32,11 @@ import com.masonx.paygateway.web.dto.PublicCheckoutRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -158,8 +160,9 @@ class PublicPaymentControllerTest {
         when(providerAccountRepository.findById(accountId)).thenReturn(Optional.of(account));
         when(routingEngine.supportsCapabilities(eq(account), any(RoutingContext.class))).thenReturn(true);
         when(credentialsCodec.decode(account)).thenReturn(new StripeCredentials("sk_test_123", "pk_test_123"));
-        when(paymentIntentRepository.findTopByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
-                merchantId, expectedKeyPrefix)).thenReturn(Optional.of(inFlight));
+        when(paymentIntentRepository.findByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
+                eq(merchantId), eq(expectedKeyPrefix), any(PageRequest.class)))
+                .thenReturn(List.of(inFlight));
 
         assertThatThrownBy(() -> controller.prepareStripe(token))
                 .isInstanceOf(IllegalStateException.class)

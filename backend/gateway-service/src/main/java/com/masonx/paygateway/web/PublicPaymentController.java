@@ -30,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -306,8 +307,9 @@ public class PublicPaymentController {
         // state) gets a fresh, still-deterministic key.
         String idempotencyKeyPrefix = "pl-" + link.getId() + "-stripe-pi-";
         Optional<PaymentIntent> latestAttempt = paymentIntentRepository
-                .findTopByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
-                        link.getMerchantId(), idempotencyKeyPrefix);
+                .findByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
+                        link.getMerchantId(), idempotencyKeyPrefix, PageRequest.of(0, 1))
+                .stream().findFirst();
         if (latestAttempt.isPresent() && !isTerminal(latestAttempt.get().getStatus())) {
             return resumeStripePrepare(latestAttempt.get(), stripe);
         }
