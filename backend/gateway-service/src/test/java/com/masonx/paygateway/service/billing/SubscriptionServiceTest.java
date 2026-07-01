@@ -37,6 +37,7 @@ class SubscriptionServiceTest {
     private SubscriptionRepository subscriptionRepository;
     private SubscriptionItemRepository itemRepository;
     private SubscriptionCheckoutLinkRepository checkoutLinkRepository;
+    private com.masonx.paygateway.service.GatewayIdService gatewayIdService;
     private SubscriptionService service;
 
     @BeforeEach
@@ -45,12 +46,14 @@ class SubscriptionServiceTest {
         subscriptionRepository = mock(SubscriptionRepository.class);
         itemRepository = mock(SubscriptionItemRepository.class);
         checkoutLinkRepository = mock(SubscriptionCheckoutLinkRepository.class);
+        gatewayIdService = mock(com.masonx.paygateway.service.GatewayIdService.class);
         service = new SubscriptionService(
                 customerRepository,
                 subscriptionRepository,
                 itemRepository,
                 checkoutLinkRepository,
-                new ObjectMapper().findAndRegisterModules());
+                new ObjectMapper().findAndRegisterModules(),
+                gatewayIdService);
         ReflectionTestUtils.setField(service, "payBaseUrl", "http://localhost:3000");
     }
 

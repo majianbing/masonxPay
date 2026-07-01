@@ -21,6 +21,7 @@ import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.RefundRequest;
 import com.masonx.paygateway.provider.RefundResult;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.service.ProviderAccountService;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import com.masonx.paygateway.web.dto.RefundResponse;
@@ -59,6 +60,7 @@ public class ScheduledRetryWorkerService {
     private final TransactionTemplate txTemplate;
     private final Clock clock;
     private final String workerId;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.scheduled-retry.enabled:true}")
     private boolean enabled;
@@ -79,10 +81,11 @@ public class ScheduledRetryWorkerService {
                                        OutboxEventRepository outboxEventRepository,
                                        ObjectMapper objectMapper,
                                        PaymentMetrics metrics,
-                                       PlatformTransactionManager txManager) {
+                                       PlatformTransactionManager txManager,
+                                       GatewayIdService gatewayIdService) {
         this(retryJobRepository, paymentIntentRepository, paymentRequestRepository, refundRepository, dispatcher,
                 providerAccountService, outboxEventRepository, objectMapper, metrics, txManager,
-                Clock.systemUTC(), defaultWorkerId());
+                Clock.systemUTC(), defaultWorkerId(), gatewayIdService);
     }
 
     ScheduledRetryWorkerService(ScheduledRetryJobRepository retryJobRepository,
@@ -97,6 +100,23 @@ public class ScheduledRetryWorkerService {
                                 PlatformTransactionManager txManager,
                                 Clock clock,
                                 String workerId) {
+        this(retryJobRepository, paymentIntentRepository, paymentRequestRepository, refundRepository, dispatcher,
+                providerAccountService, outboxEventRepository, objectMapper, metrics, txManager, clock, workerId, null);
+    }
+
+    ScheduledRetryWorkerService(ScheduledRetryJobRepository retryJobRepository,
+                                PaymentIntentRepository paymentIntentRepository,
+                                PaymentRequestRepository paymentRequestRepository,
+                                RefundRepository refundRepository,
+                                PaymentProviderDispatcher dispatcher,
+                                ProviderAccountService providerAccountService,
+                                OutboxEventRepository outboxEventRepository,
+                                ObjectMapper objectMapper,
+                                PaymentMetrics metrics,
+                                PlatformTransactionManager txManager,
+                                Clock clock,
+                                String workerId,
+                                GatewayIdService gatewayIdService) {
         this.retryJobRepository = retryJobRepository;
         this.paymentIntentRepository = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
@@ -109,6 +129,7 @@ public class ScheduledRetryWorkerService {
         this.txTemplate = new TransactionTemplate(txManager);
         this.clock = clock;
         this.workerId = workerId;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Scheduled(fixedDelayString = "${app.scheduled-retry.poll-delay-ms:60000}")
@@ -320,8 +341,12 @@ public class ScheduledRetryWorkerService {
 
     private void writeOutboxEvent(UUID merchantId, String eventType, UUID resourceId, Object payload) {
         try {
-            outboxEventRepository.save(new OutboxEvent(
-                    merchantId, eventType, resourceId, objectMapper.writeValueAsString(payload)));
+            String json = objectMapper.writeValueAsString(payload);
+            OutboxEvent event = new OutboxEvent(merchantId, eventType, resourceId, json);
+            if (gatewayIdService != null) {
+                gatewayIdService.assignOutboxEvent(event);
+            }
+            outboxEventRepository.save(event);
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize outbox payload for scheduled retry event {} on {}: {}",
                     eventType, resourceId, e.getMessage());

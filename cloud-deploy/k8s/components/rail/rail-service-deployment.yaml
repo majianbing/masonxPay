@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rail-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rail-service
+  template:
+    metadata:
+      labels:
+        app: rail-service
+    spec:
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z kafka 9092; do sleep 2; done"]
+      containers:
+        - name: rail-service
+          image: masonxpay/rail-service:local
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: masonxpay-config
+          env:
+            - name: RAIL_DB_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: masonxpay-config
+                  key: DB_USERNAME
+            - name: RAIL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: masonxpay-secrets
+                  key: DB_PASSWORD
+            - name: RAIL_SIMULATOR_HOST
+              value: rail-simulator
+            - name: RAIL_SIMULATOR_HTTP_PORT
+              value: "9090"
+            - name: RAIL_SIMULATOR_TCP_PORT
+              value: "9091"
+          # TCP, not /actuator/health — see base/gateway-service/deployment.yaml
+          # for why the aggregate health endpoint isn't safe to probe here.
+          readinessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 750m
+              memory: 1Gi

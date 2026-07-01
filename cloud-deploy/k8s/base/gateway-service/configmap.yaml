@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: masonxpay-config
+data:
+  # ── Database ──────────────────────────────────────────────────────────────
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: paygateway
+  DB_USERNAME: pay_app_user
+  RAIL_DB_NAME: msx_rail
+  VA_DB_NAME: msx_virtual_account
+  # ── URLs — overridden per overlay to match the overlay's ingress host ──────
+  APP_BASE_URL: http://masonxpay.local
+  PAY_BASE_URL: http://masonxpay.local
+  # No /api suffix — dashboard/lib/api.ts appends /api/v1/... itself.
+  NEXT_PUBLIC_API_URL: http://masonxpay.local
+  CORS_ALLOWED_ORIGINS: http://masonxpay.local
+  # ── High-throughput profile ─────────────────────────────────────────────
+  PAYMENT_SHARD_COUNT: "64"
+  # ── Kafka — off until the kafka component is added ─────────────────────
+  KAFKA_OUTBOX_ENABLED: "false"
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_OUTBOX_TOPIC: payment.lifecycle.events
+  KAFKA_OUTBOX_TOPIC_PARTITIONS: "12"
+  KAFKA_WEBHOOK_CONSUMER_ENABLED: "false"
+  KAFKA_WEBHOOK_CONSUMER_GROUP_ID: masonxpay-webhook-worker
+  KAFKA_PAYMENT_PROJECTION_ENABLED: "false"
+  KAFKA_PAYMENT_PROJECTION_GROUP_ID: masonxpay-payment-projection
+  PAYMENT_PROJECTION_BACKFILL_ENABLED: "false"
+  WEBHOOK_OUTBOX_POLLER_ENABLED: "true"
+  # ── Redis — off until the redis component is added ─────────────────────
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_HOT_PATH_ENABLED: "false"
+  REDIS_HOT_PATH_FAIL_OPEN: "true"
+  REDIS_RATE_LIMIT_ENABLED: "false"
+  REDIS_RATE_LIMIT_CREATE_PAYMENT_INTENT_PER_WINDOW: "600"
+  REDIS_RATE_LIMIT_CONFIRM_PAYMENT_INTENT_PER_WINDOW: "300"
+  REDIS_IDEMPOTENCY_CACHE_ENABLED: "false"
+  REDIS_PROVIDER_HEALTH_CACHE_ENABLED: "false"
+  REDIS_HEALTH_ENABLED: "false"
+  # ── H7 benchmark simulator provider — on by default so charges work
+  #    without a real Stripe key on a local cluster ──────────────────────
+  PROVIDER_SIMULATOR_ENABLED: "true"
+  NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER: "true"
+  PROVIDER_SIMULATOR_BASE_LATENCY_MS: "25"
+  PROVIDER_SIMULATOR_JITTER_MS: "25"
+  PROVIDER_SIMULATOR_FAILURE_RATE: "0.0"
+  PROVIDER_SIMULATOR_TIMEOUT_RATE: "0.0"
+  # ── MR5-B: gateway → rail bridge — off until the rail component is added
+  RAIL_ENABLED: "false"
+  RAIL_BASE_URL: http://rail-service:8081
+  RAIL_RESOLVED_TOPIC: rail.payment.resolved
+  RAIL_RESOLVED_CONSUMER_GROUP_ID: gateway-rail-resolved
+  # ── Mail (optional) ──────────────────────────────────────────────────
+  MAIL_HOST: smtp.gmail.com
+  MAIL_PORT: "587"

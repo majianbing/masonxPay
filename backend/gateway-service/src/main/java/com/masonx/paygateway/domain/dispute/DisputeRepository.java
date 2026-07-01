@@ -14,6 +14,8 @@ public interface DisputeRepository extends JpaRepository<Dispute, UUID> {
 
     Optional<Dispute> findByIdAndMerchantId(UUID id, UUID merchantId);
 
+    Optional<Dispute> findByExternalIdAndMerchantId(String externalId, UUID merchantId);
+
     Page<Dispute> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, Pageable pageable);
 
     Page<Dispute> findByMerchantIdAndModeAndStatusOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, DisputeStatus status, Pageable pageable);

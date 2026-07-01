@@ -433,9 +433,10 @@ gw2.<span class="fn">on</span>(<span class="str">'token'</span>, <span class="kw
       });
       const intent = await r1.json();
       if (!r1.ok) throw intent;
+      const paymentId = intent.externalId || intent.id;
 
       // 2. Confirm with gateway token — routing already resolved browser-side
-      const r2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${intent.id}/confirm`, {
+      const r2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${paymentId}/confirm`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentMethodId: currentGatewayToken }),
@@ -555,8 +556,9 @@ gw2.<span class="fn">on</span>(<span class="str">'token'</span>, <span class="kw
       // Confirm the payment intent
       const intent = await res.json();
       if (!res.ok) throw intent;
+      const paymentId = intent.externalId || intent.id;
 
-      const res2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${intent.id}/confirm`, {
+      const res2 = await fetch(`${apiUrl}/api/v1/merchants/${merchantId}/payment-intents/${paymentId}/confirm`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentMethodId }),

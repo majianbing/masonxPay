@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record WebhookDeliveryResponse(
         UUID id,
+        String externalId,
         UUID gatewayEventId,
         UUID webhookEndpointId,
         String status,
@@ -20,6 +21,7 @@ public record WebhookDeliveryResponse(
     public static WebhookDeliveryResponse from(WebhookDelivery d) {
         return new WebhookDeliveryResponse(
                 d.getId(),
+                d.getExternalId(),
                 d.getGatewayEventId(),
                 d.getWebhookEndpointId(),
                 d.getStatus().name(),

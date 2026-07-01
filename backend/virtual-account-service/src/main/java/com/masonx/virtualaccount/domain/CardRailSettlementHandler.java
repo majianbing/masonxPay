@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.domain;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.contracts.rail.MoneyMovementType;
@@ -95,7 +96,7 @@ public class CardRailSettlementHandler {
                 event.networkName(), event.asset(), AccountType.CARD_NETWORK_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate("tx_rail_");
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(receivable.accountId(),   Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(cardAccount.accountId(),  Direction.CREDIT, event.amount(), event.asset(), eventId)
@@ -147,7 +148,7 @@ public class CardRailSettlementHandler {
                 event.networkName(), event.asset(), AccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate("tx_rail_");
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(receivable.accountId(), Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(wallet.accountId(),     Direction.CREDIT, event.amount(), event.asset(), eventId)
@@ -173,7 +174,7 @@ public class CardRailSettlementHandler {
                 event.networkName(), event.asset(), AccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate("tx_rail_");
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(wallet.accountId(),     Direction.DEBIT,  event.amount(), event.asset(), eventId),
                 new EntryDraft(receivable.accountId(), Direction.CREDIT, event.amount(), event.asset(), eventId)

@@ -1,5 +1,6 @@
 package com.masonx.rail.adapter;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.contracts.rail.PaymentRail;
 import com.masonx.rail.canonical.CanonicalPaymentCommand;
@@ -60,9 +61,9 @@ public abstract class AbstractBankIso20022Adapter implements PaymentRailAdapter 
 
     @Override
     public RailResponse execute(CanonicalPaymentCommand command) {
-        String messageId     = idGen.generate("m20_");
-        String instructionId = idGen.generate("ins_");
-        String endToEndId    = idGen.generate("e2e_");
+        String messageId     = idGen.generate(MasonXIdPrefix.ISO20022_MESSAGE.prefix());
+        String instructionId = idGen.generate(MasonXIdPrefix.ISO20022_INSTRUCTION.prefix());
+        String endToEndId    = idGen.generate(MasonXIdPrefix.ISO20022_END_TO_END.prefix());
 
         String pain001Xml = Pain001Builder.build(command, messageId, instructionId, endToEndId);
         logService.logSend(command.paymentId(), networkName(),

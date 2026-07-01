@@ -61,6 +61,8 @@ class WebhookEndpointControllerIntegrationTest {
     void listDeliveries_returnsPagedResult() throws Exception {
         WebhookDeliveryResponse delivery = sampleDelivery();
         var page = new PageImpl<>(List.of(delivery), PageRequest.of(0, 20), 1);
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
+                .thenReturn(endpointId);
         when(webhookDeliveryService.listDeliveries(eq(merchantId), eq(endpointId), isNull(), any()))
                 .thenReturn(page);
 
@@ -77,6 +79,8 @@ class WebhookEndpointControllerIntegrationTest {
     void listDeliveries_withStatusFilter_passesStatusToService() throws Exception {
         WebhookDeliveryResponse delivery = sampleDeliveryWithStatus("FAILED");
         var page = new PageImpl<>(List.of(delivery), PageRequest.of(0, 20), 1);
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
+                .thenReturn(endpointId);
         when(webhookDeliveryService.listDeliveries(eq(merchantId), eq(endpointId), any(), any()))
                 .thenReturn(page);
 
@@ -89,7 +93,7 @@ class WebhookEndpointControllerIntegrationTest {
 
     @Test
     void listDeliveries_endpointNotFound_returns400() throws Exception {
-        when(webhookDeliveryService.listDeliveries(eq(merchantId), eq(endpointId), any(), any()))
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
                 .thenThrow(new IllegalArgumentException("Webhook endpoint not found"));
 
         mockMvc.perform(get("/api/v1/merchants/{merchantId}/webhook-endpoints/{endpointId}/deliveries",
@@ -100,7 +104,9 @@ class WebhookEndpointControllerIntegrationTest {
     @Test
     void replay_returnsCreatedWithNewDelivery() throws Exception {
         WebhookDeliveryResponse replayed = sampleDelivery();
-        when(webhookDeliveryService.replay(eq(merchantId), eq(endpointId), eq(deliveryId)))
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
+                .thenReturn(endpointId);
+        when(webhookDeliveryService.replay(eq(merchantId), eq(endpointId), eq(deliveryId.toString())))
                 .thenReturn(replayed);
 
         mockMvc.perform(post("/api/v1/merchants/{merchantId}/webhook-endpoints/{endpointId}/deliveries/{deliveryId}/replay",
@@ -111,12 +117,28 @@ class WebhookEndpointControllerIntegrationTest {
 
     @Test
     void replay_deliveryNotFound_returns400() throws Exception {
-        when(webhookDeliveryService.replay(eq(merchantId), eq(endpointId), eq(deliveryId)))
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
+                .thenReturn(endpointId);
+        when(webhookDeliveryService.replay(eq(merchantId), eq(endpointId), eq(deliveryId.toString())))
                 .thenThrow(new IllegalArgumentException("Webhook delivery not found"));
 
         mockMvc.perform(post("/api/v1/merchants/{merchantId}/webhook-endpoints/{endpointId}/deliveries/{deliveryId}/replay",
                         merchantId, endpointId, deliveryId))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void replay_externalDeliveryId_returnsCreated() throws Exception {
+        WebhookDeliveryResponse replayed = sampleDelivery();
+        when(webhookEndpointService.resolveOwnedId(merchantId, endpointId.toString()))
+                .thenReturn(endpointId);
+        when(webhookDeliveryService.replay(eq(merchantId), eq(endpointId), eq("whd_test")))
+                .thenReturn(replayed);
+
+        mockMvc.perform(post("/api/v1/merchants/{merchantId}/webhook-endpoints/{endpointId}/deliveries/{deliveryId}/replay",
+                        merchantId, endpointId, "whd_test"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.externalId").value("whd_test"));
     }
 
     @Test
@@ -130,13 +152,13 @@ class WebhookEndpointControllerIntegrationTest {
 
     private WebhookDeliveryResponse sampleDelivery() {
         return new WebhookDeliveryResponse(
-                deliveryId, UUID.randomUUID(), endpointId,
+                deliveryId, "whd_test", UUID.randomUUID(), endpointId,
                 "SUCCEEDED", 200, null, 1, null, Instant.now(), Instant.now());
     }
 
     private WebhookDeliveryResponse sampleDeliveryWithStatus(String status) {
         return new WebhookDeliveryResponse(
-                deliveryId, UUID.randomUUID(), endpointId,
+                deliveryId, "whd_test", UUID.randomUUID(), endpointId,
                 status, 500, "error", 1, null, Instant.now(), Instant.now());
     }
 }

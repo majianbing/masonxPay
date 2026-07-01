@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+data:
+  01-create-virtual-account-db.sql: |
+    CREATE DATABASE msx_virtual_account;
+  02-create-rail-db.sql: |
+    CREATE DATABASE msx_rail;

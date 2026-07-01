@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 
 interface Merchant {
   id: string;
+  externalId?: string | null;
   name: string;
   status: string;
   createdAt: string;
@@ -32,7 +33,7 @@ export default function MerchantSettingsPage() {
       <Card>
         <CardHeader><CardTitle className="text-sm font-medium">Business Details</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 text-sm">
-          <Field label="Merchant ID" value={<span className="font-mono text-xs">{merchant?.id}</span>} />
+          <Field label="Merchant ID" value={<span className="font-mono text-xs">{merchant?.externalId ?? merchant?.id}</span>} />
           <Field label="Name" value={merchant?.name} />
           <Field label="Status" value={
             <span className={`text-xs px-2 py-0.5 rounded-full ${merchant?.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>

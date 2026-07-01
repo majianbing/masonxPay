@@ -12,13 +12,23 @@ import { Input } from '@/components/ui/input';
 
 interface Refund {
   id: string;
+  externalId?: string | null;
   paymentIntentId: string;
+  paymentIntentExternalId?: string | null;
   amount: number;
   currency: string;
   status: string;
   reason: string | null;
   providerRefundId: string | null;
   createdAt: string;
+}
+
+function refundPublicId(refund: Refund): string {
+  return refund.externalId || refund.id;
+}
+
+function paymentPublicId(refund: Refund): string {
+  return refund.paymentIntentExternalId || refund.paymentIntentId;
 }
 
 interface PageResponse {
@@ -134,14 +144,14 @@ export default function RefundsPage() {
               ) : !data?.content?.length ? (
                 <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No refunds found</td></tr>
               ) : data.content.map((r) => (
-                <tr key={r.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs">{r.id.slice(0, 12)}…</td>
+                <tr key={refundPublicId(r)} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3 font-mono text-xs">{refundPublicId(r).slice(0, 16)}</td>
                   <td className="px-4 py-3">
                     <button
                       className="font-mono text-xs text-primary hover:underline"
-                      onClick={() => router.push(`/payments/${r.paymentIntentId}`)}
+                      onClick={() => router.push(`/payments/${paymentPublicId(r)}`)}
                     >
-                      {r.paymentIntentId.slice(0, 12)}…
+                      {paymentPublicId(r).slice(0, 16)}
                     </button>
                   </td>
                   <td className="px-4 py-3">{(r.amount / 100).toFixed(2)} {r.currency.toUpperCase()}</td>
@@ -159,7 +169,7 @@ export default function RefundsPage() {
                   <td className="px-4 py-3">
                     <button
                       className="text-xs text-primary hover:underline"
-                      onClick={() => router.push(`/payments/${r.paymentIntentId}`)}
+                      onClick={() => router.push(`/payments/${paymentPublicId(r)}`)}
                     >
                       View payment →
                     </button>

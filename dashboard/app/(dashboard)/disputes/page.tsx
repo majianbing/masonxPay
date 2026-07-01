@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 interface Dispute {
   id: string;
+  externalId: string | null;
   paymentIntentId: string | null;
   provider: string;
   providerDisputeId: string;
@@ -171,8 +172,8 @@ export default function DisputesPage() {
               ) : !data?.content?.length ? (
                 <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">No disputes found</td></tr>
               ) : data.content.map((d) => (
-                <tr key={d.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs">{d.providerDisputeId.slice(0, 16)}…</td>
+                <tr key={disputePublicId(d)} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3 font-mono text-xs">{disputePublicId(d)}</td>
                   <td className="px-4 py-3 font-medium">
                     {(d.amount / 100).toFixed(2)} {d.currency.toUpperCase()}
                   </td>
@@ -196,7 +197,7 @@ export default function DisputesPage() {
                   <td className="px-4 py-3">
                     <button
                       className="text-xs text-primary hover:underline"
-                      onClick={() => router.push(`/disputes/${d.id}`)}
+                      onClick={() => router.push(`/disputes/${disputePublicId(d)}`)}
                     >
                       View →
                     </button>
@@ -226,4 +227,8 @@ export default function DisputesPage() {
       </div>
     </div>
   );
+}
+
+function disputePublicId(dispute: Dispute) {
+  return dispute.externalId ?? dispute.id;
 }

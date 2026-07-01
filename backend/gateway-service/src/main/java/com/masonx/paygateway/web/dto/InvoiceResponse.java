@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record InvoiceResponse(
         UUID id,
+        String externalId,
         UUID customerId,
         UUID subscriptionId,
         String mode,
@@ -28,6 +29,7 @@ public record InvoiceResponse(
     public static InvoiceResponse from(Invoice invoice, UUID latestPaymentIntentId) {
         return new InvoiceResponse(
                 invoice.getId(),
+                invoice.getExternalId(),
                 invoice.getCustomerId(),
                 invoice.getSubscriptionId(),
                 invoice.getMode() != null ? invoice.getMode().name() : null,

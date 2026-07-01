@@ -19,12 +19,14 @@ import { Button } from '@/components/ui/button';
 
 interface PaymentAttempt {
   id: string;
+  externalId?: string | null;
   paymentMethodType: string;
   status: string;
 }
 
 interface PaymentIntent {
   id: string;
+  externalId?: string | null;
   amount: number;
   currency: string;
   status: string;
@@ -75,12 +77,17 @@ function effectiveMethod(attempts: PaymentAttempt[]): string | undefined {
     .paymentMethodType;
 }
 
+function publicId(row: PaymentIntent): string {
+  return row.externalId || row.id;
+}
+
 const col = createColumnHelper<PaymentIntent>();
 
 const columns = [
-  col.accessor('id', {
+  col.display({
+    id: 'id',
     header: 'ID',
-    cell: (i) => <span className="font-mono text-xs">{i.getValue().slice(0, 12)}…</span>,
+    cell: (i) => <span className="font-mono text-xs">{publicId(i.row.original).slice(0, 16)}</span>,
   }),
   col.accessor('amount', {
     header: 'Amount',
@@ -336,7 +343,7 @@ export default function PaymentsPage() {
                   <tr
                     key={row.id}
                     className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => router.push(`/payments/${row.original.id}`)}
+                    onClick={() => router.push(`/payments/${publicId(row.original)}`)}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="px-4 py-3">

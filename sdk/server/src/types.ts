@@ -12,6 +12,7 @@ export type PaymentIntentStatus =
 
 export interface PaymentIntent {
   id: string;
+  externalId?: string;
   merchantId: string;
   mode: 'TEST' | 'LIVE';
   amount: number;
@@ -32,6 +33,7 @@ export interface PaymentIntent {
 
 export interface PaymentAttempt {
   id: string;
+  externalId?: string;
   status: 'PENDING' | 'SUCCEEDED' | 'FAILED';
   paymentMethodType: string;
   providerRequestId?: string;
@@ -129,7 +131,9 @@ export type RefundReason = 'CUSTOMER_REQUEST' | 'DUPLICATE' | 'FRAUDULENT';
 
 export interface Refund {
   id: string;
+  externalId?: string;
   paymentIntentId: string;
+  paymentIntentExternalId?: string;
   amount: number;
   currency: string;
   status: RefundStatus;

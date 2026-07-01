@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record DisputeEvidenceFileResponse(
         UUID id,
+        String externalId,
         UUID disputeId,
         String fileKey,
         String fileName,
@@ -17,7 +18,7 @@ public record DisputeEvidenceFileResponse(
 ) {
     public static DisputeEvidenceFileResponse from(DisputeEvidenceFile f, String url) {
         return new DisputeEvidenceFileResponse(
-                f.getId(), f.getDisputeId(), f.getFileKey(),
+                f.getId(), f.getExternalId(), f.getDisputeId(), f.getFileKey(),
                 f.getFileName(), f.getContentType(), f.getSizeBytes(),
                 url, f.getCreatedAt());
     }

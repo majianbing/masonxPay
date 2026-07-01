@@ -7,11 +7,14 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface WebhookDeliveryRepository extends JpaRepository<WebhookDelivery, UUID> {
 
     List<WebhookDelivery> findAllByGatewayEventId(UUID gatewayEventId);
+
+    Optional<WebhookDelivery> findByExternalIdAndWebhookEndpointId(String externalId, UUID webhookEndpointId);
 
     Page<WebhookDelivery> findByWebhookEndpointIdOrderByCreatedAtDesc(UUID webhookEndpointId, Pageable pageable);
     Page<WebhookDelivery> findByWebhookEndpointIdAndStatusOrderByCreatedAtDesc(UUID webhookEndpointId, WebhookDeliveryStatus status, Pageable pageable);

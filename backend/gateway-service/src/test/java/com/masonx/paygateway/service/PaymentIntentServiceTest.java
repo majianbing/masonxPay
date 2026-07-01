@@ -190,6 +190,36 @@ class PaymentIntentServiceTest {
                 .hasMessageContaining("not found");
     }
 
+    @Test
+    void getByExternalId_ownIntent_returnsResponse() {
+        UUID intentId = UUID.randomUUID();
+        PaymentIntent pi = savedIntent(intentId);
+        pi.setExternalId("pi_123");
+
+        when(paymentIntentRepository.findByExternalIdAndMerchantId("pi_123", merchantId))
+                .thenReturn(Optional.of(pi));
+        when(paymentRequestRepository.findByPaymentIntentId(intentId)).thenReturn(List.of());
+
+        PaymentIntentResponse resp = service.getByExternalId(auth(ApiKeyType.SECRET), "pi_123");
+
+        assertThat(resp.id()).isEqualTo(intentId);
+        assertThat(resp.externalId()).isEqualTo("pi_123");
+    }
+
+    @Test
+    void resolveOwnedId_externalId_returnsInternalUuid() {
+        UUID intentId = UUID.randomUUID();
+        PaymentIntent pi = savedIntent(intentId);
+        pi.setExternalId("pi_456");
+
+        when(paymentIntentRepository.findByExternalIdAndMerchantId("pi_456", merchantId))
+                .thenReturn(Optional.of(pi));
+
+        UUID resolved = service.resolveOwnedId(auth(ApiKeyType.SECRET), "pi_456");
+
+        assertThat(resolved).isEqualTo(intentId);
+    }
+
     // ── confirm ───────────────────────────────────────────────────────────────
 
     @Test

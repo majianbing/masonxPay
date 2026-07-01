@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.account;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.account.dto.AccountResponse;
@@ -30,7 +31,7 @@ public class VaAccountManagementService {
         Mode mode = req.mode() != null ? req.mode() : Mode.TEST;
 
         VaAccount account = new VaAccount(
-                idGen.generate("ac_"),
+                idGen.generate(MasonXIdPrefix.VA_ACCOUNT.prefix()),
                 mode,
                 AccountRole.TENANT,
                 req.orgId(),

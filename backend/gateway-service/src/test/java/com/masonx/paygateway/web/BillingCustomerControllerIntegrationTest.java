@@ -174,7 +174,7 @@ class BillingCustomerControllerIntegrationTest {
 
     private BillingCustomerResponse customerResponse(UUID merchantId, UUID customerId, String mode) {
         return new BillingCustomerResponse(
-                customerId, merchantId, mode, "buyer@example.com", "Test Buyer",
+                customerId, "cus_test", merchantId, mode, "buyer@example.com", "Test Buyer",
                 null, Instant.now(), Instant.now());
     }
 

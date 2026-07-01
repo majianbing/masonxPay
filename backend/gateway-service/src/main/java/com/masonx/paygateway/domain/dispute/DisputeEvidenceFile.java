@@ -13,6 +13,9 @@ public class DisputeEvidenceFile {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(nullable = false)
     private UUID disputeId;
 
@@ -30,6 +33,8 @@ public class DisputeEvidenceFile {
     private Instant createdAt = Instant.now();
 
     public UUID getId() { return id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public UUID getDisputeId() { return disputeId; }
     public void setDisputeId(UUID disputeId) { this.disputeId = disputeId; }
     public UUID getMerchantId() { return merchantId; }

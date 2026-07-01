@@ -99,7 +99,7 @@ class ScheduledRetryServiceTest {
         when(repository.findByIdAndMerchantId(jobId, merchantId)).thenReturn(Optional.of(job));
         when(repository.save(job)).thenReturn(job);
 
-        ScheduledRetryJob canceled = service.cancel(merchantId, jobId);
+        ScheduledRetryJob canceled = service.cancel(merchantId, jobId.toString());
 
         assertThat(canceled.getStatus()).isEqualTo(ScheduledRetryStatus.CANCELED);
         assertThat(canceled.getCompletedAt()).isEqualTo(NOW);
@@ -115,7 +115,7 @@ class ScheduledRetryServiceTest {
         job.setStatus(ScheduledRetryStatus.PROCESSING);
         when(repository.findByIdAndMerchantId(jobId, merchantId)).thenReturn(Optional.of(job));
 
-        assertThatThrownBy(() -> service.cancel(merchantId, jobId))
+        assertThatThrownBy(() -> service.cancel(merchantId, jobId.toString()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Only scheduled retry jobs can be canceled");
     }

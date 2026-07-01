@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 
 interface Refund {
   id: string;
+  externalId?: string | null;
   amount: number;
   currency: string;
   status: string;
@@ -32,6 +33,7 @@ const METHOD_LABELS: Record<string, string> = {
 
 interface PaymentAttempt {
   id: string;
+  externalId?: string | null;
   attemptNumber: number;
   attemptType: string | null;
   connectorAccountId: string | null;
@@ -83,6 +85,7 @@ interface ShippingDetails {
 
 interface PaymentIntent {
   id: string;
+  externalId?: string | null;
   merchantId: string;
   amount: number;
   currency: string;
@@ -116,15 +119,17 @@ export default function PaymentDetailPage() {
     enabled: !!activeMerchantId,
   });
 
+  const paymentPublicId = payment?.externalId || id;
+
   const { data: refunds = [] } = useQuery<Refund[]>({
-    queryKey: ['payment-refunds', id],
-    queryFn: () => apiFetch<Refund[]>(`/api/v1/merchants/${activeMerchantId}/payment-intents/${id}/refunds`),
+    queryKey: ['payment-refunds', paymentPublicId],
+    queryFn: () => apiFetch<Refund[]>(`/api/v1/merchants/${activeMerchantId}/payment-intents/${paymentPublicId}/refunds`),
     enabled: !!activeMerchantId,
   });
 
   const refundMutation = useMutation({
     mutationFn: (amount: number) =>
-      apiFetch(`/api/v1/merchants/${activeMerchantId}/payment-intents/${id}/refunds`, {
+      apiFetch(`/api/v1/merchants/${activeMerchantId}/payment-intents/${paymentPublicId}/refunds`, {
         method: 'POST',
         body: JSON.stringify({ amount, reason: 'CUSTOMER_REQUEST' }),
       }),
@@ -156,7 +161,10 @@ export default function PaymentDetailPage() {
       <Card>
         <CardHeader><CardTitle className="text-sm font-medium">Summary</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 text-sm">
-          <Field label="ID" value={<span className="font-mono text-xs">{payment.id}</span>} />
+          <Field label="ID" value={<span className="font-mono text-xs">{payment.externalId || payment.id}</span>} />
+          {payment.externalId && (
+            <Field label="Internal ID" value={<span className="font-mono text-xs">{payment.id}</span>} />
+          )}
           <Field label="Status" value={<StatusBadge status={payment.status} />} />
           <Field label="Amount" value={`${(payment.amount / 100).toFixed(2)} ${payment.currency}`} />
           <Field label="Mode" value={payment.mode} />
@@ -229,7 +237,7 @@ export default function PaymentDetailPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {payment.attempts.map((a, i) => (
-              <div key={a.id} className="relative pl-7">
+              <div key={a.externalId || a.id} className="relative pl-7">
                 {i < payment.attempts.length - 1 && (
                   <div className="absolute left-3 top-7 bottom-0 w-px bg-border" />
                 )}
@@ -263,6 +271,10 @@ export default function PaymentDetailPage() {
                         <span className="font-mono">{a.connectorAccountId}</span>
                       </div>
                     )}
+                    <div>
+                      <span className="text-muted-foreground">Attempt ID </span>
+                      <span className="font-mono">{a.externalId || a.id}</span>
+                    </div>
                     {a.providerRequestId && (
                       <div>
                         <span className="text-muted-foreground">Provider Request </span>
@@ -318,7 +330,7 @@ export default function PaymentDetailPage() {
           <CardHeader><CardTitle className="text-sm font-medium">Refunds ({refunds.length})</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {refunds.map((r, i) => (
-              <div key={r.id} className="border rounded-md p-3 text-sm space-y-1">
+              <div key={r.externalId || r.id} className="border rounded-md p-3 text-sm space-y-1">
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Refund #{i + 1}</span>
                   <StatusBadge status={r.status} />
@@ -328,6 +340,7 @@ export default function PaymentDetailPage() {
                   <span>{format(new Date(r.createdAt), 'MMM d, yyyy HH:mm:ss')}</span>
                 </div>
                 {r.reason && <div className="text-xs text-muted-foreground">Reason: {r.reason.replace(/_/g, ' ')}</div>}
+                <div className="font-mono text-xs text-muted-foreground">{r.externalId || r.id}</div>
                 {r.providerRefundId && <div className="font-mono text-xs text-muted-foreground">{r.providerRefundId}</div>}
                 {r.failureReason && <div className="text-red-600 text-xs">{r.failureReason}</div>}
               </div>

@@ -17,6 +17,9 @@ public class PaymentReadModel {
     @Column(name = "payment_intent_id")
     private UUID paymentIntentId;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(name = "merchant_id", nullable = false)
     private UUID merchantId;
 
@@ -99,6 +102,8 @@ public class PaymentReadModel {
 
     public UUID getPaymentIntentId() { return paymentIntentId; }
     public void setPaymentIntentId(UUID paymentIntentId) { this.paymentIntentId = paymentIntentId; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
     public String getMode() { return mode; }

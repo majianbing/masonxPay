@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.vcc;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
@@ -58,7 +59,7 @@ public class VirtualCardService {
                         "WALLET account not found or does not belong to merchant: " + req.ownerAccountId()));
 
         // Create the ring-fenced PREPAID_CARD account.
-        String vccAccountId = idGen.generate("va_");
+        String vccAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
         VaAccount vccAccount = new VaAccount(
                 vccAccountId,
                 ownerAccount.mode(),
@@ -81,7 +82,7 @@ public class VirtualCardService {
         String maskedPan = VA_BIN + "****" + testPan.substring(testPan.length() - 4);
         LocalDate expiry = req.expiry() != null ? req.expiry() : LocalDate.now().plusYears(1);
 
-        String cardId = idGen.generate("vc_");
+        String cardId = idGen.generate(MasonXIdPrefix.VIRTUAL_CARD.prefix());
         VirtualCard card = new VirtualCard(
                 cardId,
                 maskedPan,
@@ -121,7 +122,7 @@ public class VirtualCardService {
         VaAccount ownerAcct = accountRepo.findById(card.ownerAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "Owner account not found for card: " + cardId));
-        String txId = idGen.generate("tx_fund_");
+        String txId = idGen.generate(MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix());
         PostTransaction tx = new PostTransaction(txId, List.of(
                 new EntryDraft(card.vccAccountId(), Direction.DEBIT,
                         req.amount(), card.currency(), txId),
@@ -176,7 +177,7 @@ public class VirtualCardService {
 
         BigDecimal remaining = vccAccount.availableBalance();
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            String txId = idGen.generate("tx_close_");
+            String txId = idGen.generate(MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix());
             ledger.postDirect(new PostTransaction(txId, List.of(
                     new EntryDraft(ownerAccount.accountId(), Direction.DEBIT,
                             remaining, card.currency(), txId),

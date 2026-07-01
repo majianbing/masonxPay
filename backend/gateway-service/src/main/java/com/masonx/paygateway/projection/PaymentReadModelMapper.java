@@ -17,6 +17,7 @@ public final class PaymentReadModelMapper {
 
     public static void applyPaymentIntent(PaymentReadModel model, PaymentIntent intent, long refundedAmountSucceeded) {
         model.setPaymentIntentId(intent.getId());
+        model.setExternalId(intent.getExternalId());
         model.setMerchantId(intent.getMerchantId());
         model.setMode(intent.getMode().name());
         model.setAmount(intent.getAmount());
@@ -42,6 +43,7 @@ public final class PaymentReadModelMapper {
         UUID merchantId = uuid(payload, "merchantId").orElse(fallbackMerchantId);
 
         model.setPaymentIntentId(paymentIntentId);
+        text(payload, "externalId").ifPresent(model::setExternalId);
         model.setMerchantId(merchantId);
         model.setMode(text(payload, "mode").orElse("TEST"));
         model.setAmount(payload.path("amount").asLong(0));
@@ -73,6 +75,7 @@ public final class PaymentReadModelMapper {
     public static String searchText(PaymentReadModel model) {
         return Stream.of(
                         model.getPaymentIntentId(),
+                        model.getExternalId(),
                         model.getProviderPaymentId(),
                         model.getOrderId(),
                         model.getDescription(),

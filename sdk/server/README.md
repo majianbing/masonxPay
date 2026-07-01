@@ -38,14 +38,21 @@ const intent = await gateway.paymentIntents.create({
   cancelUrl:  'https://yourshop.com/cancel',
 });
 // intent.status === 'REQUIRES_PAYMENT_METHOD'
+// Use intent.externalId for merchant-facing URLs, logs, and follow-up calls when present.
 ```
+
+### ID compatibility
+
+Current responses include both `id` and `externalId` for upgraded gateway resources. `id` is the legacy internal UUID kept for compatibility. Prefer `externalId ?? id` for merchant-facing URLs, logs, support references, and follow-up calls. UUID route parameters still work during the compatibility window.
 
 ### Confirm — with a raw provider token
 
 For server-to-server flows where you already have a Stripe `pm_xxx` or Square nonce:
 
 ```typescript
-const result = await gateway.paymentIntents.confirm(intent.id, {
+const paymentId = intent.externalId ?? intent.id;
+
+const result = await gateway.paymentIntents.confirm(paymentId, {
   paymentMethodId: 'pm_card_visa', // Stripe test token, real pm_xxx, or Square nonce
   paymentMethodType: 'card',       // optional, defaults to 'card'
 });
@@ -68,24 +75,26 @@ app.post('/pay', async (req) => {
     idempotencyKey: `order-${req.body.orderId}`,
   });
 
-  const result = await gateway.paymentIntents.confirm(intent.id, {
+  const paymentId = intent.externalId ?? intent.id;
+
+  const result = await gateway.paymentIntents.confirm(paymentId, {
     paymentMethodId: gatewayToken, // 'gw_tok_xxx' from the browser
   });
 
-  res.json({ success: result.status === 'SUCCEEDED', intentId: result.id });
+  res.json({ success: result.status === 'SUCCEEDED', intentId: result.externalId ?? result.id });
 });
 ```
 
 ### Retrieve
 
 ```typescript
-const intent = await gateway.paymentIntents.retrieve('intent-uuid');
+const intent = await gateway.paymentIntents.retrieve('pi_123456789');
 ```
 
 ### Cancel
 
 ```typescript
-await gateway.paymentIntents.cancel(intent.id);
+await gateway.paymentIntents.cancel(intent.externalId ?? intent.id);
 ```
 
 ---
@@ -94,16 +103,16 @@ await gateway.paymentIntents.cancel(intent.id);
 
 ```typescript
 // Full refund
-await gateway.paymentIntents.createRefund(intent.id);
+await gateway.paymentIntents.createRefund(intent.externalId ?? intent.id);
 
 // Partial refund
-await gateway.paymentIntents.createRefund(intent.id, {
+await gateway.paymentIntents.createRefund(intent.externalId ?? intent.id, {
   amount: 1000,                  // cents
   reason: 'CUSTOMER_REQUEST',    // CUSTOMER_REQUEST | DUPLICATE | FRAUDULENT
 });
 
 // List refunds for an intent
-const refunds = await gateway.paymentIntents.listRefunds(intent.id);
+const refunds = await gateway.paymentIntents.listRefunds(intent.externalId ?? intent.id);
 ```
 
 ---
@@ -129,8 +138,9 @@ const endpoint = await gateway.webhookEndpoints.create({
   subscribedEvents: ['payment_intent.succeeded', 'payment_intent.failed'],
 });
 // Store endpoint.signingSecret — you will need it to verify incoming requests
+const endpointId = endpoint.externalId ?? endpoint.id;
 
-await gateway.webhookEndpoints.update(endpoint.id, {
+await gateway.webhookEndpoints.update(endpointId, {
   subscribedEvents: [
     'payment_intent.succeeded',
     'payment_intent.failed',
@@ -138,8 +148,8 @@ await gateway.webhookEndpoints.update(endpoint.id, {
   ],
 });
 
-await gateway.webhookEndpoints.rotateSecret(endpoint.id);
-await gateway.webhookEndpoints.delete(endpoint.id);
+await gateway.webhookEndpoints.rotateSecret(endpointId);
+await gateway.webhookEndpoints.delete(endpointId);
 ```
 
 ---

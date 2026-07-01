@@ -37,7 +37,7 @@ public class ScheduledRetryController {
     @PostMapping("/{jobId}/cancel")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'EXECUTE')")
     public ResponseEntity<ScheduledRetryJobResponse> cancel(@PathVariable UUID merchantId,
-                                                            @PathVariable UUID jobId) {
+                                                            @PathVariable String jobId) {
         return ResponseEntity.ok(ScheduledRetryJobResponse.from(service.cancel(merchantId, jobId)));
     }
 }

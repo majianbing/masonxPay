@@ -1,5 +1,6 @@
 package com.masonx.rail.web;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.contracts.rail.MoneyMovementType;
 import com.masonx.contracts.rail.PaymentRail;
 import com.masonx.rail.canonical.BankAccountRef;
@@ -37,7 +38,7 @@ public class RailPaymentController {
     /** Card authorization over ISO 8583 — MR1. */
     @PostMapping("/authorize")
     public ResponseEntity<AuthorizeResponse> authorize(@Valid @RequestBody AuthorizeRequest req) {
-        String paymentId = idGen.generate("rp_");
+        String paymentId = idGen.generate(MasonXIdPrefix.RAIL_PAYMENT.prefix());
         log.info("Rail authorize request paymentId={} merchant={}", paymentId, req.merchantId());
 
         String network = resolveNetwork(req.network(), req.testPan());
@@ -72,7 +73,7 @@ public class RailPaymentController {
     @PostMapping("/bank-transfers")
     public ResponseEntity<BankTransferResponse> initiateBankTransfer(
             @Valid @RequestBody BankTransferRequest req) {
-        String paymentId = idGen.generate("rp_");
+        String paymentId = idGen.generate(MasonXIdPrefix.RAIL_PAYMENT.prefix());
         String network   = resolveBank(req.network());
         log.info("Rail bank-transfer request paymentId={} merchant={} network={}",
                 paymentId, req.merchantId(), network);

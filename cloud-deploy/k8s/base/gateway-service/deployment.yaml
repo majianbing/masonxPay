@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -p 5432 -U "$DB_USERNAME"; do sleep 2; done
+          envFrom:
+            - configMapRef:
+                name: masonxpay-config
+      containers:
+        - name: gateway-service
+          image: masonxpay/gateway-service:local
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: masonxpay-config
+            - secretRef:
+                name: masonxpay-secrets
+          env:
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: masonxpay-config
+                  key: DB_USERNAME
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: masonxpay-secrets
+                  key: DB_PASSWORD
+          # TCP, not /actuator/health — that endpoint's aggregate status includes
+          # the "connectors" indicator, which is DOWN whenever a tenant has zero
+          # active payment connectors configured (normal on a fresh deploy, not
+          # an infra problem). Matches docker-compose.yml's own `nc -z` healthcheck.
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway-service
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

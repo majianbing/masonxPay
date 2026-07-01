@@ -15,6 +15,7 @@ import com.masonx.paygateway.domain.billing.SubscriptionItem;
 import com.masonx.paygateway.domain.billing.SubscriptionItemRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.CreateSubscriptionCheckoutLinkRequest;
 import com.masonx.paygateway.web.dto.CreateSubscriptionRequest;
 import com.masonx.paygateway.web.dto.SubscriptionCheckoutLinkResponse;
@@ -43,17 +44,20 @@ public class SubscriptionService {
     private final SubscriptionItemRepository itemRepository;
     private final SubscriptionCheckoutLinkRepository checkoutLinkRepository;
     private final ObjectMapper objectMapper;
+    private final GatewayIdService gatewayIdService;
 
     public SubscriptionService(BillingCustomerRepository customerRepository,
                                SubscriptionRepository subscriptionRepository,
                                SubscriptionItemRepository itemRepository,
                                SubscriptionCheckoutLinkRepository checkoutLinkRepository,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               GatewayIdService gatewayIdService) {
         this.customerRepository = customerRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
         this.checkoutLinkRepository = checkoutLinkRepository;
         this.objectMapper = objectMapper;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Transactional(readOnly = true)
@@ -103,6 +107,7 @@ public class SubscriptionService {
         } else {
             subscription.setStatus(SubscriptionStatus.INCOMPLETE);
         }
+        gatewayIdService.assignSubscription(subscription);
 
         Subscription saved = subscriptionRepository.save(subscription);
         List<SubscriptionItem> items = request.items().stream()

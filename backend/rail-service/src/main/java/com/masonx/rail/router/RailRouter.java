@@ -1,5 +1,6 @@
 package com.masonx.rail.router;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.rail.canonical.CanonicalPaymentCommand;
 import com.masonx.rail.canonical.PaymentRailAdapter;
@@ -42,7 +43,7 @@ public class RailRouter {
                         "No adapter registered for rail=%s — coming in MR1".formatted(command.rail())));
 
         var decision = new RailRoutingDecision(
-                idGen.generate("rd_"),
+                idGen.generate(MasonXIdPrefix.RAIL_ROUTING_DECISION.prefix()),
                 command.paymentId(),
                 command.rail(),
                 command.metadata().getOrDefault("network", "UNKNOWN"),

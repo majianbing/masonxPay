@@ -15,6 +15,9 @@ public class Dispute {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     private UUID merchantId;
     private UUID paymentIntentId;
 
@@ -59,6 +62,8 @@ public class Dispute {
     private Instant updatedAt;
 
     public UUID getId() { return id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
     public UUID getPaymentIntentId() { return paymentIntentId; }

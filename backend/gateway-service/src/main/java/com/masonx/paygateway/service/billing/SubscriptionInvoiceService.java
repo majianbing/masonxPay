@@ -10,6 +10,7 @@ import com.masonx.paygateway.domain.billing.SubscriptionItem;
 import com.masonx.paygateway.domain.billing.SubscriptionItemRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.InvoiceResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,15 +26,18 @@ public class SubscriptionInvoiceService {
     private final SubscriptionItemRepository itemRepository;
     private final InvoiceRepository invoiceRepository;
     private final InvoicePaymentAttemptRepository attemptRepository;
+    private final GatewayIdService gatewayIdService;
 
     public SubscriptionInvoiceService(SubscriptionRepository subscriptionRepository,
                                       SubscriptionItemRepository itemRepository,
                                       InvoiceRepository invoiceRepository,
-                                      InvoicePaymentAttemptRepository attemptRepository) {
+                                      InvoicePaymentAttemptRepository attemptRepository,
+                                      GatewayIdService gatewayIdService) {
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
         this.invoiceRepository = invoiceRepository;
         this.attemptRepository = attemptRepository;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Transactional(readOnly = true)
@@ -142,6 +146,7 @@ public class SubscriptionInvoiceService {
         invoice.setPeriodEnd(subscription.getCurrentPeriodEnd());
         invoice.setDueAt(now);
         invoice.setNextPaymentAttemptAt(now);
+        gatewayIdService.assignInvoice(invoice);
         return invoice;
     }
 }

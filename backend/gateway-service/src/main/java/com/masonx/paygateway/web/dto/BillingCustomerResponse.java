@@ -8,6 +8,7 @@ import java.util.UUID;
 
 public record BillingCustomerResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         String mode,
         String email,
@@ -19,6 +20,7 @@ public record BillingCustomerResponse(
     public static BillingCustomerResponse from(BillingCustomer customer, Map<String, String> metadata) {
         return new BillingCustomerResponse(
                 customer.getId(),
+                customer.getExternalId(),
                 customer.getMerchantId(),
                 customer.getMode().name(),
                 customer.getEmail(),

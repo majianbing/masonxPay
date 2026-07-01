@@ -36,6 +36,7 @@ class BillingCustomerServiceTest {
     private BillingCustomerRepository customerRepository;
     private CustomerPaymentMethodRepository paymentMethodRepository;
     private PaymentInstrumentRepository paymentInstrumentRepository;
+    private com.masonx.paygateway.service.GatewayIdService gatewayIdService;
     private BillingCustomerService service;
 
     @BeforeEach
@@ -43,11 +44,13 @@ class BillingCustomerServiceTest {
         customerRepository = mock(BillingCustomerRepository.class);
         paymentMethodRepository = mock(CustomerPaymentMethodRepository.class);
         paymentInstrumentRepository = mock(PaymentInstrumentRepository.class);
+        gatewayIdService = mock(com.masonx.paygateway.service.GatewayIdService.class);
         service = new BillingCustomerService(
                 customerRepository,
                 paymentMethodRepository,
                 paymentInstrumentRepository,
-                new ObjectMapper().findAndRegisterModules());
+                new ObjectMapper().findAndRegisterModules(),
+                gatewayIdService);
     }
 
     @Test

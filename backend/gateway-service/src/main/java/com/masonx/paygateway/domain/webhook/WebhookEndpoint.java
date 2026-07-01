@@ -16,6 +16,9 @@ public class WebhookEndpoint {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(nullable = false)
     private UUID merchantId;
 
@@ -52,6 +55,8 @@ public class WebhookEndpoint {
 
     // Getters and setters
     public UUID getId() { return id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }
     public String getUrl() { return url; }

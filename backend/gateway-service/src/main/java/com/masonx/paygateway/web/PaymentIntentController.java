@@ -18,7 +18,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -45,41 +44,51 @@ public class PaymentIntentController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PaymentIntentResponse> get(Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(paymentIntentService.get(apiKey(auth), id));
+    public ResponseEntity<PaymentIntentResponse> get(Authentication auth, @PathVariable String id) {
+        ApiKeyAuthentication ak = apiKey(auth);
+        if (id.startsWith("pi_")) {
+            return ResponseEntity.ok(paymentIntentService.getByExternalId(ak, id));
+        }
+        return ResponseEntity.ok(paymentIntentService.get(ak, paymentIntentService.resolveOwnedId(ak, id)));
     }
 
     @PostMapping("/{id}/confirm")
     public ResponseEntity<PaymentIntentResponse> confirm(Authentication auth,
-                                                          @PathVariable UUID id,
+                                                          @PathVariable String id,
                                                           @Valid @RequestBody ConfirmPaymentIntentRequest req) {
-        return ResponseEntity.ok(paymentIntentService.confirm(apiKey(auth), id, req));
+        ApiKeyAuthentication ak = apiKey(auth);
+        return ResponseEntity.ok(paymentIntentService.confirm(ak, paymentIntentService.resolveOwnedId(ak, id), req));
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<PaymentIntentResponse> cancel(Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(paymentIntentService.cancel(apiKey(auth), id));
+    public ResponseEntity<PaymentIntentResponse> cancel(Authentication auth, @PathVariable String id) {
+        ApiKeyAuthentication ak = apiKey(auth);
+        return ResponseEntity.ok(paymentIntentService.cancel(ak, paymentIntentService.resolveOwnedId(ak, id)));
     }
 
     @PostMapping("/{id}/capture")
-    public ResponseEntity<PaymentIntentResponse> capture(Authentication auth, @PathVariable UUID id) {
-        return ResponseEntity.ok(paymentIntentService.capture(apiKey(auth), id));
+    public ResponseEntity<PaymentIntentResponse> capture(Authentication auth, @PathVariable String id) {
+        ApiKeyAuthentication ak = apiKey(auth);
+        return ResponseEntity.ok(paymentIntentService.capture(ak, paymentIntentService.resolveOwnedId(ak, id)));
     }
 
     @PostMapping("/{id}/refunds")
     public ResponseEntity<RefundResponse> createRefund(Authentication auth,
-                                                        @PathVariable UUID id,
+                                                        @PathVariable String id,
                                                         @Valid @RequestBody CreateRefundRequest req) {
         ApiKeyAuthentication ak = apiKey(auth);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(refundService.createRefund(ak.getMerchantId(), id, req));
+                .body(refundService.createRefund(ak.getMerchantId(), paymentIntentService.resolveOwnedId(ak, id), req));
     }
 
     @GetMapping("/{id}/refunds")
-    public ResponseEntity<List<RefundResponse>> listRefunds(Authentication auth, @PathVariable UUID id) {
-        apiKey(auth); // validate auth
-        List<RefundResponse> refunds = refundRepository.findByPaymentIntentId(id)
-                .stream().map(RefundResponse::from).collect(Collectors.toList());
+    public ResponseEntity<List<RefundResponse>> listRefunds(Authentication auth, @PathVariable String id) {
+        ApiKeyAuthentication ak = apiKey(auth);
+        PaymentIntentResponse intent = id.startsWith("pi_")
+                ? paymentIntentService.getByExternalId(ak, id)
+                : paymentIntentService.get(ak, paymentIntentService.resolveOwnedId(ak, id));
+        List<RefundResponse> refunds = refundRepository.findByPaymentIntentId(intent.id())
+                .stream().map(r -> RefundResponse.from(r, intent.externalId())).collect(Collectors.toList());
         return ResponseEntity.ok(refunds);
     }
 

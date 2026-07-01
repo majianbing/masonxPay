@@ -48,14 +48,14 @@ public class WebhookEndpointController {
     @PatchMapping("/{endpointId}")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'UPDATE')")
     public ResponseEntity<WebhookEndpointResponse> update(@PathVariable UUID merchantId,
-                                                           @PathVariable UUID endpointId,
+                                                           @PathVariable String endpointId,
                                                            @Valid @RequestBody UpdateWebhookEndpointRequest req) {
         return ResponseEntity.ok(webhookEndpointService.update(merchantId, endpointId, req));
     }
 
     @DeleteMapping("/{endpointId}")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'DELETE')")
-    public ResponseEntity<Void> delete(@PathVariable UUID merchantId, @PathVariable UUID endpointId) {
+    public ResponseEntity<Void> delete(@PathVariable UUID merchantId, @PathVariable String endpointId) {
         webhookEndpointService.delete(merchantId, endpointId);
         return ResponseEntity.noContent().build();
     }
@@ -63,7 +63,7 @@ public class WebhookEndpointController {
     @PostMapping("/{endpointId}/rotate-secret")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'UPDATE')")
     public ResponseEntity<WebhookEndpointResponse> rotateSecret(@PathVariable UUID merchantId,
-                                                                  @PathVariable UUID endpointId) {
+                                                                  @PathVariable String endpointId) {
         return ResponseEntity.ok(webhookEndpointService.rotateSecret(merchantId, endpointId));
     }
 
@@ -71,19 +71,21 @@ public class WebhookEndpointController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'READ')")
     public ResponseEntity<Page<WebhookDeliveryResponse>> listDeliveries(
             @PathVariable UUID merchantId,
-            @PathVariable UUID endpointId,
+            @PathVariable String endpointId,
             @RequestParam(required = false) WebhookDeliveryStatus status,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(webhookDeliveryService.listDeliveries(merchantId, endpointId, status, pageable));
+        UUID resolvedEndpointId = webhookEndpointService.resolveOwnedId(merchantId, endpointId);
+        return ResponseEntity.ok(webhookDeliveryService.listDeliveries(merchantId, resolvedEndpointId, status, pageable));
     }
 
     @PostMapping("/{endpointId}/deliveries/{deliveryId}/replay")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'WEBHOOK', 'UPDATE')")
     public ResponseEntity<WebhookDeliveryResponse> replay(
             @PathVariable UUID merchantId,
-            @PathVariable UUID endpointId,
-            @PathVariable UUID deliveryId) {
+            @PathVariable String endpointId,
+            @PathVariable String deliveryId) {
+        UUID resolvedEndpointId = webhookEndpointService.resolveOwnedId(merchantId, endpointId);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(webhookDeliveryService.replay(merchantId, endpointId, deliveryId));
+                .body(webhookDeliveryService.replay(merchantId, resolvedEndpointId, deliveryId));
     }
 }

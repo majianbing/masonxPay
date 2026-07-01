@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rail-simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rail-simulator
+  template:
+    metadata:
+      labels:
+        app: rail-simulator
+    spec:
+      containers:
+        - name: rail-simulator
+          image: masonxpay/rail-simulator:local
+          ports:
+            - containerPort: 9090
+            - containerPort: 9091
+          env:
+            # rail-simulator issues cards via the virtual-account service (VCC/BIN 999999 flow).
+            - name: VA_ISSUER_URL
+              value: http://virtual-account:8086/internal/issuer/authorize
+          readinessProbe:
+            tcpSocket:
+              port: 9091
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -36,7 +36,24 @@ public class PaymentRetryOrchestratorService {
     private final TransactionTemplate txTemplate;
     private final int maxAttempts;
     private final int sameAccountMaxAttempts;
+    private final GatewayIdService gatewayIdService;
 
+    PaymentRetryOrchestratorService(PaymentRequestRepository paymentRequestRepository,
+                                    PaymentProviderDispatcher dispatcher,
+                                    ProviderAccountService providerAccountService,
+                                    FailoverPolicy failoverPolicy,
+                                    ConnectorCircuitBreaker circuitBreaker,
+                                    ProviderFailureCodeMapper failureCodeMapper,
+                                    PaymentMetrics metrics,
+                                    PlatformTransactionManager txManager,
+                                    int configuredMaxAttempts,
+                                    int configuredSameAccountMaxAttempts) {
+        this(paymentRequestRepository, dispatcher, providerAccountService, failoverPolicy, circuitBreaker,
+                failureCodeMapper, metrics, txManager, configuredMaxAttempts, configuredSameAccountMaxAttempts,
+                defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public PaymentRetryOrchestratorService(PaymentRequestRepository paymentRequestRepository,
                                            PaymentProviderDispatcher dispatcher,
                                            ProviderAccountService providerAccountService,
@@ -46,7 +63,8 @@ public class PaymentRetryOrchestratorService {
                                            PaymentMetrics metrics,
                                            PlatformTransactionManager txManager,
                                            @Value("${app.payments.retry.max-attempts:3}") int configuredMaxAttempts,
-                                           @Value("${app.payments.retry.same-account-max-attempts:2}") int configuredSameAccountMaxAttempts) {
+                                           @Value("${app.payments.retry.same-account-max-attempts:2}") int configuredSameAccountMaxAttempts,
+                                           GatewayIdService gatewayIdService) {
         this.paymentRequestRepository = paymentRequestRepository;
         this.dispatcher = dispatcher;
         this.providerAccountService = providerAccountService;
@@ -57,6 +75,11 @@ public class PaymentRetryOrchestratorService {
         this.txTemplate = new TransactionTemplate(txManager);
         this.maxAttempts = Math.max(1, Math.min(configuredMaxAttempts, HARD_MAX_ATTEMPTS));
         this.sameAccountMaxAttempts = Math.max(1, Math.min(configuredSameAccountMaxAttempts, HARD_MAX_ATTEMPTS));
+        this.gatewayIdService = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     /**
@@ -203,6 +226,7 @@ public class PaymentRetryOrchestratorService {
                                String providerIdempotencyKey) {
         return txTemplate.execute(ts -> {
             PaymentRequest attempt = new PaymentRequest();
+            gatewayIdService.assignPaymentRequest(attempt);
             attempt.setPaymentIntentId(intent.getId());
             attempt.setAmount(intent.getAmount());
             attempt.setCurrency(intent.getCurrency());

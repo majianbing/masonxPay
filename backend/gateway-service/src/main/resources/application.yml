@@ -84,6 +84,10 @@ management:
       slo:
         payment.charge.latency: 25ms,50ms,100ms,250ms,500ms,1s,2s,5s
 
+gateway:
+  id:
+    node-id: ${GATEWAY_NODE_ID:2}
+
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}

@@ -41,7 +41,7 @@ public class DisputeController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'READ')")
     public ResponseEntity<DisputeResponse> get(
             @PathVariable UUID merchantId,
-            @PathVariable UUID disputeId) {
+            @PathVariable String disputeId) {
         return ResponseEntity.ok(disputeService.get(merchantId, disputeId));
     }
 
@@ -49,7 +49,7 @@ public class DisputeController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'UPDATE')")
     public ResponseEntity<DisputeEvidenceFileResponse> uploadEvidenceFile(
             @PathVariable UUID merchantId,
-            @PathVariable UUID disputeId,
+            @PathVariable String disputeId,
             @RequestParam("file") MultipartFile file) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(disputeService.uploadEvidenceFile(merchantId, disputeId, file));
@@ -59,7 +59,7 @@ public class DisputeController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'CHARGEBACK', 'UPDATE')")
     public ResponseEntity<DisputeResponse> submitEvidence(
             @PathVariable UUID merchantId,
-            @PathVariable UUID disputeId,
+            @PathVariable String disputeId,
             @RequestBody DisputeEvidenceRequest req) {
         return ResponseEntity.ok(disputeService.submitEvidence(merchantId, disputeId, req));
     }

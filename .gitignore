@@ -38,3 +38,4 @@ target/
 /bench/results/
 .DS_Store
 .aha-ignore-file
+/cloud-deploy/k8s/overlays/*/secret.env

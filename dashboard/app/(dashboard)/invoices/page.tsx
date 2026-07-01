@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface Invoice {
   id: string;
+  externalId?: string | null;
   subscriptionId: string;
   status: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
   amountDue: number;
@@ -116,7 +117,7 @@ export default function InvoicesPage() {
           <table className="w-full text-sm">
             <thead className="border-b bg-gray-50">
               <tr>
-                {['Period', 'Subscription', 'Amount', 'Status', 'Next attempt', 'Actions'].map((h) => (
+                {['Invoice', 'Period', 'Subscription', 'Amount', 'Status', 'Next attempt', 'Actions'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                     {h}
                   </th>
@@ -125,11 +126,14 @@ export default function InvoicesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} className="py-10 text-center text-muted-foreground">Loading…</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} className="py-10 text-center text-muted-foreground">No invoices found</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center text-muted-foreground">No invoices found</td></tr>
               ) : rows.map((invoice) => (
                 <tr key={invoice.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {invoicePublicId(invoice)}
+                  </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">
                     {format(new Date(invoice.periodStart), 'MMM d')}
                     {' – '}
@@ -214,4 +218,8 @@ function formatMoney(amount: number, currency: string) {
     style: 'currency',
     currency: currency || 'USD',
   }).format(amount / 100);
+}
+
+function invoicePublicId(invoice: Invoice) {
+  return invoice.externalId || `${invoice.id.slice(0, 12)}...`;
 }

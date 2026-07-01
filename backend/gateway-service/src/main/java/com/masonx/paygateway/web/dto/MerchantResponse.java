@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record MerchantResponse(
         UUID id,
+        String externalId,
         UUID organizationId,
         String name,
         String status,
@@ -16,6 +17,7 @@ public record MerchantResponse(
     public static MerchantResponse from(Merchant m) {
         return new MerchantResponse(
                 m.getId(),
+                m.getExternalId(),
                 m.getOrganizationId(),
                 m.getName(),
                 m.getStatus(),

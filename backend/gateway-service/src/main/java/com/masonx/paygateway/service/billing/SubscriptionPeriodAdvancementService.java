@@ -10,6 +10,7 @@ import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
+import com.masonx.paygateway.service.GatewayIdService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,6 +44,7 @@ public class SubscriptionPeriodAdvancementService {
     private final OutboxEventRepository outboxEventRepository;
     private final TransactionTemplate txTemplate;
     private final Clock clock;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.billing.advancement-enabled:true}")
     private boolean enabled;
@@ -55,9 +57,10 @@ public class SubscriptionPeriodAdvancementService {
                                                 SubscriptionItemRepository itemRepository,
                                                 InvoiceRepository invoiceRepository,
                                                 OutboxEventRepository outboxEventRepository,
-                                                PlatformTransactionManager txManager) {
+                                                PlatformTransactionManager txManager,
+                                                GatewayIdService gatewayIdService) {
         this(subscriptionRepository, itemRepository, invoiceRepository, outboxEventRepository,
-                txManager, Clock.systemUTC());
+                txManager, Clock.systemUTC(), gatewayIdService);
     }
 
     SubscriptionPeriodAdvancementService(SubscriptionRepository subscriptionRepository,
@@ -66,12 +69,24 @@ public class SubscriptionPeriodAdvancementService {
                                          OutboxEventRepository outboxEventRepository,
                                          PlatformTransactionManager txManager,
                                          Clock clock) {
+        this(subscriptionRepository, itemRepository, invoiceRepository, outboxEventRepository,
+                txManager, clock, null);
+    }
+
+    SubscriptionPeriodAdvancementService(SubscriptionRepository subscriptionRepository,
+                                         SubscriptionItemRepository itemRepository,
+                                         InvoiceRepository invoiceRepository,
+                                         OutboxEventRepository outboxEventRepository,
+                                         PlatformTransactionManager txManager,
+                                         Clock clock,
+                                         GatewayIdService gatewayIdService) {
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
         this.invoiceRepository = invoiceRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.txTemplate = new TransactionTemplate(txManager);
         this.clock = clock;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Scheduled(fixedDelayString = "${app.billing.advancement-poll-ms:3600000}")
@@ -100,9 +115,13 @@ public class SubscriptionPeriodAdvancementService {
                 sub.setStatus(SubscriptionStatus.CANCELED);
                 sub.setCanceledAt(Instant.now(clock));
                 subscriptionRepository.save(sub);
-                outboxEventRepository.save(new OutboxEvent(
+                OutboxEvent event = new OutboxEvent(
                         sub.getMerchantId(), "subscription.canceled", sub.getId(),
-                        "{\"subscriptionId\":\"" + sub.getId() + "\",\"reason\":\"cancel_at_period_end\"}"));
+                        "{\"subscriptionId\":\"" + sub.getId() + "\",\"reason\":\"cancel_at_period_end\"}");
+                if (gatewayIdService != null) {
+                    gatewayIdService.assignOutboxEvent(event);
+                }
+                outboxEventRepository.save(event);
                 log.info("Subscription {} canceled at period end", sub.getId());
             } else {
                 Instant newStart = sub.getCurrentPeriodEnd();
@@ -145,6 +164,9 @@ public class SubscriptionPeriodAdvancementService {
         invoice.setPeriodEnd(periodEnd);
         invoice.setDueAt(now);
         invoice.setNextPaymentAttemptAt(now);
+        if (gatewayIdService != null) {
+            gatewayIdService.assignInvoice(invoice);
+        }
         invoiceRepository.save(invoice);
     }
 

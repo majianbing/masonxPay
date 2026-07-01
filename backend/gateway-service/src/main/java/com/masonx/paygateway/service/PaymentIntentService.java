@@ -75,6 +75,7 @@ public class PaymentIntentService {
     private final TransactionTemplate        txTemplate;
     private final PaymentMetrics             metrics;
     private final ScheduledRetryService      scheduledRetryService;
+    private final GatewayIdService           gatewayIdService;
 
     @Value("${app.scheduled-retry.capture-delay-seconds:900}")
     private long captureRetryDelaySeconds;
@@ -82,6 +83,30 @@ public class PaymentIntentService {
     @Value("${app.scheduled-retry.capture-max-attempts:3}")
     private int captureRetryMaxAttempts;
 
+    PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
+                         PaymentRequestRepository paymentRequestRepository,
+                         RoutingEngine routingEngine,
+                         PaymentProviderDispatcher dispatcher,
+                         ProviderAccountService providerAccountService,
+                         ProviderAccountRepository providerAccountRepository,
+                         PaymentInstrumentRepository paymentInstrumentRepository,
+                         PaymentTokenService paymentTokenService,
+                         PaymentRetryOrchestratorService retryOrchestrator,
+                         ObjectMapper objectMapper,
+                         OutboxEventRepository outboxEventRepository,
+                         PaymentShardRegistryRepository shardRegistryRepository,
+                         PaymentShardRouter shardRouter,
+                         PaymentIdempotencyCache idempotencyCache,
+                         PlatformTransactionManager txManager,
+                         PaymentMetrics metrics,
+                         ScheduledRetryService scheduledRetryService) {
+        this(paymentIntentRepository, paymentRequestRepository, routingEngine, dispatcher, providerAccountService,
+                providerAccountRepository, paymentInstrumentRepository, paymentTokenService, retryOrchestrator,
+                objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter, idempotencyCache,
+                txManager, metrics, scheduledRetryService, defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public PaymentIntentService(PaymentIntentRepository paymentIntentRepository,
                                 PaymentRequestRepository paymentRequestRepository,
                                 RoutingEngine routingEngine,
@@ -98,7 +123,8 @@ public class PaymentIntentService {
                                 PaymentIdempotencyCache idempotencyCache,
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics,
-                                ScheduledRetryService scheduledRetryService) {
+                                ScheduledRetryService scheduledRetryService,
+                                GatewayIdService gatewayIdService) {
         this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine            = routingEngine;
@@ -116,6 +142,11 @@ public class PaymentIntentService {
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
         this.scheduledRetryService    = scheduledRetryService;
+        this.gatewayIdService         = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     @Transactional
@@ -160,6 +191,7 @@ public class PaymentIntentService {
 
         PaymentIntent intent = new PaymentIntent();
         intent.assignId(paymentIntentId);
+        gatewayIdService.assignPaymentIntent(intent);
         intent.setMerchantId(auth.getMerchantId());
         intent.setMode(auth.getMode());
         intent.setAmount(req.amount());
@@ -208,6 +240,26 @@ public class PaymentIntentService {
     @Transactional(readOnly = true)
     public PaymentIntentResponse get(ApiKeyAuthentication auth, UUID intentId) {
         return toResponse(loadOwned(auth, intentId));
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentIntentResponse getByExternalId(ApiKeyAuthentication auth, String externalId) {
+        return paymentIntentRepository.findByExternalIdAndMerchantId(externalId, auth.getMerchantId())
+                .map(this::toResponse)
+                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public UUID resolveOwnedId(ApiKeyAuthentication auth, String idOrExternalId) {
+        try {
+            UUID id = UUID.fromString(idOrExternalId);
+            loadOwned(auth, id);
+            return id;
+        } catch (IllegalArgumentException ignored) {
+            return paymentIntentRepository.findByExternalIdAndMerchantId(idOrExternalId, auth.getMerchantId())
+                    .map(PaymentIntent::getId)
+                    .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+        }
     }
 
     /**
@@ -601,7 +653,7 @@ public class PaymentIntentService {
                                    PaymentIntentResponse payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
-            outboxEventRepository.save(new OutboxEvent(merchantId, eventType, resourceId, json));
+            outboxEventRepository.save(gatewayIdService.outboxEvent(merchantId, eventType, resourceId, json));
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize outbox payload for event {} on intent {}: {}",
                     eventType, resourceId, e.getMessage());

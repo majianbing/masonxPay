@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 
 interface EvidenceFile {
   id: string;
+  externalId: string | null;
   fileName: string;
   contentType: string;
   sizeBytes: number;
@@ -22,7 +23,9 @@ interface EvidenceFile {
 
 interface Dispute {
   id: string;
+  externalId: string | null;
   paymentIntentId: string | null;
+  paymentIntentExternalId: string | null;
   provider: string;
   providerDisputeId: string;
   status: string;
@@ -153,7 +156,7 @@ export default function DisputeDetailPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Dispute</h1>
-          <p className="text-sm font-mono text-muted-foreground mt-0.5">{dispute.providerDisputeId}</p>
+          <p className="text-sm font-mono text-muted-foreground mt-0.5">{dispute.externalId ?? dispute.id}</p>
         </div>
         <span className={`text-sm px-3 py-1 rounded-full font-medium ${STATUS_COLORS[dispute.status] ?? 'bg-gray-100 text-gray-600'}`}>
           {dispute.status.replace(/_/g, ' ')}
@@ -184,9 +187,9 @@ export default function DisputeDetailPage() {
               <p className="text-xs text-muted-foreground">Payment</p>
               <button
                 className="font-mono text-xs text-primary hover:underline"
-                onClick={() => router.push(`/payments/${dispute.paymentIntentId}`)}
+                onClick={() => router.push(`/payments/${dispute.paymentIntentExternalId ?? dispute.paymentIntentId}`)}
               >
-                {dispute.paymentIntentId.slice(0, 20)}…
+                {dispute.paymentIntentExternalId ?? `${dispute.paymentIntentId.slice(0, 20)}...`}
               </button>
             </div>
           )}
@@ -237,7 +240,7 @@ export default function DisputeDetailPage() {
           ) : (
             <ul className="space-y-2">
               {dispute.files.map((f) => (
-                <li key={f.id} className="flex items-center justify-between text-sm border rounded-md px-3 py-2">
+                <li key={f.externalId ?? f.id} className="flex items-center justify-between text-sm border rounded-md px-3 py-2">
                   <span className="font-medium">{f.fileName}</span>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     <span>{(f.sizeBytes / 1024).toFixed(1)} KB</span>

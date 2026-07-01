@@ -1,6 +1,7 @@
 package com.masonx.virtualaccount.domain.ledger;
 
 import com.masonx.common.error.BusinessException;
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.virtualaccount.domain.constant.AccountStatus;
 import com.masonx.virtualaccount.domain.constant.Direction;
@@ -119,7 +120,7 @@ public class LedgerPostingService {
                     anchor.signature()));
 
             LedgerEntry entry = new LedgerEntry(
-                    idGenerator.generate("le_"),
+                    idGenerator.generate(MasonXIdPrefix.LEDGER_ENTRY.prefix()),
                     tx.transactionId(),
                     draft.accountId(),
                     draft.direction(),

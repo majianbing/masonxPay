@@ -20,6 +20,9 @@ public class OutboxEvent {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(nullable = false)
     private UUID merchantId;
 
@@ -59,6 +62,8 @@ public class OutboxEvent {
     }
 
     public UUID getId() { return id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
     public UUID getMerchantId() { return merchantId; }
     public String getEventType() { return eventType; }
     public UUID getResourceId() { return resourceId; }

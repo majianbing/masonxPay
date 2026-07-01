@@ -19,9 +19,12 @@ public class WebhookEndpointService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final WebhookEndpointRepository webhookEndpointRepository;
+    private final GatewayIdService gatewayIdService;
 
-    public WebhookEndpointService(WebhookEndpointRepository webhookEndpointRepository) {
+    public WebhookEndpointService(WebhookEndpointRepository webhookEndpointRepository,
+                                  GatewayIdService gatewayIdService) {
         this.webhookEndpointRepository = webhookEndpointRepository;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Transactional(readOnly = true)
@@ -39,10 +42,11 @@ public class WebhookEndpointService {
         if (req.subscribedEvents() != null && !req.subscribedEvents().isEmpty()) {
             endpoint.setSubscribedEventList(req.subscribedEvents());
         }
+        gatewayIdService.assignWebhookEndpoint(endpoint);
         return WebhookEndpointResponse.from(webhookEndpointRepository.save(endpoint));
     }
 
-    public WebhookEndpointResponse update(UUID merchantId, UUID endpointId, UpdateWebhookEndpointRequest req) {
+    public WebhookEndpointResponse update(UUID merchantId, String endpointId, UpdateWebhookEndpointRequest req) {
         WebhookEndpoint endpoint = load(merchantId, endpointId);
         if (req.url() != null) endpoint.setUrl(req.url());
         if (req.description() != null) endpoint.setDescription(req.description());
@@ -51,20 +55,31 @@ public class WebhookEndpointService {
         return WebhookEndpointResponse.from(webhookEndpointRepository.save(endpoint));
     }
 
-    public void delete(UUID merchantId, UUID endpointId) {
+    public void delete(UUID merchantId, String endpointId) {
         WebhookEndpoint endpoint = load(merchantId, endpointId);
         webhookEndpointRepository.delete(endpoint);
     }
 
-    public WebhookEndpointResponse rotateSecret(UUID merchantId, UUID endpointId) {
+    public WebhookEndpointResponse rotateSecret(UUID merchantId, String endpointId) {
         WebhookEndpoint endpoint = load(merchantId, endpointId);
         endpoint.setSigningSecret(generateSigningSecret());
         return WebhookEndpointResponse.from(webhookEndpointRepository.save(endpoint));
     }
 
-    private WebhookEndpoint load(UUID merchantId, UUID endpointId) {
-        return webhookEndpointRepository.findByIdAndMerchantId(endpointId, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+    @Transactional(readOnly = true)
+    public UUID resolveOwnedId(UUID merchantId, String endpointId) {
+        return load(merchantId, endpointId).getId();
+    }
+
+    private WebhookEndpoint load(UUID merchantId, String endpointId) {
+        try {
+            UUID id = UUID.fromString(endpointId);
+            return webhookEndpointRepository.findByIdAndMerchantId(id, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+        } catch (IllegalArgumentException ignored) {
+            return webhookEndpointRepository.findByExternalIdAndMerchantId(endpointId, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+        }
     }
 
     private String generateSigningSecret() {

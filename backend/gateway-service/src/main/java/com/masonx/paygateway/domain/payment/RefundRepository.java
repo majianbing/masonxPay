@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.Optional;
 
 public interface RefundRepository extends JpaRepository<Refund, UUID>, JpaSpecificationExecutor<Refund> {
+    Optional<Refund> findByExternalIdAndMerchantId(String externalId, UUID merchantId);
     List<Refund> findByPaymentIntentId(UUID paymentIntentId);
     List<Refund> findByMerchantId(UUID merchantId);
     Page<Refund> findByMerchantIdAndModeOrderByCreatedAtDesc(UUID merchantId, ApiKeyMode mode, Pageable pageable);

@@ -40,6 +40,7 @@ import com.masonx.paygateway.provider.ReusablePaymentMethodSetupResult;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.PublicSubscriptionCheckoutResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -65,10 +66,33 @@ public class SubscriptionCheckoutPaymentService {
     private final CustomerPaymentMethodRepository customerPaymentMethodRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PaymentMetrics metrics;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.pay-base-url:http://localhost:3000}")
     private String payBaseUrl;
 
+    SubscriptionCheckoutPaymentService(SubscriptionCheckoutLinkRepository checkoutLinkRepository,
+                                       SubscriptionRepository subscriptionRepository,
+                                       SubscriptionItemRepository itemRepository,
+                                       PaymentTokenService paymentTokenService,
+                                       BillingCustomerRepository customerRepository,
+                                       ProviderAccountRepository providerAccountRepository,
+                                       CredentialsCodec credentialsCodec,
+                                       PaymentProviderDispatcher dispatcher,
+                                       ReusablePaymentMethodDispatcher reusablePaymentMethodDispatcher,
+                                       PaymentIntentRepository paymentIntentRepository,
+                                       PaymentRequestRepository paymentRequestRepository,
+                                       PaymentInstrumentRepository paymentInstrumentRepository,
+                                       CustomerPaymentMethodRepository customerPaymentMethodRepository,
+                                       OutboxEventRepository outboxEventRepository,
+                                       PaymentMetrics metrics) {
+        this(checkoutLinkRepository, subscriptionRepository, itemRepository, paymentTokenService, customerRepository,
+                providerAccountRepository, credentialsCodec, dispatcher, reusablePaymentMethodDispatcher,
+                paymentIntentRepository, paymentRequestRepository, paymentInstrumentRepository,
+                customerPaymentMethodRepository, outboxEventRepository, metrics, defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public SubscriptionCheckoutPaymentService(SubscriptionCheckoutLinkRepository checkoutLinkRepository,
                                               SubscriptionRepository subscriptionRepository,
                                               SubscriptionItemRepository itemRepository,
@@ -83,7 +107,8 @@ public class SubscriptionCheckoutPaymentService {
                                               PaymentInstrumentRepository paymentInstrumentRepository,
                                               CustomerPaymentMethodRepository customerPaymentMethodRepository,
                                               OutboxEventRepository outboxEventRepository,
-                                              PaymentMetrics metrics) {
+                                              PaymentMetrics metrics,
+                                              GatewayIdService gatewayIdService) {
         this.checkoutLinkRepository = checkoutLinkRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.itemRepository = itemRepository;
@@ -99,6 +124,11 @@ public class SubscriptionCheckoutPaymentService {
         this.customerPaymentMethodRepository = customerPaymentMethodRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.metrics = metrics;
+        this.gatewayIdService = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     public PublicSubscriptionCheckoutResponse checkout(String token, String gatewayToken) {
@@ -165,9 +195,12 @@ public class SubscriptionCheckoutPaymentService {
         }
 
         long amount = subscriptionAmount(subscription);
-        String idempotencyKey = "sub-" + subscription.getId() + "-" + UUID.randomUUID();
+        UUID paymentIntentId = UUID.randomUUID();
+        String idempotencyKey = "sub-" + subscription.getId() + "-pi-" + paymentIntentId;
 
         PaymentIntent intent = new PaymentIntent();
+        intent.assignId(paymentIntentId);
+        gatewayIdService.assignPaymentIntent(intent);
         intent.setMerchantId(subscription.getMerchantId());
         intent.setMode(subscription.getMode());
         intent.setAmount(amount);
@@ -222,11 +255,13 @@ public class SubscriptionCheckoutPaymentService {
         paymentIntentRepository.save(savedIntent);
 
         PaymentRequest attempt = new PaymentRequest();
+        gatewayIdService.assignPaymentRequest(attempt);
         attempt.setPaymentIntentId(savedIntent.getId());
         attempt.setAmount(amount);
         attempt.setCurrency(subscription.getCurrency());
         attempt.setPaymentMethodType("card");
         attempt.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+        attempt.setProviderIdempotencyKey(idempotencyKey);
         attempt.setProviderRequestId(result.providerPaymentId());
         attempt.setProviderResponse(result.providerResponseJson());
         attempt.setFailureCode(result.failureCode());
@@ -267,11 +302,13 @@ public class SubscriptionCheckoutPaymentService {
 
         if (success && paymentRequestRepository.findByPaymentIntentId(piId).isEmpty()) {
             PaymentRequest attempt = new PaymentRequest();
+            gatewayIdService.assignPaymentRequest(attempt);
             attempt.setPaymentIntentId(piId);
             attempt.setAmount(intent.getAmount());
             attempt.setCurrency(intent.getCurrency());
             attempt.setPaymentMethodType("card");
             attempt.setStatus(PaymentRequestStatus.SUCCEEDED);
+            attempt.setProviderIdempotencyKey(intent.getIdempotencyKey());
             attempt.setProviderRequestId(intent.getProviderPaymentId());
             attempt.setConnectorAccountId(intent.getConnectorAccountId());
             paymentRequestRepository.save(attempt);
@@ -328,7 +365,7 @@ public class SubscriptionCheckoutPaymentService {
         subscription.setStatus(SubscriptionStatus.ACTIVE);
         subscriptionRepository.save(subscription);
         markLinkUsed(link);
-        outboxEventRepository.save(new OutboxEvent(
+        outboxEventRepository.save(gatewayIdService.outboxEvent(
                 subscription.getMerchantId(),
                 "subscription.activated",
                 subscription.getId(),

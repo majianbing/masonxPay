@@ -1,6 +1,7 @@
 package com.masonx.virtualaccount.domain;
 
 import com.masonx.common.error.BusinessException;
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.virtualaccount.domain.api.SettlementHandler;
 import com.masonx.virtualaccount.domain.constant.AccountType;
@@ -83,7 +84,7 @@ public class LedgerSettlementHandler implements SettlementHandler {
                         "No CLEARING account for provider: " + cmd.providerRef()
                         + " asset=" + cmd.asset()));
 
-        String txId    = idGenerator.generate("tx_");
+        String txId    = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
         List<EntryDraft> entries = buildEntries(cmd, tenantCash, externalClearing);
 
         boolean moneyIn = cmd.direction() == Direction.CREDIT;

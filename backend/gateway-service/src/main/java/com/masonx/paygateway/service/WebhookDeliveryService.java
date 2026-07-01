@@ -40,7 +40,23 @@ public class WebhookDeliveryService {
     private final TransactionTemplate txTemplate;
     private final PaymentMetrics metrics;
     private final boolean outboxPollerEnabled;
+    private final GatewayIdService gatewayIdService;
 
+    WebhookDeliveryService(GatewayEventRepository gatewayEventRepository,
+                           WebhookEndpointRepository webhookEndpointRepository,
+                           WebhookDeliveryRepository webhookDeliveryRepository,
+                           WebhookSigningService signingService,
+                           OutboxEventRepository outboxEventRepository,
+                           RestTemplate webhookRestTemplate,
+                           PlatformTransactionManager txManager,
+                           PaymentMetrics metrics,
+                           @Value("${app.webhook.outbox-poller.enabled:true}") boolean outboxPollerEnabled) {
+        this(gatewayEventRepository, webhookEndpointRepository, webhookDeliveryRepository, signingService,
+                outboxEventRepository, webhookRestTemplate, txManager, metrics, outboxPollerEnabled,
+                defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public WebhookDeliveryService(GatewayEventRepository gatewayEventRepository,
                                    WebhookEndpointRepository webhookEndpointRepository,
                                    WebhookDeliveryRepository webhookDeliveryRepository,
@@ -49,7 +65,8 @@ public class WebhookDeliveryService {
                                    RestTemplate webhookRestTemplate,
                                    PlatformTransactionManager txManager,
                                    PaymentMetrics metrics,
-                                   @Value("${app.webhook.outbox-poller.enabled:true}") boolean outboxPollerEnabled) {
+                                   @Value("${app.webhook.outbox-poller.enabled:true}") boolean outboxPollerEnabled,
+                                   GatewayIdService gatewayIdService) {
         this.gatewayEventRepository = gatewayEventRepository;
         this.webhookEndpointRepository = webhookEndpointRepository;
         this.webhookDeliveryRepository = webhookDeliveryRepository;
@@ -59,6 +76,11 @@ public class WebhookDeliveryService {
         this.txTemplate = new TransactionTemplate(txManager);
         this.metrics = metrics;
         this.outboxPollerEnabled = outboxPollerEnabled;
+        this.gatewayIdService = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     /**
@@ -85,13 +107,38 @@ public class WebhookDeliveryService {
     public WebhookDeliveryResponse replay(UUID merchantId, UUID endpointId, UUID deliveryId) {
         WebhookEndpoint endpoint = webhookEndpointRepository.findByIdAndMerchantId(endpointId, merchantId)
                 .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
-        WebhookDelivery original = webhookDeliveryRepository.findById(deliveryId)
+        WebhookDelivery original = loadDelivery(endpointId, deliveryId);
+        return replay(endpointId, endpoint, original);
+    }
+
+    public WebhookDeliveryResponse replay(UUID merchantId, UUID endpointId, String deliveryIdOrExternalId) {
+        WebhookEndpoint endpoint = webhookEndpointRepository.findByIdAndMerchantId(endpointId, merchantId)
+                .orElseThrow(() -> new IllegalArgumentException("Webhook endpoint not found"));
+        WebhookDelivery original = loadDelivery(endpointId, deliveryIdOrExternalId);
+        return replay(endpointId, endpoint, original);
+    }
+
+    private WebhookDelivery loadDelivery(UUID endpointId, UUID deliveryId) {
+        return webhookDeliveryRepository.findById(deliveryId)
                 .filter(d -> d.getWebhookEndpointId().equals(endpointId))
                 .orElseThrow(() -> new IllegalArgumentException("Webhook delivery not found"));
+    }
+
+    private WebhookDelivery loadDelivery(UUID endpointId, String deliveryIdOrExternalId) {
+        try {
+            return loadDelivery(endpointId, UUID.fromString(deliveryIdOrExternalId));
+        } catch (IllegalArgumentException ignored) {
+            return webhookDeliveryRepository.findByExternalIdAndWebhookEndpointId(deliveryIdOrExternalId, endpointId)
+                    .orElseThrow(() -> new IllegalArgumentException("Webhook delivery not found"));
+        }
+    }
+
+    private WebhookDeliveryResponse replay(UUID endpointId, WebhookEndpoint endpoint, WebhookDelivery original) {
         String payload = gatewayEventRepository.findById(original.getGatewayEventId())
                 .map(GatewayEvent::getPayload).orElse("");
 
         WebhookDelivery replayed = new WebhookDelivery();
+        gatewayIdService.assignWebhookDelivery(replayed);
         replayed.setGatewayEventId(original.getGatewayEventId());
         replayed.setWebhookEndpointId(endpointId);
         webhookDeliveryRepository.save(replayed);
@@ -126,6 +173,7 @@ public class WebhookDeliveryService {
             if (fresh == null) return List.of();
 
             GatewayEvent event = new GatewayEvent();
+            gatewayIdService.assignGatewayEvent(event);
             event.setMerchantId(fresh.getMerchantId());
             event.setEventType(fresh.getEventType());
             event.setResourceId(fresh.getResourceId());
@@ -139,6 +187,7 @@ public class WebhookDeliveryService {
             for (WebhookEndpoint endpoint : endpoints) {
                 if (!endpoint.getSubscribedEventList().contains(fresh.getEventType())) continue;
                 WebhookDelivery delivery = new WebhookDelivery();
+                gatewayIdService.assignWebhookDelivery(delivery);
                 delivery.setGatewayEventId(event.getId());
                 delivery.setWebhookEndpointId(endpoint.getId());
                 delivery.setNextRetryAt(Instant.now());

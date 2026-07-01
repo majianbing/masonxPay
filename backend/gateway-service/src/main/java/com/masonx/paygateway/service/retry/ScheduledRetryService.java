@@ -4,6 +4,7 @@ import com.masonx.paygateway.domain.retry.ScheduledRetryJob;
 import com.masonx.paygateway.domain.retry.ScheduledRetryJobRepository;
 import com.masonx.paygateway.domain.retry.ScheduledRetryOperation;
 import com.masonx.paygateway.domain.retry.ScheduledRetryStatus;
+import com.masonx.paygateway.service.GatewayIdService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -23,15 +24,21 @@ public class ScheduledRetryService {
             ScheduledRetryStatus.PROCESSING);
 
     private final ScheduledRetryJobRepository repository;
+    private final GatewayIdService gatewayIdService;
     private final Clock clock;
 
     @Autowired
-    public ScheduledRetryService(ScheduledRetryJobRepository repository) {
-        this(repository, Clock.systemUTC());
+    public ScheduledRetryService(ScheduledRetryJobRepository repository, GatewayIdService gatewayIdService) {
+        this(repository, gatewayIdService, Clock.systemUTC());
     }
 
     ScheduledRetryService(ScheduledRetryJobRepository repository, Clock clock) {
+        this(repository, null, clock);
+    }
+
+    ScheduledRetryService(ScheduledRetryJobRepository repository, GatewayIdService gatewayIdService, Clock clock) {
         this.repository = repository;
+        this.gatewayIdService = gatewayIdService;
         this.clock = clock;
     }
 
@@ -48,6 +55,7 @@ public class ScheduledRetryService {
         validate(request);
         ScheduledRetryJob existing = findExistingActive(request);
         if (existing != null) {
+            assignExternalId(existing);
             return existing;
         }
 
@@ -64,6 +72,7 @@ public class ScheduledRetryService {
         job.setLastErrorCode(blankToNull(request.lastErrorCode()));
         job.setLastErrorMessage(blankToNull(request.lastErrorMessage()));
         job.setPayloadJson(blankToNull(request.payloadJson()));
+        assignExternalId(job);
         return repository.save(job);
     }
 
@@ -84,15 +93,25 @@ public class ScheduledRetryService {
     }
 
     @Transactional
-    public ScheduledRetryJob cancel(UUID merchantId, UUID jobId) {
-        ScheduledRetryJob job = repository.findByIdAndMerchantId(jobId, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Scheduled retry job not found"));
+    public ScheduledRetryJob cancel(UUID merchantId, String jobId) {
+        ScheduledRetryJob job = load(merchantId, jobId);
         if (job.getStatus() != ScheduledRetryStatus.SCHEDULED) {
             throw new IllegalStateException("Only scheduled retry jobs can be canceled");
         }
         job.setStatus(ScheduledRetryStatus.CANCELED);
         job.setCompletedAt(Instant.now(clock));
         return repository.save(job);
+    }
+
+    private ScheduledRetryJob load(UUID merchantId, String jobId) {
+        try {
+            UUID id = UUID.fromString(jobId);
+            return repository.findByIdAndMerchantId(id, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Scheduled retry job not found"));
+        } catch (IllegalArgumentException ignored) {
+            return repository.findByExternalIdAndMerchantId(jobId, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Scheduled retry job not found"));
+        }
     }
 
     @Transactional(readOnly = true)
@@ -123,5 +142,11 @@ public class ScheduledRetryService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private void assignExternalId(ScheduledRetryJob job) {
+        if (gatewayIdService != null) {
+            gatewayIdService.assignScheduledRetryJob(job);
+        }
     }
 }
