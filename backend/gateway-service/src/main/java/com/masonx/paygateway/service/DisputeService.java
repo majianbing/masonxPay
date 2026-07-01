@@ -42,6 +42,7 @@ public class DisputeService {
     private final PaymentIntentRepository paymentIntentRepository;
     private final FileStorageService storageService;
     private final ProviderAccountService providerAccountService;
+    private final GatewayIdService gatewayIdService;
     private final ObjectMapper objectMapper;
     private final Map<String, DisputeProviderAdapter> adapters;
 
@@ -50,6 +51,7 @@ public class DisputeService {
                           PaymentIntentRepository paymentIntentRepository,
                           FileStorageService storageService,
                           ProviderAccountService providerAccountService,
+                          GatewayIdService gatewayIdService,
                           ObjectMapper objectMapper,
                           List<DisputeProviderAdapter> adapterList) {
         this.disputeRepository = disputeRepository;
@@ -57,6 +59,7 @@ public class DisputeService {
         this.paymentIntentRepository = paymentIntentRepository;
         this.storageService = storageService;
         this.providerAccountService = providerAccountService;
+        this.gatewayIdService = gatewayIdService;
         this.objectMapper = objectMapper;
         this.adapters = adapterList.stream()
                 .collect(Collectors.toMap(DisputeProviderAdapter::providerName, Function.identity()));
@@ -72,6 +75,7 @@ public class DisputeService {
             d.setStatus(cmd.status());
             if (cmd.resolvedAt() != null) d.setResolvedAt(cmd.resolvedAt());
             if (cmd.evidenceDueBy() != null) d.setEvidenceDueBy(cmd.evidenceDueBy());
+            gatewayIdService.assignDispute(d);
             disputeRepository.save(d);
             log.info("Updated dispute {} status -> {}", cmd.providerDisputeId(), cmd.status());
             return;
@@ -106,6 +110,7 @@ public class DisputeService {
         dispute.setEvidenceDueBy(cmd.evidenceDueBy());
         dispute.setMode(mode);
         if (cmd.resolvedAt() != null) dispute.setResolvedAt(cmd.resolvedAt());
+        gatewayIdService.assignDispute(dispute);
         disputeRepository.save(dispute);
         log.info("Created dispute {} for provider={} status={}", cmd.providerDisputeId(), cmd.provider(), cmd.status());
     }
@@ -118,7 +123,7 @@ public class DisputeService {
         Page<Dispute> page = (status != null)
                 ? disputeRepository.findByMerchantIdAndModeAndStatusOrderByCreatedAtDesc(merchantId, mode, status, pageable)
                 : disputeRepository.findByMerchantIdAndModeOrderByCreatedAtDesc(merchantId, mode, pageable);
-        return page.map(d -> DisputeResponse.from(d, List.of()));
+        return page.map(d -> toResponse(d, List.of()));
     }
 
     private ApiKeyMode parseMode(String modeStr) {
@@ -127,20 +132,20 @@ public class DisputeService {
     }
 
     @Transactional(readOnly = true)
-    public DisputeResponse get(UUID merchantId, UUID disputeId) {
+    public DisputeResponse get(UUID merchantId, String disputeId) {
         Dispute dispute = load(merchantId, disputeId);
         List<DisputeEvidenceFileResponse> files = evidenceFileRepository
-                .findAllByDisputeId(disputeId).stream()
+                .findAllByDisputeId(dispute.getId()).stream()
                 .map(f -> DisputeEvidenceFileResponse.from(f, storageService.getServeUrl(f.getFileKey())))
                 .toList();
-        return DisputeResponse.from(dispute, files);
+        return toResponse(dispute, files);
     }
 
     // ── File upload ────────────────────────────────────────────────────────────
 
-    public DisputeEvidenceFileResponse uploadEvidenceFile(UUID merchantId, UUID disputeId,
+    public DisputeEvidenceFileResponse uploadEvidenceFile(UUID merchantId, String disputeId,
                                                            MultipartFile file) {
-        load(merchantId, disputeId); // tenant check
+        Dispute dispute = load(merchantId, disputeId);
 
         String contentType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";
         if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
@@ -152,7 +157,7 @@ public class DisputeService {
         }
 
         String ext = extensionFor(contentType);
-        String keyPath = "disputes/" + merchantId + "/" + disputeId + "/" + UUID.randomUUID() + ext;
+        String keyPath = "disputes/" + merchantId + "/" + dispute.getId() + "/" + UUID.randomUUID() + ext;
 
         try {
             storageService.store(keyPath, file.getInputStream(), file.getSize(), contentType);
@@ -161,12 +166,13 @@ public class DisputeService {
         }
 
         DisputeEvidenceFile ef = new DisputeEvidenceFile();
-        ef.setDisputeId(disputeId);
+        ef.setDisputeId(dispute.getId());
         ef.setMerchantId(merchantId);
         ef.setFileKey(keyPath);
         ef.setFileName(file.getOriginalFilename());
         ef.setContentType(contentType);
         ef.setSizeBytes(file.getSize());
+        gatewayIdService.assignDisputeEvidenceFile(ef);
         evidenceFileRepository.save(ef);
 
         return DisputeEvidenceFileResponse.from(ef, storageService.getServeUrl(keyPath));
@@ -174,7 +180,7 @@ public class DisputeService {
 
     // ── Evidence submission ────────────────────────────────────────────────────
 
-    public DisputeResponse submitEvidence(UUID merchantId, UUID disputeId,
+    public DisputeResponse submitEvidence(UUID merchantId, String disputeId,
                                           DisputeEvidenceRequest req) {
         Dispute dispute = load(merchantId, disputeId);
 
@@ -204,14 +210,31 @@ public class DisputeService {
         dispute.setStatus(DisputeStatus.UNDER_REVIEW);
         disputeRepository.save(dispute);
 
-        return get(merchantId, disputeId);
+        return get(merchantId, dispute.getExternalId() != null ? dispute.getExternalId() : dispute.getId().toString());
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
-    private Dispute load(UUID merchantId, UUID disputeId) {
-        return disputeRepository.findByIdAndMerchantId(disputeId, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("Dispute not found"));
+    private Dispute load(UUID merchantId, String disputeId) {
+        try {
+            UUID id = UUID.fromString(disputeId);
+            return disputeRepository.findByIdAndMerchantId(id, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Dispute not found"));
+        } catch (IllegalArgumentException ignored) {
+            return disputeRepository.findByExternalIdAndMerchantId(disputeId, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("Dispute not found"));
+        }
+    }
+
+    private DisputeResponse toResponse(Dispute dispute, List<DisputeEvidenceFileResponse> files) {
+        String paymentIntentExternalId = null;
+        if (dispute.getPaymentIntentId() != null) {
+            paymentIntentExternalId = paymentIntentRepository.findById(dispute.getPaymentIntentId())
+                    .filter(intent -> intent.getMerchantId().equals(dispute.getMerchantId()))
+                    .map(PaymentIntent::getExternalId)
+                    .orElse(null);
+        }
+        return DisputeResponse.from(dispute, files, paymentIntentExternalId);
     }
 
     private String extensionFor(String contentType) {

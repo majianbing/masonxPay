@@ -190,7 +190,7 @@ class SubscriptionControllerIntegrationTest {
 
     private SubscriptionResponse subscriptionResponse(UUID merchantId, UUID customerId, UUID subscriptionId) {
         return new SubscriptionResponse(
-                subscriptionId, merchantId, customerId, "TEST",
+                subscriptionId, "sub_test", merchantId, customerId, "TEST",
                 SubscriptionStatus.INCOMPLETE.name(), "USD", "MONTH", 1,
                 null, null, null, false, null, null, List.of(), Instant.now(), Instant.now());
     }

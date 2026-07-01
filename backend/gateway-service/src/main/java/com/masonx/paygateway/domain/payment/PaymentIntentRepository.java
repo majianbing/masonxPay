@@ -17,6 +17,7 @@ import java.util.UUID;
 
 public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UUID>, JpaSpecificationExecutor<PaymentIntent> {
     Optional<PaymentIntent> findByIdAndMerchantId(UUID id, UUID merchantId);
+    Optional<PaymentIntent> findByExternalIdAndMerchantId(String externalId, UUID merchantId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM PaymentIntent p WHERE p.id = :id AND p.merchantId = :merchantId")
@@ -28,6 +29,17 @@ public interface PaymentIntentRepository extends JpaRepository<PaymentIntent, UU
     Optional<PaymentIntent> findByIdForUpdate(@Param("id") UUID id);
 
     Optional<PaymentIntent> findByMerchantIdAndIdempotencyKey(UUID merchantId, String idempotencyKey);
+
+    /**
+     * Idempotent DB state check for redirect-based checkout preparation (e.g. prepare-stripe):
+     * finds the most recent attempt already made under a given idempotency-key prefix so a
+     * retry/reload can resume the in-flight attempt instead of minting a new provider PaymentIntent.
+     */
+    Optional<PaymentIntent> findTopByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
+            UUID merchantId, String idempotencyKeyPrefix);
+
+    long countByMerchantIdAndIdempotencyKeyStartingWith(UUID merchantId, String idempotencyKeyPrefix);
+
     List<PaymentIntent> findByMerchantId(UUID merchantId);
     Page<PaymentIntent> findByMerchantId(UUID merchantId, Pageable pageable);
     Page<PaymentIntent> findByMerchantIdAndStatus(UUID merchantId, PaymentIntentStatus status, Pageable pageable);

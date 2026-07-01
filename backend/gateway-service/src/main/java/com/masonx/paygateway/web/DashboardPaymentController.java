@@ -211,6 +211,7 @@ public class DashboardPaymentController {
     private PaymentIntentResponse toPaymentIntentResponse(PaymentReadModel model, String connectorAccountLabel) {
         return new PaymentIntentResponse(
                 model.getPaymentIntentId(),
+                model.getExternalId(),
                 model.getMerchantId(),
                 model.getMode(),
                 model.getAmount(),
@@ -237,7 +238,7 @@ public class DashboardPaymentController {
                 model.getSourceUpdatedAt(),
                 model.getPaymentMethodType() != null
                         ? List.of(new PaymentIntentResponse.PaymentAttemptSummary(
-                                null, 1, null, model.getConnectorAccountId(),
+                                null, null, 1, null, model.getConnectorAccountId(),
                                 model.getPaymentMethodType(), model.getStatus(),
                                 null, null, null, model.getSourceCreatedAt()))
                         : List.of());
@@ -279,10 +280,9 @@ public class DashboardPaymentController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
     public ResponseEntity<PaymentIntentResponse> get(
             @PathVariable UUID merchantId,
-            @PathVariable UUID id) {
+            @PathVariable String id) {
 
-        PaymentIntent intent = paymentIntentRepository.findByIdAndMerchantId(id, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+        PaymentIntent intent = loadPaymentIntent(merchantId, id);
 
         List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(intent.getId());
         String label = intent.getConnectorAccountId() != null
@@ -331,6 +331,7 @@ public class DashboardPaymentController {
                 String term = search.toLowerCase();
                 predicates.add(cb.or(
                         cb.like(root.get("id").as(String.class), term + "%"),
+                        cb.like(root.get("externalId"), term + "%"),
                         cb.like(root.get("paymentIntentId").as(String.class), term + "%")));
             }
             if (dateFrom != null && !dateFrom.isBlank())
@@ -343,31 +344,48 @@ public class DashboardPaymentController {
             return cb.and(predicates.toArray(new Predicate[0]));
         };
 
-        return ResponseEntity.ok(refundRepository.findAll(spec, pageable).map(RefundResponse::from));
+        return ResponseEntity.ok(refundRepository.findAll(spec, pageable).map(this::toRefundResponse));
     }
 
     @GetMapping("/{id}/refunds")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'REFUND', 'READ')")
     public ResponseEntity<List<RefundResponse>> listRefundsForPayment(
             @PathVariable UUID merchantId,
-            @PathVariable UUID id) {
+            @PathVariable String id) {
 
-        paymentIntentRepository.findByIdAndMerchantId(id, merchantId)
-                .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+        PaymentIntent intent = loadPaymentIntent(merchantId, id);
 
         return ResponseEntity.ok(
-                refundRepository.findByPaymentIntentId(id)
-                        .stream().map(RefundResponse::from).toList());
+                refundRepository.findByPaymentIntentId(intent.getId())
+                        .stream().map(r -> RefundResponse.from(r, intent.getExternalId())).toList());
     }
 
     @PostMapping("/{id}/refunds")
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'REFUND', 'CREATE')")
     public ResponseEntity<RefundResponse> refund(
             @PathVariable UUID merchantId,
-            @PathVariable UUID id,
+            @PathVariable String id,
             @Valid @RequestBody CreateRefundRequest req) {
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(refundService.createRefund(merchantId, id, req));
+                .body(refundService.createRefund(merchantId, loadPaymentIntent(merchantId, id).getId(), req));
+    }
+
+    private PaymentIntent loadPaymentIntent(UUID merchantId, String idOrExternalId) {
+        try {
+            return paymentIntentRepository.findByIdAndMerchantId(UUID.fromString(idOrExternalId), merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+        } catch (IllegalArgumentException ignored) {
+            return paymentIntentRepository.findByExternalIdAndMerchantId(idOrExternalId, merchantId)
+                    .orElseThrow(() -> new IllegalArgumentException("PaymentIntent not found"));
+        }
+    }
+
+    private RefundResponse toRefundResponse(Refund refund) {
+        String paymentIntentExternalId = paymentIntentRepository.findById(refund.getPaymentIntentId())
+                .filter(intent -> intent.getMerchantId().equals(refund.getMerchantId()))
+                .map(PaymentIntent::getExternalId)
+                .orElse(null);
+        return RefundResponse.from(refund, paymentIntentExternalId);
     }
 }

@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.bench;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
@@ -80,7 +81,7 @@ public class BenchController {
 
     @PostMapping("/post")
     public PostResponse post(@RequestBody PostRequest req) {
-        String txId = idGenerator.generate("tx_");
+        String txId = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
         VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
         ledger.postDirect(new PostTransaction(txId, List.of(
@@ -96,8 +97,8 @@ public class BenchController {
     @PostMapping("/verify-duplicate")
     public DuplicateVerifyResponse verifyDuplicate(@RequestBody PostRequest req) {
         String eventId = "bench_dup_" + idGenerator.generate("");
-        String txId1 = idGenerator.generate("tx_");
-        String txId2 = idGenerator.generate("tx_");
+        String txId1 = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
+        String txId2 = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
         VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
 

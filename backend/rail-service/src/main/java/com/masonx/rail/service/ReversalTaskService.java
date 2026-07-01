@@ -1,5 +1,6 @@
 package com.masonx.rail.service;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.rail.iso8583.Iso8583LogService;
 import com.masonx.rail.iso8583.Iso8583ReversalSender;
@@ -69,7 +70,7 @@ public class ReversalTaskService {
      */
     public void createTask(String paymentId, String network,
                            String originalStan, String originalRrn, Instant originalTxTime) {
-        String taskId = idGen.generate("rtask_");
+        String taskId = idGen.generate(MasonXIdPrefix.REVERSAL_TASK.prefix());
         reversalRepo.insert(taskId, paymentId, network, originalStan, originalRrn, originalTxTime);
         log.info("Reversal task created taskId={} paymentId={} originalStan={}",
                 taskId, paymentId, originalStan);

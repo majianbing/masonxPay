@@ -25,6 +25,12 @@ gw.mountCheckout(containerEl, { linkToken, onSuccess, onError })
 
 Do not add provider-specific React or JSX to the hosted pay page.
 
+## Gateway Resource IDs
+
+For gateway resources that expose both `id` and `externalId`, SDKs and examples should prefer `externalId ?? id` when building URLs, logs, customer support references, and follow-up API calls.
+
+`id` is currently the compatibility UUID field. `externalId` is the preferred public identifier. UUID route parameters remain accepted during the compatibility window, but new SDK examples should not introduce merchant-facing UUID URLs where an `externalId` exists.
+
 ## Provider Form Lifecycle
 
 `selectProvider()` owns the loading lifecycle:

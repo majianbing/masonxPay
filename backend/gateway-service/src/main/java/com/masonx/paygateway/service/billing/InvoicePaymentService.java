@@ -26,6 +26,7 @@ import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.InvoicePaymentResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -54,7 +55,25 @@ public class InvoicePaymentService {
     private final CredentialsCodec credentialsCodec;
     private final PaymentProviderDispatcher dispatcher;
     private final TransactionTemplate txTemplate;
+    private final GatewayIdService gatewayIdService;
 
+    InvoicePaymentService(InvoiceRepository invoiceRepository,
+                          InvoicePaymentAttemptRepository attemptRepository,
+                          CustomerPaymentMethodRepository paymentMethodRepository,
+                          PaymentInstrumentRepository instrumentRepository,
+                          ProviderAccountRepository providerAccountRepository,
+                          SubscriptionRepository subscriptionRepository,
+                          PaymentIntentRepository paymentIntentRepository,
+                          OutboxEventRepository outboxEventRepository,
+                          CredentialsCodec credentialsCodec,
+                          PaymentProviderDispatcher dispatcher,
+                          PlatformTransactionManager txManager) {
+        this(invoiceRepository, attemptRepository, paymentMethodRepository, instrumentRepository,
+                providerAccountRepository, subscriptionRepository, paymentIntentRepository, outboxEventRepository,
+                credentialsCodec, dispatcher, txManager, defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public InvoicePaymentService(InvoiceRepository invoiceRepository,
                                  InvoicePaymentAttemptRepository attemptRepository,
                                  CustomerPaymentMethodRepository paymentMethodRepository,
@@ -65,7 +84,8 @@ public class InvoicePaymentService {
                                  OutboxEventRepository outboxEventRepository,
                                  CredentialsCodec credentialsCodec,
                                  PaymentProviderDispatcher dispatcher,
-                                 PlatformTransactionManager txManager) {
+                                 PlatformTransactionManager txManager,
+                                 GatewayIdService gatewayIdService) {
         this.invoiceRepository = invoiceRepository;
         this.attemptRepository = attemptRepository;
         this.paymentMethodRepository = paymentMethodRepository;
@@ -77,6 +97,11 @@ public class InvoicePaymentService {
         this.credentialsCodec = credentialsCodec;
         this.dispatcher = dispatcher;
         this.txTemplate = new TransactionTemplate(txManager);
+        this.gatewayIdService = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     /**
@@ -133,6 +158,7 @@ public class InvoicePaymentService {
         // --- Transaction A: persist PaymentIntent before the provider call ---
         PaymentIntent savedIntent = txTemplate.execute(ts -> {
             PaymentIntent intent = new PaymentIntent();
+            gatewayIdService.assignPaymentIntent(intent);
             intent.setMerchantId(merchantId);
             intent.setMode(invoice.getMode());
             intent.setAmount(invoice.getAmountDue());
@@ -226,7 +252,7 @@ public class InvoicePaymentService {
                     + "\",\"subscriptionId\":\"" + invoice.getSubscriptionId()
                     + "\",\"paymentIntentId\":\"" + savedIntent.getId()
                     + "\",\"attemptNumber\":" + nextAttempt + "}";
-            outboxEventRepository.save(new OutboxEvent(merchantId, eventType, invoiceId, payload));
+            outboxEventRepository.save(gatewayIdService.outboxEvent(merchantId, eventType, invoiceId, payload));
 
             return nextAttempt;
         });

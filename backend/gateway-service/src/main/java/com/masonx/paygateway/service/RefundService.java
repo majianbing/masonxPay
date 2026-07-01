@@ -43,6 +43,7 @@ public class RefundService {
     private final PaymentMetrics metrics;
     private final ScheduledRetryService scheduledRetryService;
     private final MerchantAuditLogService auditLogService;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.scheduled-retry.refund-delay-seconds:900}")
     private long refundRetryDelaySeconds;
@@ -53,6 +54,21 @@ public class RefundService {
     @Value("${app.scheduled-retry.refund-auto-retry-enabled:false}")
     private boolean refundAutoRetryEnabled;
 
+    RefundService(PaymentIntentRepository paymentIntentRepository,
+                  RefundRepository refundRepository,
+                  PaymentProviderDispatcher dispatcher,
+                  ProviderAccountService providerAccountService,
+                  OutboxEventRepository outboxEventRepository,
+                  ObjectMapper objectMapper,
+                  PlatformTransactionManager txManager,
+                  PaymentMetrics metrics,
+                  ScheduledRetryService scheduledRetryService,
+                  MerchantAuditLogService auditLogService) {
+        this(paymentIntentRepository, refundRepository, dispatcher, providerAccountService, outboxEventRepository,
+                objectMapper, txManager, metrics, scheduledRetryService, auditLogService, defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public RefundService(PaymentIntentRepository paymentIntentRepository,
                          RefundRepository refundRepository,
                          PaymentProviderDispatcher dispatcher,
@@ -62,7 +78,8 @@ public class RefundService {
                          PlatformTransactionManager txManager,
                          PaymentMetrics metrics,
                          ScheduledRetryService scheduledRetryService,
-                         MerchantAuditLogService auditLogService) {
+                         MerchantAuditLogService auditLogService,
+                         GatewayIdService gatewayIdService) {
         this.paymentIntentRepository = paymentIntentRepository;
         this.refundRepository = refundRepository;
         this.dispatcher = dispatcher;
@@ -73,6 +90,11 @@ public class RefundService {
         this.metrics = metrics;
         this.scheduledRetryService = scheduledRetryService;
         this.auditLogService = auditLogService;
+        this.gatewayIdService = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     /**
@@ -110,6 +132,7 @@ public class RefundService {
             }
 
             Refund refund = new Refund();
+            gatewayIdService.assignRefund(refund);
             refund.setPaymentIntentId(paymentIntentId);
             refund.setMerchantId(merchantId);
             refund.setMode(intent.getMode());
@@ -157,7 +180,7 @@ public class RefundService {
             refund.setProviderRefundId(r.providerRefundId());
             refund.setFailureReason(r.failureReason());
             refund = refundRepository.save(refund);
-            RefundResponse response = RefundResponse.from(refund);
+            RefundResponse response = RefundResponse.from(refund, setup.intent().getExternalId());
             if (r.success()) {
                 writeOutboxEvent(refund.getMerchantId(), "refund.succeeded", refund.getId(), response);
             } else if (refundAutoRetryEnabled) {
@@ -186,7 +209,7 @@ public class RefundService {
                                   RefundResponse payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
-            outboxEventRepository.save(new OutboxEvent(merchantId, eventType, resourceId, json));
+            outboxEventRepository.save(gatewayIdService.outboxEvent(merchantId, eventType, resourceId, json));
         } catch (JsonProcessingException e) {
             // Refund outcome is already persisted. Do not roll back the financial state because
             // a webhook/search side-effect payload could not be serialized.

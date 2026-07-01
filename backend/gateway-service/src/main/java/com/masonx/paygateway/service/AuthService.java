@@ -39,6 +39,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final MfaService mfaService;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.jwt.refresh-token-expiry-ms}")
     private long refreshTokenExpiryMs;
@@ -52,7 +53,8 @@ public class AuthService {
                        PasswordEncoder passwordEncoder,
                        JwtService jwtService,
                        AuthenticationManager authenticationManager,
-                       MfaService mfaService) {
+                       MfaService mfaService,
+                       GatewayIdService gatewayIdService) {
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
         this.organizationUserRepository = organizationUserRepository;
@@ -63,6 +65,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.authenticationManager = authenticationManager;
         this.mfaService = mfaService;
+        this.gatewayIdService = gatewayIdService;
     }
 
     /**
@@ -85,6 +88,7 @@ public class AuthService {
         Merchant merchant = new Merchant();
         merchant.setOrganizationId(org.getId());
         merchant.setName(req.merchantName());
+        gatewayIdService.assignMerchant(merchant);
         merchant = merchantRepository.save(merchant);
 
         OrganizationUser orgUser = new OrganizationUser();

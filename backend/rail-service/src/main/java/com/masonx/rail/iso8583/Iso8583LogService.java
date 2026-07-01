@@ -1,5 +1,6 @@
 package com.masonx.rail.iso8583;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +40,7 @@ public class Iso8583LogService {
                            String mti, String stan, String rrn,
                            String maskedDe2, String responseCode) {
         try {
-            String id = idGen.generate("iso_");
+            String id = idGen.generate(MasonXIdPrefix.ISO8583_LOG.prefix());
             jdbc.update("""
                     INSERT INTO rail_iso8583_log
                         (id, payment_id, direction, network, mti, stan, rrn, masked_de2, response_code)
@@ -82,7 +83,7 @@ public class Iso8583LogService {
     public void persistCorrelation(String paymentId, String rail, String network,
                                    String correlationKey, String stan, String rrn) {
         try {
-            String id = idGen.generate("corr_");
+            String id = idGen.generate(MasonXIdPrefix.NETWORK_CORRELATION.prefix());
             jdbc.update("""
                     INSERT INTO rail_network_correlation
                         (id, payment_id, rail, network, correlation_key, stan, rrn)

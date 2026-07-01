@@ -13,6 +13,7 @@ import { format, subDays } from 'date-fns';
 
 interface PaymentIntent {
   id: string;
+  externalId?: string | null;
   amount: number;
   currency: string;
   status: string;
@@ -108,18 +109,21 @@ export default function OverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {payments.slice(0, 10).map((p) => (
-                <tr
-                  key={p.id}
-                  className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
-                  onClick={() => router.push(`/payments/${p.id}`)}
-                >
-                  <td className="py-2 font-mono text-xs">{p.id.slice(0, 8)}…</td>
-                  <td className="py-2">{(p.amount / 100).toFixed(2)} {p.currency}</td>
-                  <td className="py-2"><StatusBadge status={p.status} /></td>
-                  <td className="py-2 text-muted-foreground">{format(new Date(p.createdAt), 'MMM d, HH:mm')}</td>
-                </tr>
-              ))}
+              {payments.slice(0, 10).map((p) => {
+                const publicId = paymentPublicId(p);
+                return (
+                  <tr
+                    key={p.id}
+                    className="border-b last:border-0 hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/payments/${p.id}`)}
+                  >
+                    <td className="py-2 font-mono text-xs">{publicId}</td>
+                    <td className="py-2">{(p.amount / 100).toFixed(2)} {p.currency}</td>
+                    <td className="py-2"><StatusBadge status={p.status} /></td>
+                    <td className="py-2 text-muted-foreground">{format(new Date(p.createdAt), 'MMM d, HH:mm')}</td>
+                  </tr>
+                );
+              })}
               {payments.length === 0 && (
                 <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">No payments yet</td></tr>
               )}
@@ -129,6 +133,10 @@ export default function OverviewPage() {
       </Card>
     </div>
   );
+}
+
+function paymentPublicId(payment: PaymentIntent) {
+  return payment.externalId || `${payment.id.slice(0, 8)}...`;
 }
 
 function MetricCard({ title, value }: { title: string; value: string }) {

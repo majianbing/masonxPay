@@ -1,5 +1,6 @@
 package com.masonx.rail.service;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.MerchantId;
 import com.masonx.common.tenant.Mode;
@@ -74,7 +75,7 @@ public class RailSettlementEventPublisher {
         TenantRef tenant = new TenantRef(Mode.TEST, null,
                 new MerchantId(UUID.fromString(merchantId)));
         EventEnvelope envelope = new EventEnvelope(
-                idGen.generate("evt_"),
+                idGen.generate(MasonXIdPrefix.EVENT.prefix()),
                 RailSettlementEvent.TYPE,
                 RailSettlementEvent.SCHEMA_VERSION,
                 Instant.now(),

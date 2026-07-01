@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 
 interface BillingCustomer {
   id: string;
+  externalId?: string | null;
   merchantId: string;
   mode: 'TEST' | 'LIVE';
   email: string | null;
@@ -233,7 +234,7 @@ export default function CustomersPage() {
                         </div>
                         <div>
                           <div className="font-medium">{customer.name || 'Unnamed customer'}</div>
-                          <div className="font-mono text-xs text-muted-foreground">{shortId(customer.id)}</div>
+                          <div className="font-mono text-xs text-muted-foreground">{customerPublicId(customer)}</div>
                         </div>
                       </div>
                     </td>
@@ -276,7 +277,7 @@ export default function CustomersPage() {
               <>
                 <div>
                   <h2 className="text-base font-medium">{selectedCustomer.name || 'Unnamed customer'}</h2>
-                  <p className="font-mono text-xs text-muted-foreground">{selectedCustomer.id}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{customerPublicId(selectedCustomer)}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -421,6 +422,10 @@ function metadataToText(metadata: Record<string, string>) {
 
 function shortId(value: string) {
   return `${value.slice(0, 12)}...`;
+}
+
+function customerPublicId(customer: BillingCustomer) {
+  return customer.externalId || shortId(customer.id);
 }
 
 function cardLabel(method: CustomerPaymentMethod): string {

@@ -8,8 +8,10 @@ import java.util.UUID;
 
 public record DisputeResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         UUID paymentIntentId,
+        String paymentIntentExternalId,
         String provider,
         String providerDisputeId,
         String status,
@@ -24,8 +26,12 @@ public record DisputeResponse(
         List<DisputeEvidenceFileResponse> files
 ) {
     public static DisputeResponse from(Dispute d, List<DisputeEvidenceFileResponse> files) {
+        return from(d, files, null);
+    }
+
+    public static DisputeResponse from(Dispute d, List<DisputeEvidenceFileResponse> files, String paymentIntentExternalId) {
         return new DisputeResponse(
-                d.getId(), d.getMerchantId(), d.getPaymentIntentId(),
+                d.getId(), d.getExternalId(), d.getMerchantId(), d.getPaymentIntentId(), paymentIntentExternalId,
                 d.getProvider(),
                 d.getProviderDisputeId(),
                 d.getStatus() != null ? d.getStatus().name() : null,

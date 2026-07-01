@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 
 interface WebhookEndpoint {
   id: string;
+  externalId: string | null;
   url: string;
   description: string;
   status: string;
@@ -29,6 +30,7 @@ interface WebhookEndpoint {
 
 interface WebhookDelivery {
   id: string;
+  externalId: string | null;
   gatewayEventId: string;
   status: string;
   httpStatus: number | null;
@@ -132,7 +134,7 @@ export default function WebhooksPage() {
       ) : (
         <div className="space-y-3">
           {endpoints.map((ep) => (
-            <Card key={ep.id}>
+            <Card key={endpointPublicId(ep)}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">
                   <div>
@@ -148,7 +150,7 @@ export default function WebhooksPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full ${ep.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                       {ep.status}
                     </span>
-                    <Button variant="ghost" size="icon" title="Rotate secret" onClick={() => rotateMutation.mutate(ep.id)}>
+                    <Button variant="ghost" size="icon" title="Rotate secret" onClick={() => rotateMutation.mutate(endpointPublicId(ep))}>
                       <RefreshCw className="size-4" />
                     </Button>
                     <Button
@@ -156,7 +158,7 @@ export default function WebhooksPage() {
                       size="icon"
                       className="text-red-500"
                       onClick={() => {
-                        if (confirm('Delete this endpoint?')) deleteMutation.mutate(ep.id);
+                        if (confirm('Delete this endpoint?')) deleteMutation.mutate(endpointPublicId(ep));
                       }}
                     >
                       <Trash2 className="size-4" />
@@ -164,15 +166,15 @@ export default function WebhooksPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setExpandedId(expandedId === ep.id ? null : ep.id)}
+                      onClick={() => setExpandedId(expandedId === endpointPublicId(ep) ? null : endpointPublicId(ep))}
                     >
-                      {expandedId === ep.id ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      {expandedId === endpointPublicId(ep) ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
                     </Button>
                   </div>
                 </div>
 
-                {expandedId === ep.id && (
-                  <DeliveryLog endpointId={ep.id} merchantId={activeMerchantId!} epCreatedAt={ep.createdAt} epId={ep.id} />
+                {expandedId === endpointPublicId(ep) && (
+                  <DeliveryLog endpointId={endpointPublicId(ep)} merchantId={activeMerchantId!} epCreatedAt={ep.createdAt} epId={endpointPublicId(ep)} />
                 )}
               </CardContent>
             </Card>
@@ -251,6 +253,10 @@ export default function WebhooksPage() {
   );
 }
 
+function endpointPublicId(endpoint: WebhookEndpoint) {
+  return endpoint.externalId ?? endpoint.id;
+}
+
 function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
   endpointId: string; merchantId: string; epCreatedAt: string; epId: string;
 }) {
@@ -320,7 +326,7 @@ function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
         ) : (
           <div className="space-y-1">
             {deliveries.map((d) => (
-              <div key={d.id} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-1.5">
+              <div key={d.externalId ?? d.id} className="flex items-center gap-3 bg-gray-50 rounded px-3 py-1.5">
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor[d.status] ?? 'bg-gray-100'}`}>
                   {d.status}
                 </span>
@@ -336,7 +342,7 @@ function DeliveryLog({ endpointId, merchantId, epCreatedAt, epId }: {
                   {format(new Date(d.createdAt), 'MMM d HH:mm:ss')}
                 </span>
                 <button
-                  onClick={() => replayMutation.mutate(d.id)}
+                  onClick={() => replayMutation.mutate(d.externalId ?? d.id)}
                   disabled={replayMutation.isPending}
                   className="text-blue-600 hover:text-blue-800 disabled:opacity-50 shrink-0"
                 >

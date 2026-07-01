@@ -22,6 +22,9 @@ public class BillingCustomer {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(name = "merchant_id", nullable = false)
     private UUID merchantId;
 
@@ -50,6 +53,8 @@ public class BillingCustomer {
     }
 
     public UUID getId() { return id; }
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
 
     public UUID getMerchantId() { return merchantId; }
     public void setMerchantId(UUID merchantId) { this.merchantId = merchantId; }

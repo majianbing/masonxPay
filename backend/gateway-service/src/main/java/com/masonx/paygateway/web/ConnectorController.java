@@ -14,6 +14,7 @@ import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.service.ProviderAccountService;
 import com.masonx.paygateway.web.dto.*;
 import jakarta.validation.Valid;
@@ -48,6 +49,7 @@ public class ConnectorController {
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
+    private final GatewayIdService gatewayIdService;
 
     public ConnectorController(ProviderAccountService service,
                                ProviderAccountRepository providerAccountRepository,
@@ -58,7 +60,8 @@ public class ConnectorController {
                                PaymentLinkRepository paymentLinkRepository,
                                OutboxEventRepository outboxEventRepository,
                                ObjectMapper objectMapper,
-                               PlatformTransactionManager transactionManager) {
+                               PlatformTransactionManager transactionManager,
+                               GatewayIdService gatewayIdService) {
         this.service = service;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec = credentialsCodec;
@@ -69,6 +72,7 @@ public class ConnectorController {
         this.outboxEventRepository = outboxEventRepository;
         this.objectMapper = objectMapper;
         this.txTemplate = new TransactionTemplate(transactionManager);
+        this.gatewayIdService = gatewayIdService;
     }
 
     @GetMapping
@@ -149,7 +153,7 @@ public class ConnectorController {
 
         ProviderCredentials creds = credentialsCodec.decode(account);
         UUID intentId = UUID.randomUUID();
-        String idempotencyKey = "preview-" + UUID.randomUUID();
+        String idempotencyKey = "preview-" + accountId + "-pi-" + intentId;
 
         ChargeResult result = dispatcher.charge(account.getProvider(), new ChargeRequest(
                 intentId,
@@ -180,6 +184,8 @@ public class ConnectorController {
 
         PaymentIntent savedIntent = txTemplate.execute(status -> {
             PaymentIntent intent = new PaymentIntent();
+            intent.assignId(intentId);
+            gatewayIdService.assignPaymentIntent(intent);
             intent.setMerchantId(merchantId);
             intent.setMode(ApiKeyMode.TEST);
             intent.setAmount(req.amount());
@@ -192,6 +198,7 @@ public class ConnectorController {
             PaymentIntent saved = paymentIntentRepository.save(intent);
 
             PaymentRequest paymentRequest = new PaymentRequest();
+            gatewayIdService.assignPaymentRequest(paymentRequest);
             paymentRequest.setPaymentIntentId(saved.getId());
             paymentRequest.setAmount(req.amount());
             paymentRequest.setCurrency(req.currency().toLowerCase());
@@ -200,6 +207,7 @@ public class ConnectorController {
             paymentRequest.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED
                     : railUnknown ? PaymentRequestStatus.PENDING
                     : PaymentRequestStatus.FAILED);
+            paymentRequest.setProviderIdempotencyKey(idempotencyKey);
             paymentRequest.setProviderRequestId(result.providerPaymentId());
             paymentRequest.setFailureCode(result.failureCode());
             paymentRequest.setFailureMessage(result.failureMessage());
@@ -209,7 +217,7 @@ public class ConnectorController {
             PaymentIntentResponse payload = PaymentIntentResponse.from(saved, attempts, objectMapper, account.getLabel());
             try {
                 String json = objectMapper.writeValueAsString(payload);
-                outboxEventRepository.save(new OutboxEvent(merchantId, eventType, saved.getId(), json));
+                outboxEventRepository.save(gatewayIdService.outboxEvent(merchantId, eventType, saved.getId(), json));
             } catch (JsonProcessingException e) {
                 log.warn("Failed to serialize outbox payload for preview intent {}: {}", saved.getId(), e.getMessage());
             }

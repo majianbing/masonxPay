@@ -31,6 +31,7 @@ import com.masonx.paygateway.domain.payment.PaymentRequestRepository;
 import com.masonx.paygateway.domain.payment.PaymentRequestStatus;
 import com.masonx.paygateway.domain.payment.PaymentToken;
 import com.masonx.paygateway.metrics.PaymentMetrics;
+import com.masonx.paygateway.provider.ChargeRequest;
 import com.masonx.paygateway.provider.ChargeResult;
 import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.ReusablePaymentMethodDispatcher;
@@ -289,11 +290,15 @@ class SubscriptionCheckoutPaymentServiceTest {
 
         var response = service.checkout(token, gatewayToken);
 
+        ArgumentCaptor<ChargeRequest> chargeCaptor = ArgumentCaptor.forClass(ChargeRequest.class);
+        verify(dispatcher).charge(eq(PaymentProvider.SIMULATOR), chargeCaptor.capture(), any());
+        assertThat(chargeCaptor.getValue().idempotencyKey())
+                .isEqualTo("sub-" + subscriptionId + "-pi-" + chargeCaptor.getValue().paymentIntentId());
+
         assertThat(response.success()).isTrue();
         assertThat(response.status()).isEqualTo("ACTIVE");
         assertThat(subscription.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
         assertThat(link.getStatus()).isEqualTo(SubscriptionCheckoutLinkStatus.USED);
-        verify(dispatcher).charge(any(), any(), any());
         verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
         verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
     }
@@ -407,6 +412,7 @@ class SubscriptionCheckoutPaymentServiceTest {
         verify(paymentRequestRepository).save(attemptCaptor.capture());
         assertThat(attemptCaptor.getValue().getStatus()).isEqualTo(PaymentRequestStatus.SUCCEEDED);
         assertThat(attemptCaptor.getValue().getPaymentIntentId()).isEqualTo(piId);
+        assertThat(attemptCaptor.getValue().getProviderIdempotencyKey()).isEqualTo(intent.getIdempotencyKey());
         verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
         verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
         verify(outboxEventRepository).save(any());

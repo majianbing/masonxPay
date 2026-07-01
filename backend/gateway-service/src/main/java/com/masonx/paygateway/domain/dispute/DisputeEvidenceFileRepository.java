@@ -11,4 +11,6 @@ public interface DisputeEvidenceFileRepository extends JpaRepository<DisputeEvid
     List<DisputeEvidenceFile> findAllByDisputeId(UUID disputeId);
 
     Optional<DisputeEvidenceFile> findByIdAndMerchantId(UUID id, UUID merchantId);
+
+    Optional<DisputeEvidenceFile> findByExternalIdAndMerchantId(String externalId, UUID merchantId);
 }

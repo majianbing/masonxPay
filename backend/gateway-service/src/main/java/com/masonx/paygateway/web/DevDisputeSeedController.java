@@ -2,6 +2,7 @@ package com.masonx.paygateway.web;
 
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.dispute.*;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.DisputeResponse;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -44,9 +45,11 @@ public class DevDisputeSeedController {
     private static final List<String> PROVIDERS = List.of("STRIPE", "SQUARE", "BRAINTREE");
 
     private final DisputeRepository disputeRepository;
+    private final GatewayIdService gatewayIdService;
 
-    public DevDisputeSeedController(DisputeRepository disputeRepository) {
+    public DevDisputeSeedController(DisputeRepository disputeRepository, GatewayIdService gatewayIdService) {
         this.disputeRepository = disputeRepository;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @PostMapping("/seed")
@@ -87,6 +90,7 @@ public class DevDisputeSeedController {
             dispute.setResolvedAt(Instant.now().minus(rng.nextInt(5) + 1, ChronoUnit.DAYS));
         }
 
+        gatewayIdService.assignDispute(dispute);
         disputeRepository.save(dispute);
 
         return ResponseEntity.status(HttpStatus.CREATED)

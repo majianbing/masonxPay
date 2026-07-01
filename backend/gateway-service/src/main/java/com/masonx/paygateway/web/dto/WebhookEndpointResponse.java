@@ -8,6 +8,7 @@ import java.util.UUID;
 
 public record WebhookEndpointResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         String url,
         String description,
@@ -20,6 +21,7 @@ public record WebhookEndpointResponse(
     public static WebhookEndpointResponse from(WebhookEndpoint e) {
         return new WebhookEndpointResponse(
                 e.getId(),
+                e.getExternalId(),
                 e.getMerchantId(),
                 e.getUrl(),
                 e.getDescription(),

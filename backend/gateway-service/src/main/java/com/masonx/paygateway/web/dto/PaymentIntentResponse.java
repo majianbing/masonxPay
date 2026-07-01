@@ -11,6 +11,7 @@ import java.util.UUID;
 
 public record PaymentIntentResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         String mode,
         long amount,
@@ -37,6 +38,7 @@ public record PaymentIntentResponse(
 ) {
     public record PaymentAttemptSummary(
             UUID id,
+            String externalId,
             int attemptNumber,
             String attemptType,
             UUID connectorAccountId,
@@ -54,6 +56,7 @@ public record PaymentIntentResponse(
                                               String connectorAccountLabel) {
         return new PaymentIntentResponse(
                 intent.getId(),
+                intent.getExternalId(),
                 intent.getMerchantId(),
                 intent.getMode().name(),
                 intent.getAmount(),
@@ -77,7 +80,7 @@ public record PaymentIntentResponse(
                 intent.getCreatedAt(),
                 intent.getUpdatedAt(),
                 attempts.stream().map(a -> new PaymentAttemptSummary(
-                        a.getId(), a.getAttemptNumber(),
+                        a.getId(), a.getExternalId(), a.getAttemptNumber(),
                         a.getAttemptType() != null ? a.getAttemptType().name() : null,
                         a.getConnectorAccountId(), a.getPaymentMethodType(), a.getStatus().name(),
                         a.getProviderRequestId(),

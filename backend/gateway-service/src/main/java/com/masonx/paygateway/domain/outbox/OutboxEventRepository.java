@@ -14,6 +14,8 @@ import java.util.UUID;
 import java.util.List;
 
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
+    Optional<OutboxEvent> findByExternalId(String externalId);
+
     List<OutboxEvent> findByPublishedFalseOrderByCreatedAtAsc(Pageable pageable);
 
     List<OutboxEvent> findByKafkaPublishedFalseOrderByCreatedAtAsc(Pageable pageable);

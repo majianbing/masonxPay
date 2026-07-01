@@ -1,5 +1,6 @@
 package com.masonx.rail.service;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.MerchantId;
 import com.masonx.common.tenant.Mode;
@@ -58,7 +59,7 @@ public class RailPaymentResolvedPublisher {
             return;
         }
         EventEnvelope envelope = new EventEnvelope(
-                idGen.generate("evt_"),
+                idGen.generate(MasonXIdPrefix.EVENT.prefix()),
                 RailPaymentResolvedEvent.TYPE,
                 RailPaymentResolvedEvent.SCHEMA_VERSION,
                 Instant.now(),

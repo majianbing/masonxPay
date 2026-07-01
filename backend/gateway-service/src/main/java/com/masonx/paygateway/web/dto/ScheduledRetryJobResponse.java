@@ -9,6 +9,7 @@ import java.util.UUID;
 
 public record ScheduledRetryJobResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         ScheduledRetryOperation operation,
         ScheduledRetryStatus status,
@@ -30,6 +31,7 @@ public record ScheduledRetryJobResponse(
     public static ScheduledRetryJobResponse from(ScheduledRetryJob job) {
         return new ScheduledRetryJobResponse(
                 job.getId(),
+                job.getExternalId(),
                 job.getMerchantId(),
                 job.getOperation(),
                 job.getStatus(),

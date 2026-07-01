@@ -172,7 +172,7 @@ curl -X POST {{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents?mode={
   -d '{"amount": 4200, "currency": "usd", "paymentMethodId": "pm_card_visa"}'
 
 # Step 2: Confirm it
-curl -X POST {{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/{id}/confirm \\
+curl -X POST {{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/{externalId}/confirm \\
   -H "Authorization: Bearer {{SECRET_KEY}}" \\
   -H "Content-Type: application/json" \\
   -d '{"paymentMethodId": "pm_card_visa"}'`,
@@ -189,9 +189,11 @@ const pi = await fetch(
   }
 ).then(r => r.json());
 
+const paymentId = pi.externalId ?? pi.id;
+
 // Step 2: confirm it
 const result = await fetch(
-  \`{{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/\${pi.id}/confirm\`,
+  \`{{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/\${paymentId}/confirm\`,
   {
     method: 'POST',
     headers: { 'Authorization': 'Bearer {{SECRET_KEY}}' },
@@ -210,9 +212,11 @@ pi = httpx.post(
     json={'amount': 4200, 'currency': 'usd', 'payment_method_id': payment_method_id},
 ).json()
 
+payment_id = pi.get('externalId') or pi['id']
+
 # Step 2: confirm it
 result = httpx.post(
-    f'{{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/{pi["id"]}/confirm',
+    f'{{API_URL}}/api/v1/merchants/{{MERCHANT_ID}}/payment-intents/{payment_id}/confirm',
     headers={'Authorization': 'Bearer {{SECRET_KEY}}'},
     json={'payment_method_id': payment_method_id},
 ).json()

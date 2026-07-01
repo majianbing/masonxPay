@@ -17,6 +17,7 @@ public interface ScheduledRetryJobRepository extends JpaRepository<ScheduledRetr
     List<ScheduledRetryJob> findByMerchantIdOrderByCreatedAtDesc(UUID merchantId);
     List<ScheduledRetryJob> findByMerchantIdAndStatusOrderByCreatedAtDesc(UUID merchantId, ScheduledRetryStatus status);
     Optional<ScheduledRetryJob> findByIdAndMerchantId(UUID id, UUID merchantId);
+    Optional<ScheduledRetryJob> findByExternalIdAndMerchantId(String externalId, UUID merchantId);
     Optional<ScheduledRetryJob> findFirstByMerchantIdAndOperationAndPaymentIntentIdAndStatusInOrderByCreatedAtDesc(
             UUID merchantId,
             ScheduledRetryOperation operation,

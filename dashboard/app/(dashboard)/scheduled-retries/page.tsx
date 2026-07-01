@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface ScheduledRetryJob {
   id: string;
+  externalId: string | null;
   operation: 'PAYMENT_CAPTURE' | 'REFUND';
   status: 'SCHEDULED' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
   paymentIntentId: string | null;
@@ -118,8 +119,8 @@ export default function ScheduledRetriesPage() {
               ) : jobs.length === 0 ? (
                 <tr><td colSpan={8} className="py-10 text-center text-muted-foreground">No scheduled retries found</td></tr>
               ) : jobs.map((job) => (
-                <tr key={job.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs">{shortId(job.id)}</td>
+                <tr key={retryPublicId(job)} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-3 font-mono text-xs">{retryPublicId(job)}</td>
                   <td className="px-4 py-3">{label(job.operation)}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLE[job.status] ?? 'bg-gray-100 text-gray-600'}`}>
@@ -146,7 +147,7 @@ export default function ScheduledRetriesPage() {
                         variant="outline"
                         size="sm"
                         disabled={cancelMutation.isPending}
-                        onClick={() => cancelMutation.mutate(job.id)}
+                        onClick={() => cancelMutation.mutate(retryPublicId(job))}
                       >
                         Cancel
                       </Button>
@@ -170,6 +171,10 @@ function label(value: string) {
 
 function shortId(value: string) {
   return `${value.slice(0, 12)}...`;
+}
+
+function retryPublicId(job: ScheduledRetryJob) {
+  return job.externalId ?? job.id;
 }
 
 function formatDate(value: string | null) {

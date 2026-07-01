@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 interface BillingCustomer {
   id: string;
+  externalId?: string | null;
   email: string | null;
   name: string | null;
 }
@@ -38,6 +39,7 @@ interface SubscriptionItem {
 
 interface Subscription {
   id: string;
+  externalId?: string | null;
   customerId: string;
   mode: 'TEST' | 'LIVE';
   status: 'INCOMPLETE' | 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'UNPAID';
@@ -55,6 +57,7 @@ interface Subscription {
 
 interface Invoice {
   id: string;
+  externalId?: string | null;
   subscriptionId: string;
   status: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
   amountDue: number;
@@ -300,7 +303,7 @@ export default function SubscriptionsPage() {
   function selectedCustomerLabel(customerId: string) {
     const customer = customerById.get(customerId);
     if (!customer) return shortId(customerId);
-    return customer.name || customer.email || shortId(customer.id);
+    return customer.name || customer.email || customerPublicId(customer);
   }
 
   return (
@@ -357,7 +360,7 @@ export default function SubscriptionsPage() {
                         </div>
                         <div>
                           <div className="font-medium">{subscription.items[0]?.description || 'Subscription'}</div>
-                          <div className="font-mono text-xs text-muted-foreground">{shortId(subscription.id)}</div>
+                          <div className="font-mono text-xs text-muted-foreground">{subscriptionPublicId(subscription)}</div>
                         </div>
                       </div>
                     </td>
@@ -429,7 +432,7 @@ export default function SubscriptionsPage() {
                       )}
                     </div>
                   </div>
-                  <p className="font-mono text-xs text-muted-foreground">{selectedSubscription.id}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{subscriptionPublicId(selectedSubscription)}</p>
                 </div>
 
                 <div className="grid gap-3 text-sm">
@@ -509,6 +512,8 @@ export default function SubscriptionsPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="space-y-0.5">
                           <p className="text-xs text-muted-foreground">
+                            <span className="font-mono">{invoicePublicId(invoice)}</span>
+                            {' · '}
                             {format(new Date(invoice.periodStart), 'MMM d')}
                             {' – '}
                             {format(new Date(invoice.periodEnd), 'MMM d, yyyy')}
@@ -608,7 +613,7 @@ export default function SubscriptionsPage() {
                         <span className="ml-2 text-xs text-muted-foreground">{customer.email}</span>
                       )}
                       {!customer.name && !customer.email && (
-                        <span className="font-mono text-xs text-muted-foreground">{shortId(customer.id)}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{customerPublicId(customer)}</span>
                       )}
                     </SelectItem>
                   ))}
@@ -827,4 +832,16 @@ function copyLink(value: string) {
 
 function shortId(value: string) {
   return `${value.slice(0, 12)}...`;
+}
+
+function customerPublicId(customer: BillingCustomer) {
+  return customer.externalId || shortId(customer.id);
+}
+
+function subscriptionPublicId(subscription: Subscription) {
+  return subscription.externalId || shortId(subscription.id);
+}
+
+function invoicePublicId(invoice: Invoice) {
+  return invoice.externalId || shortId(invoice.id);
 }

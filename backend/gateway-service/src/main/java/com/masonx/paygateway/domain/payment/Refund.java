@@ -13,6 +13,9 @@ public class Refund {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "external_id", length = 40)
+    private String externalId;
+
     @Column(name = "payment_intent_id", nullable = false)
     private UUID paymentIntentId;
 
@@ -53,6 +56,9 @@ public class Refund {
     void onUpdate() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
+
+    public String getExternalId() { return externalId; }
+    public void setExternalId(String externalId) { this.externalId = externalId; }
 
     public UUID getPaymentIntentId() { return paymentIntentId; }
     public void setPaymentIntentId(UUID paymentIntentId) { this.paymentIntentId = paymentIntentId; }

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.connector.ProviderAccount;
 import com.masonx.paygateway.domain.connector.ProviderAccountRepository;
 import com.masonx.paygateway.domain.instrument.InstrumentSource;
-import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
 import com.masonx.paygateway.metrics.PaymentMetrics;
@@ -16,6 +15,7 @@ import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.provider.credentials.StripeCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.service.RoutingEngine;
 import com.masonx.paygateway.service.routing.RoutingContext;
 import com.masonx.paygateway.web.dto.PaymentIntentResponse;
@@ -29,11 +29,13 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -53,6 +55,7 @@ public class PublicPaymentController {
     private final OutboxEventRepository        outboxEventRepository;
     private final ObjectMapper                 objectMapper;
     private final PaymentMetrics               metrics;
+    private final GatewayIdService             gatewayIdService;
 
     @Value("${app.pay-base-url:http://localhost:3000}")
     private String payBaseUrl;
@@ -67,7 +70,8 @@ public class PublicPaymentController {
                                    RoutingEngine routingEngine,
                                    OutboxEventRepository outboxEventRepository,
                                    ObjectMapper objectMapper,
-                                   PaymentMetrics metrics) {
+                                   PaymentMetrics metrics,
+                                   GatewayIdService gatewayIdService) {
         this.paymentLinkRepository     = paymentLinkRepository;
         this.providerAccountRepository = providerAccountRepository;
         this.credentialsCodec          = credentialsCodec;
@@ -79,6 +83,7 @@ public class PublicPaymentController {
         this.outboxEventRepository     = outboxEventRepository;
         this.objectMapper              = objectMapper;
         this.metrics                   = metrics;
+        this.gatewayIdService          = gatewayIdService;
     }
 
     // ── Card / synchronous checkout (Square, Braintree, Stripe card) ──────────
@@ -116,9 +121,12 @@ public class PublicPaymentController {
 
         ProviderCredentials creds = credentialsCodec.decode(account);
         PaymentProvider provider = PaymentProvider.valueOf(paymentToken.getProvider());
-        String idempotencyKey = "pl-" + link.getId() + "-" + UUID.randomUUID();
+        UUID paymentIntentId = UUID.randomUUID();
+        String idempotencyKey = "pl-" + link.getId() + "-pi-" + paymentIntentId;
 
         PaymentIntent intent = new PaymentIntent();
+        intent.assignId(paymentIntentId);
+        gatewayIdService.assignPaymentIntent(intent);
         intent.setMerchantId(link.getMerchantId());
         intent.setMode(link.getMode());
         intent.setAmount(link.getAmount());
@@ -173,11 +181,13 @@ public class PublicPaymentController {
                 result.failureCode());
 
         PaymentRequest attempt = new PaymentRequest();
+        gatewayIdService.assignPaymentRequest(attempt);
         attempt.setPaymentIntentId(savedIntent.getId());
         attempt.setAmount(link.getAmount());
         attempt.setCurrency(link.getCurrency());
         attempt.setPaymentMethodType("card");
         attempt.setStatus(result.success() ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+        attempt.setProviderIdempotencyKey(idempotencyKey);
         attempt.setProviderRequestId(result.providerPaymentId());
         attempt.setFailureCode(result.failureCode());
         attempt.setFailureMessage(result.failureMessage());
@@ -220,11 +230,13 @@ public class PublicPaymentController {
         // only if we haven't already (idempotent — check for existing attempt records).
         if (success && paymentRequestRepository.findByPaymentIntentId(piId).isEmpty()) {
             PaymentRequest attempt = new PaymentRequest();
+            gatewayIdService.assignPaymentRequest(attempt);
             attempt.setPaymentIntentId(piId);
             attempt.setAmount(intent.getAmount());
             attempt.setCurrency(intent.getCurrency());
             attempt.setPaymentMethodType("card");
             attempt.setStatus(PaymentRequestStatus.SUCCEEDED);
+            attempt.setProviderIdempotencyKey(intent.getIdempotencyKey());
             attempt.setProviderRequestId(intent.getProviderPaymentId());
             paymentRequestRepository.save(attempt);
             publishEvent(intent, attempt, "payment_intent.succeeded");
@@ -288,6 +300,49 @@ public class PublicPaymentController {
             throw new IllegalStateException("Stripe connector is missing a secret key");
         }
 
+        // Idempotent DB state check: a page reload / double submit / retried request before the
+        // redirect flow completes must resume the same in-flight attempt rather than mint a new
+        // Stripe PaymentIntent. Only a genuinely new attempt (previous one reached a terminal
+        // state) gets a fresh, still-deterministic key.
+        String idempotencyKeyPrefix = "pl-" + link.getId() + "-stripe-pi-";
+        Optional<PaymentIntent> latestAttempt = paymentIntentRepository
+                .findTopByMerchantIdAndIdempotencyKeyStartingWithOrderByCreatedAtDesc(
+                        link.getMerchantId(), idempotencyKeyPrefix);
+        if (latestAttempt.isPresent() && !isTerminal(latestAttempt.get().getStatus())) {
+            return resumeStripePrepare(latestAttempt.get(), stripe);
+        }
+
+        long attemptNumber = paymentIntentRepository
+                .countByMerchantIdAndIdempotencyKeyStartingWith(link.getMerchantId(), idempotencyKeyPrefix) + 1;
+        String idempotencyKey = idempotencyKeyPrefix + attemptNumber;
+
+        UUID paymentIntentId = UUID.randomUUID();
+        PaymentIntent intent = new PaymentIntent();
+        intent.assignId(paymentIntentId);
+        gatewayIdService.assignPaymentIntent(intent);
+        intent.setMerchantId(link.getMerchantId());
+        intent.setMode(link.getMode());
+        intent.setAmount(link.getAmount());
+        intent.setCurrency(link.getCurrency());
+        intent.setIdempotencyKey(idempotencyKey);
+        intent.setResolvedProvider(PaymentProvider.STRIPE);
+        intent.setConnectorAccountId(account.getId());
+        intent.setPaymentMethodType("stripe");
+        intent.setStatus(PaymentIntentStatus.PROCESSING);
+        intent.setMetadata("{\"paymentLinkId\":\"" + link.getId() + "\",\"linkToken\":\"" + token + "\"}");
+
+        PaymentIntent savedIntent;
+        try {
+            savedIntent = paymentIntentRepository.save(intent);
+        } catch (DataIntegrityViolationException e) {
+            // Lost a race with a concurrent prepare-stripe call that claimed this exact
+            // idempotency key first — resume its attempt instead of erroring out.
+            PaymentIntent winner = paymentIntentRepository
+                    .findByMerchantIdAndIdempotencyKey(link.getMerchantId(), idempotencyKey)
+                    .orElseThrow(() -> e);
+            return resumeStripePrepare(winner, stripe);
+        }
+
         try {
             PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                     .setAmount(link.getAmount())
@@ -298,14 +353,43 @@ public class PublicPaymentController {
                                     .build())
                     .putMetadata("linkToken", token)
                     .putMetadata("merchantId", link.getMerchantId().toString())
+                    .putMetadata("masonxPaymentIntentId", savedIntent.getId().toString())
+                    .putMetadata("masonxPaymentIntentExternalId", savedIntent.getExternalId())
                     .build();
 
-            RequestOptions opts = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
+            RequestOptions opts = RequestOptions.builder()
+                    .setApiKey(stripe.secretKey())
+                    .setIdempotencyKey(idempotencyKey)
+                    .build();
             com.stripe.model.PaymentIntent pi = com.stripe.model.PaymentIntent.create(params, opts);
+            savedIntent.setProviderPaymentId(pi.getId());
+            savedIntent.setProviderResponse(pi.toJson());
+            paymentIntentRepository.save(savedIntent);
             return ResponseEntity.ok(Map.of("clientSecret", pi.getClientSecret()));
 
         } catch (StripeException e) {
+            savedIntent.setStatus(PaymentIntentStatus.FAILED);
+            savedIntent.setProviderResponse(e.getMessage());
+            paymentIntentRepository.save(savedIntent);
             throw new IllegalStateException("Failed to prepare Stripe checkout: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Returns the Stripe client secret for an attempt that was already prepared — used when a
+     * retry/reload finds an existing non-terminal attempt instead of creating a new Stripe
+     * PaymentIntent.
+     */
+    private ResponseEntity<Map<String, String>> resumeStripePrepare(PaymentIntent existing, StripeCredentials stripe) {
+        if (existing.getProviderPaymentId() == null) {
+            throw new IllegalStateException("Stripe checkout preparation is still in progress — please retry shortly");
+        }
+        try {
+            RequestOptions opts = RequestOptions.builder().setApiKey(stripe.secretKey()).build();
+            com.stripe.model.PaymentIntent pi = com.stripe.model.PaymentIntent.retrieve(existing.getProviderPaymentId(), opts);
+            return ResponseEntity.ok(Map.of("clientSecret", pi.getClientSecret()));
+        } catch (StripeException e) {
+            throw new IllegalStateException("Failed to resume Stripe checkout: " + e.getMessage(), e);
         }
     }
 
@@ -322,9 +406,9 @@ public class PublicPaymentController {
         PaymentLink link = findActiveLink(token);
         String piId = piClientSecret.split("_secret_")[0];
 
-        // Idempotency: return existing record if already processed
-        var existing = paymentIntentRepository.findByProviderPaymentId(piId);
-        if (existing.isPresent()) {
+        var existing = paymentIntentRepository.findByProviderPaymentId(piId)
+                .filter(intent -> intent.getMerchantId().equals(link.getMerchantId()));
+        if (existing.isPresent() && isTerminal(existing.get().getStatus())) {
             PaymentIntent intent = existing.get();
             boolean ok = intent.getStatus() == PaymentIntentStatus.SUCCEEDED;
             return ResponseEntity.ok(new PublicCheckoutResponse(
@@ -366,16 +450,25 @@ public class PublicPaymentController {
                 failureMessage = pi.getLastPaymentError().getMessage();
             }
 
-            PaymentIntent intent = new PaymentIntent();
-            intent.setMerchantId(link.getMerchantId());
-            intent.setMode(link.getMode());
-            intent.setAmount(link.getAmount());
-            intent.setCurrency(link.getCurrency());
-            intent.setIdempotencyKey("pi-redirect-" + piId);
-            intent.setResolvedProvider(PaymentProvider.STRIPE);
-            intent.setConnectorAccountId(account.getId());
+            PaymentIntent intent = existing.orElseGet(() -> {
+                PaymentIntent created = new PaymentIntent();
+                UUID paymentIntentId = UUID.randomUUID();
+                created.assignId(paymentIntentId);
+                gatewayIdService.assignPaymentIntent(created);
+                created.setMerchantId(link.getMerchantId());
+                created.setMode(link.getMode());
+                created.setAmount(link.getAmount());
+                created.setCurrency(link.getCurrency());
+                created.setIdempotencyKey("pl-" + link.getId() + "-stripe-result-pi-" + paymentIntentId);
+                created.setResolvedProvider(PaymentProvider.STRIPE);
+                created.setConnectorAccountId(account.getId());
+                created.setPaymentMethodType(pmType);
+                return created;
+            });
+            intent.setPaymentMethodType(pmType);
             intent.setStatus(succeeded ? PaymentIntentStatus.SUCCEEDED : PaymentIntentStatus.FAILED);
             intent.setProviderPaymentId(piId);
+            intent.setProviderResponse(pi.toJson());
             PaymentIntent savedIntent = paymentIntentRepository.save(intent);
 
             if (!succeeded) {
@@ -383,11 +476,13 @@ public class PublicPaymentController {
             }
 
             PaymentRequest attempt = new PaymentRequest();
+            gatewayIdService.assignPaymentRequest(attempt);
             attempt.setPaymentIntentId(savedIntent.getId());
             attempt.setAmount(link.getAmount());
             attempt.setCurrency(link.getCurrency());
             attempt.setPaymentMethodType(pmType);
             attempt.setStatus(succeeded ? PaymentRequestStatus.SUCCEEDED : PaymentRequestStatus.FAILED);
+            attempt.setProviderIdempotencyKey(savedIntent.getIdempotencyKey());
             attempt.setProviderRequestId(piId);
             attempt.setFailureCode(failureCode);
             attempt.setFailureMessage(failureMessage);
@@ -416,11 +511,17 @@ public class PublicPaymentController {
         try {
             PaymentIntentResponse payload = PaymentIntentResponse.from(intent, List.of(attempt), objectMapper, null);
             String json = objectMapper.writeValueAsString(payload);
-            outboxEventRepository.save(new OutboxEvent(intent.getMerchantId(), eventType, intent.getId(), json));
+            outboxEventRepository.save(gatewayIdService.outboxEvent(intent.getMerchantId(), eventType, intent.getId(), json));
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize outbox payload for event {} on public payment intent {}: {}",
                     eventType, intent.getId(), e.getMessage());
         }
+    }
+
+    private boolean isTerminal(PaymentIntentStatus status) {
+        return status == PaymentIntentStatus.SUCCEEDED
+                || status == PaymentIntentStatus.FAILED
+                || status == PaymentIntentStatus.CANCELED;
     }
 
     private PaymentLink findActiveLink(String token) {

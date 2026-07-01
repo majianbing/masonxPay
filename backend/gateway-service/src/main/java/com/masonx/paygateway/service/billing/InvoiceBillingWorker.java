@@ -8,6 +8,7 @@ import com.masonx.paygateway.domain.billing.SubscriptionRepository;
 import com.masonx.paygateway.domain.billing.SubscriptionStatus;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.service.ProviderFailureCodeMapper;
 import com.masonx.paygateway.web.dto.InvoicePaymentResponse;
 import org.slf4j.Logger;
@@ -54,6 +55,7 @@ public class InvoiceBillingWorker {
     private final OutboxEventRepository outboxEventRepository;
     private final TransactionTemplate txTemplate;
     private final Clock clock;
+    private final GatewayIdService gatewayIdService;
 
     @Value("${app.billing.worker-enabled:true}")
     private boolean enabled;
@@ -70,9 +72,10 @@ public class InvoiceBillingWorker {
                                 InvoicePaymentService invoicePaymentService,
                                 SubscriptionRepository subscriptionRepository,
                                 OutboxEventRepository outboxEventRepository,
-                                PlatformTransactionManager txManager) {
+                                PlatformTransactionManager txManager,
+                                GatewayIdService gatewayIdService) {
         this(invoiceRepository, attemptRepository, invoicePaymentService,
-                subscriptionRepository, outboxEventRepository, txManager, Clock.systemUTC());
+                subscriptionRepository, outboxEventRepository, txManager, Clock.systemUTC(), gatewayIdService);
     }
 
     InvoiceBillingWorker(InvoiceRepository invoiceRepository,
@@ -82,6 +85,18 @@ public class InvoiceBillingWorker {
                          OutboxEventRepository outboxEventRepository,
                          PlatformTransactionManager txManager,
                          Clock clock) {
+        this(invoiceRepository, attemptRepository, invoicePaymentService,
+                subscriptionRepository, outboxEventRepository, txManager, clock, null);
+    }
+
+    InvoiceBillingWorker(InvoiceRepository invoiceRepository,
+                         InvoicePaymentAttemptRepository attemptRepository,
+                         InvoicePaymentService invoicePaymentService,
+                         SubscriptionRepository subscriptionRepository,
+                         OutboxEventRepository outboxEventRepository,
+                         PlatformTransactionManager txManager,
+                         Clock clock,
+                         GatewayIdService gatewayIdService) {
         this.invoiceRepository = invoiceRepository;
         this.attemptRepository = attemptRepository;
         this.invoicePaymentService = invoicePaymentService;
@@ -89,6 +104,7 @@ public class InvoiceBillingWorker {
         this.outboxEventRepository = outboxEventRepository;
         this.txTemplate = new TransactionTemplate(txManager);
         this.clock = clock;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Scheduled(fixedDelayString = "${app.billing.worker-poll-ms:300000}")
@@ -166,10 +182,14 @@ public class InvoiceBillingWorker {
                     .ifPresent(sub -> {
                         if (sub.getStatus() == SubscriptionStatus.PAST_DUE) {
                             // Leave PAST_DUE — merchant can take action (update method, cancel manually)
-                            outboxEventRepository.save(new OutboxEvent(
+                            OutboxEvent event = new OutboxEvent(
                                     invoice.getMerchantId(), "invoice.uncollectible", invoice.getId(),
                                     "{\"invoiceId\":\"" + invoice.getId()
-                                            + "\",\"subscriptionId\":\"" + invoice.getSubscriptionId() + "\"}"));
+                                            + "\",\"subscriptionId\":\"" + invoice.getSubscriptionId() + "\"}");
+                            if (gatewayIdService != null) {
+                                gatewayIdService.assignOutboxEvent(event);
+                            }
+                            outboxEventRepository.save(event);
                         }
                     });
         });

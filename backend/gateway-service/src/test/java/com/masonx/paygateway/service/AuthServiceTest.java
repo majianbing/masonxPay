@@ -42,6 +42,7 @@ class AuthServiceTest {
     @Mock JwtService jwtService;
     @Mock AuthenticationManager authenticationManager;
     @Mock MfaService mfaService;
+    @Mock GatewayIdService gatewayIdService;
 
     private AuthService authService;
 
@@ -50,7 +51,7 @@ class AuthServiceTest {
         authService = new AuthService(
                 userRepository, organizationRepository, organizationUserRepository,
                 merchantRepository, merchantUserRepository, refreshTokenRepository,
-                passwordEncoder, jwtService, authenticationManager, mfaService);
+                passwordEncoder, jwtService, authenticationManager, mfaService, gatewayIdService);
         // inject @Value field
         ReflectionTestUtils.setField(authService, "refreshTokenExpiryMs", 86_400_000L);
     }

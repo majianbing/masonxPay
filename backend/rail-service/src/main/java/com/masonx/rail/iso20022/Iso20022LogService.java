@@ -1,5 +1,6 @@
 package com.masonx.rail.iso20022;
 
+import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +52,7 @@ public class Iso20022LogService {
                     VALUES (?, ?, 'BANK_ISO20022'::rail_type, ?, ?, ?, ?)
                     ON CONFLICT (correlation_key) DO NOTHING
                     """,
-                    idGen.generate("corr_"), paymentId, network,
+                    idGen.generate(MasonXIdPrefix.NETWORK_CORRELATION.prefix()), paymentId, network,
                     correlationKey, messageId, endToEndId);
         } catch (Exception e) {
             log.error("Failed to persist ISO20022 correlation paymentId={}: {}", paymentId, e.getMessage(), e);
@@ -68,7 +69,7 @@ public class Iso20022LogService {
                          message_id, instruction_id, end_to_end_id, transaction_id, status_code)
                     VALUES (?, ?, ?::rail_direction, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    idGen.generate("i20_"), paymentId,
+                    idGen.generate(MasonXIdPrefix.ISO20022_LOG.prefix()), paymentId,
                     direction, network, messageName(type),
                     messageId, instructionId, endToEndId, transactionId, statusCode);
         } catch (Exception e) {

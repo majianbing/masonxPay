@@ -9,6 +9,7 @@ import java.util.UUID;
 
 public record SubscriptionResponse(
         UUID id,
+        String externalId,
         UUID merchantId,
         UUID customerId,
         String mode,
@@ -31,6 +32,7 @@ public record SubscriptionResponse(
                                             Map<String, String> metadata) {
         return new SubscriptionResponse(
                 subscription.getId(),
+                subscription.getExternalId(),
                 subscription.getMerchantId(),
                 subscription.getCustomerId(),
                 subscription.getMode().name(),

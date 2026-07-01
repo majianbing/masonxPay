@@ -18,6 +18,10 @@ spring:
     host: localhost
     port: 25
 
+gateway:
+  id:
+    node-id: 2
+
 app:
   jwt:
     secret: test-secret-key-that-is-at-least-256-bits-long-for-testing-purposes

@@ -7,7 +7,9 @@ import java.util.UUID;
 
 public record RefundResponse(
         UUID id,
+        String externalId,
         UUID paymentIntentId,
+        String paymentIntentExternalId,
         UUID merchantId,
         long amount,
         String currency,
@@ -21,7 +23,27 @@ public record RefundResponse(
     public static RefundResponse from(Refund r) {
         return new RefundResponse(
                 r.getId(),
+                r.getExternalId(),
                 r.getPaymentIntentId(),
+                null,
+                r.getMerchantId(),
+                r.getAmount(),
+                r.getCurrency(),
+                r.getStatus().name(),
+                r.getReason() != null ? r.getReason().name() : null,
+                r.getProviderRefundId(),
+                r.getFailureReason(),
+                r.getCreatedAt(),
+                r.getUpdatedAt()
+        );
+    }
+
+    public static RefundResponse from(Refund r, String paymentIntentExternalId) {
+        return new RefundResponse(
+                r.getId(),
+                r.getExternalId(),
+                r.getPaymentIntentId(),
+                paymentIntentExternalId,
                 r.getMerchantId(),
                 r.getAmount(),
                 r.getCurrency(),

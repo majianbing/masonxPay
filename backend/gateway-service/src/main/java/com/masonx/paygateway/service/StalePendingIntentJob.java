@@ -59,7 +59,21 @@ public class StalePendingIntentJob {
     private final ObjectMapper             objectMapper;
     private final TransactionTemplate      txTemplate;
     private final PaymentMetrics           metrics;
+    private final GatewayIdService         gatewayIdService;
 
+    StalePendingIntentJob(PaymentIntentRepository paymentIntentRepository,
+                          PaymentRequestRepository paymentRequestRepository,
+                          PaymentProviderDispatcher dispatcher,
+                          ProviderAccountService providerAccountService,
+                          OutboxEventRepository outboxEventRepository,
+                          ObjectMapper objectMapper,
+                          PlatformTransactionManager txManager,
+                          PaymentMetrics metrics) {
+        this(paymentIntentRepository, paymentRequestRepository, dispatcher, providerAccountService, outboxEventRepository,
+                objectMapper, txManager, metrics, defaultGatewayIdService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public StalePendingIntentJob(PaymentIntentRepository paymentIntentRepository,
                                  PaymentRequestRepository paymentRequestRepository,
                                  PaymentProviderDispatcher dispatcher,
@@ -67,7 +81,8 @@ public class StalePendingIntentJob {
                                  OutboxEventRepository outboxEventRepository,
                                  ObjectMapper objectMapper,
                                  PlatformTransactionManager txManager,
-                                 PaymentMetrics metrics) {
+                                 PaymentMetrics metrics,
+                                 GatewayIdService gatewayIdService) {
         this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.dispatcher               = dispatcher;
@@ -76,6 +91,11 @@ public class StalePendingIntentJob {
         this.objectMapper             = objectMapper;
         this.txTemplate               = new TransactionTemplate(txManager);
         this.metrics                  = metrics;
+        this.gatewayIdService         = gatewayIdService;
+    }
+
+    private static GatewayIdService defaultGatewayIdService() {
+        return new GatewayIdService(new com.masonx.common.id.SnowflakeIdGenerator(0));
     }
 
     @Scheduled(fixedDelay = 300_000) // every 5 minutes
@@ -167,7 +187,7 @@ public class StalePendingIntentJob {
             };
             try {
                 String json = objectMapper.writeValueAsString(response);
-                outboxEventRepository.save(new OutboxEvent(saved.getMerchantId(), eventType, saved.getId(), json));
+                outboxEventRepository.save(gatewayIdService.outboxEvent(saved.getMerchantId(), eventType, saved.getId(), json));
             } catch (JsonProcessingException e) {
                 // non-critical — status is already persisted; worst case the merchant webhook is not delivered
             }

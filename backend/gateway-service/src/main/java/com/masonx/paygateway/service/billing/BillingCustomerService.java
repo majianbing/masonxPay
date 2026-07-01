@@ -11,6 +11,7 @@ import com.masonx.paygateway.domain.billing.CustomerPaymentMethodRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodStatus;
 import com.masonx.paygateway.domain.instrument.PaymentInstrument;
 import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
+import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.AttachCustomerPaymentMethodRequest;
 import com.masonx.paygateway.web.dto.BillingCustomerRequest;
 import com.masonx.paygateway.web.dto.BillingCustomerResponse;
@@ -29,15 +30,18 @@ public class BillingCustomerService {
     private final CustomerPaymentMethodRepository paymentMethodRepository;
     private final PaymentInstrumentRepository paymentInstrumentRepository;
     private final ObjectMapper objectMapper;
+    private final GatewayIdService gatewayIdService;
 
     public BillingCustomerService(BillingCustomerRepository customerRepository,
                                   CustomerPaymentMethodRepository paymentMethodRepository,
                                   PaymentInstrumentRepository paymentInstrumentRepository,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  GatewayIdService gatewayIdService) {
         this.customerRepository = customerRepository;
         this.paymentMethodRepository = paymentMethodRepository;
         this.paymentInstrumentRepository = paymentInstrumentRepository;
         this.objectMapper = objectMapper;
+        this.gatewayIdService = gatewayIdService;
     }
 
     @Transactional(readOnly = true)
@@ -58,6 +62,7 @@ public class BillingCustomerService {
         customer.setMerchantId(merchantId);
         customer.setMode(mode);
         apply(customer, request);
+        gatewayIdService.assignBillingCustomer(customer);
         return response(customerRepository.save(customer));
     }
 
