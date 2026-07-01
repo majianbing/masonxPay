@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # single PVC, avoid two pods fighting over it during rollout
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: masonxpay/kafka:local
+          ports:
+            - containerPort: 9092
+            - containerPort: 9094
+            - containerPort: 7071
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@kafka:29093
+            - name: KAFKA_LISTENERS
+              value: CONTROLLER://:29093,PLAINTEXT://:9092,PLAINTEXT_HOST://:9094
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: PLAINTEXT
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS
+              value: "0"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_LOG_DIRS
+              value: /var/lib/kafka/data
+            - name: KAFKA_OPTS
+              value: -javaagent:/opt/kafka/libs/jmx_prometheus_javaagent.jar=7071:/opt/kafka/config/kafka-jmx.yml
+            - name: CLUSTER_ID
+              value: 4L6g3nShT-eMCtK--X86sw
+          volumeMounts:
+            - name: kafka-data
+              mountPath: /var/lib/kafka/data
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - env -u KAFKA_OPTS /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+      volumes:
+        - name: kafka-data
+          persistentVolumeClaim:
+            claimName: kafka-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi

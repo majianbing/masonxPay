@@ -1,0 +1,50 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: masonxpay
+
+resources:
+  - ../../base
+  - ingress.yaml
+
+# Same optional profiles as the minikube overlay. NOTE: in a real EKS
+# deployment, prefer managed services over these in-cluster stand-ins —
+# see README.md in this directory for the swap-out list (RDS, MSK, ElastiCache).
+components:
+  # - ../../components/kafka
+  # - ../../components/redis
+  # - ../../components/virtual-account
+  # - ../../components/rail
+
+secretGenerator:
+  - name: masonxpay-secrets
+    envs:
+      - secret.env
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Point at ECR instead of the locally-built minikube images. Replace
+# <ECR_REGISTRY> (e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com) and tag.
+images:
+  - name: masonxpay/gateway-service
+    newName: <ECR_REGISTRY>/masonxpay-gateway-service
+    newTag: latest
+  - name: masonxpay/dashboard
+    newName: <ECR_REGISTRY>/masonxpay-dashboard
+    newTag: latest
+  - name: masonxpay/kafka
+    newName: <ECR_REGISTRY>/masonxpay-kafka
+    newTag: latest
+  - name: masonxpay/virtual-account
+    newName: <ECR_REGISTRY>/masonxpay-virtual-account
+    newTag: latest
+  - name: masonxpay/rail-service
+    newName: <ECR_REGISTRY>/masonxpay-rail-service
+    newTag: latest
+  - name: masonxpay/rail-simulator
+    newName: <ECR_REGISTRY>/masonxpay-rail-simulator
+    newTag: latest
+
+patches:
+  - path: patch-production-sizing.yaml

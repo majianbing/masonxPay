@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: masonxpay-config
+data:
+  KAFKA_OUTBOX_ENABLED: "true"
+  KAFKA_WEBHOOK_CONSUMER_ENABLED: "true"
+  KAFKA_PAYMENT_PROJECTION_ENABLED: "true"
+  PAYMENT_PROJECTION_BACKFILL_ENABLED: "true"
+  # Kafka webhook consumer and the DB outbox poller both deliver webhooks;
+  # running both causes duplicate delivery — turn the poller off.
+  WEBHOOK_OUTBOX_POLLER_ENABLED: "false"

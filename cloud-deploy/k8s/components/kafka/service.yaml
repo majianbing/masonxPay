@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector:
+    app: kafka
+  ports:
+    - name: plaintext
+      port: 9092
+      targetPort: 9092
+    - name: plaintext-host
+      port: 9094
+      targetPort: 9094
+    - name: jmx-exporter
+      port: 7071
+      targetPort: 7071

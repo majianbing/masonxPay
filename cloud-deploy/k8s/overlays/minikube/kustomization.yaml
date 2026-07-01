@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: masonxpay
+
+resources:
+  - ../../base
+  - ingress.yaml
+
+# Default = the lightweight compose stack (postgres + gateway-service +
+# dashboard only). Uncomment components to mirror `docker compose --profile
+# infra|virtual-account|rail up`. kafka is a dependency of virtual-account
+# and rail — include it whenever either of those is enabled.
+components:
+  # - ../../components/kafka
+  # - ../../components/redis
+  # - ../../components/virtual-account
+  # - ../../components/rail
+
+secretGenerator:
+  - name: masonxpay-secrets
+    envs:
+      - secret.env
+
+generatorOptions:
+  disableNameSuffixHash: true
