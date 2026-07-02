@@ -1,0 +1,105 @@
+# Accounting-Grade Double-Entry — Refactor Plan
+
+Status: **Draft — pending review on branch `refactor/accounting-grade-double-entry`. No code changed yet.**
+
+`virtual-account-service`'s posting engine (`LedgerPostingService`, `NetZeroValidator`, `AssetConsistencyValidator`, `InsufficientBalanceValidator`, HMAC hash-chained `va_ledger_entry`) is a genuine double-entry system for everything that goes through it. This plan closes the gaps found by manual review + a second independent pass (codex): call sites that reach around the engine and mutate `va_account.balance` / `va_account.frozen_balance` directly, plus a couple of missing invariant checks inside the engine itself.
+
+## Goals
+
+- Fix the confirmed active correctness bug (stale-balance overwrite on card sale settlement).
+- Make the class of bug that caused it structurally impossible at the repository API level.
+- Model authorization holds (available → frozen) as real balanced ledger entries instead of a mutable counter, so the hold lifecycle is auditable and tamper-evident like every other movement.
+- Close the missing idempotency guarantee on card funding (hard boundary in `CLAUDE.md`).
+- Close the missing account-scope (mode/asset/tenant) check inside the posting engine.
+- Fix `closeCard` so it cannot silently discard an outstanding hold or leave a "closed" account still postable.
+
+## Non-Goals
+
+- No DB triggers enforcing net-zero or entry/transaction linkage — the partitioned (`HASH(account_id)`, 64 buckets) table layout makes cross-partition trigger enforcement expensive; a scheduled reconciliation job is the intended defense-in-depth instead (Phase 7, optional).
+- No change to `va_ledger_entry` immutability (append-only; corrections stay compensating entries, never `UPDATE`/`DELETE`).
+- No change to the sharding/partition design ([[project_va_ledger_sharding]] decisions stand).
+- No renaming of existing `VirtualCard`/VCC-specific identifiers ([[feedback_domain_naming_card_products]] — new accounts/entities introduced here use generic naming).
+
+## Findings (evidence basis for this plan)
+
+| # | Finding | Location | Severity |
+|---|---|---|---|
+| 1 | `handleCardSale` posts the ledger entry (which lowers `PREPAID_CARD.balance`), then immediately overwrites `va_account.balance` back to the **pre-post snapshot** while releasing the hold, because it reuses the `cardAccount` object fetched before `ledger.postIfNew(...)` ran. | `backend/virtual-account-service/src/main/java/com/masonx/virtualaccount/domain/CardRailSettlementHandler.java:91-111` | **Critical — active bug** |
+| 2 | No ledger entries exist for the available→held transition at all. `IssuerAuthService`, `CardRailSettlementHandler` (auth/reversal paths), and `VirtualCardService.closeCard` all mutate `frozen_balance` via direct `UPDATE`. `AccountRepository.updateBalance` accepts both `balance` and `frozen_balance` with no caller restriction, which is what made Finding 1 possible. | `.../vcc/IssuerAuthService.java:84-85`, `.../domain/CardRailSettlementHandler.java:109-111,133-135`, `.../vcc/VirtualCardService.java:190-191`, `.../domain/ledger/AccountRepository.java:139-143` | **Architectural — highest** |
+| 3 | `VirtualCardService.fundCard()` moves funds via `ledger.postDirect()` using a freshly generated Snowflake `txId` as `source_event_id` on every call. `FundVccRequest` carries no client idempotency key, so the DB `UNIQUE(account_id, source_event_id)` backstop never fires on a retry — a retried request double-funds the card. | `.../vcc/VirtualCardService.java:110-136`, `.../vcc/dto/FundVccRequest.java` | **High — real double-charge risk, violates CLAUDE.md's funds-movement idempotency boundary** |
+| 4 | `closeCard` force-zeroes `frozen_balance` directly (no entry) after the ledger sweep, and never sets `va_account.status = CLOSED` — only the `VirtualCard` row is marked closed, so the underlying account stays `ACTIVE` and postable. | `.../vcc/VirtualCardService.java:163-192` | **Medium** |
+| 5 | No validator checks that a posted entry's target account actually matches the transaction's declared `mode`/`merchantId`, or that the account's own `asset` matches the entry's `asset`. `AssetConsistencyValidator` only checks entries agree with *each other*. | `.../domain/ledger/validator/AssetConsistencyValidator.java`, `.../domain/ledger/PostTransaction.java` (only 3 validators registered total: `NetZeroValidator`, `AssetConsistencyValidator`, `InsufficientBalanceValidator`) | **Medium — tenant/mode isolation gap** |
+| 6 | No DB-level proof that all `va_ledger_entry` legs for a `transaction_id` sum to zero, or that every entry has a matching `va_transaction`; enforcement is Java-only. | `db/migration/va/V4__va_ledger_entry.sql`, `V8__va_transaction.sql` | **Low — defense-in-depth** |
+| 7 | `EntryStatus.REVERSED` is defined and documented but never set anywhere; every insert hardcodes `POSTED`. | `.../domain/constant/EntryStatus.java`, `.../domain/po/LedgerEntry.java` | **Low — will likely resolve as a side effect of Phase 5** |
+
+## Phase Plan
+
+Legend: pending until approved.
+
+| Phase | Scope | Verification |
+|---|---|---|
+| 0 | Approve this plan; decide the hold-modeling approach (Phase 5), the `fundCard` idempotency-key shape (Phase 4), and the close-with-open-hold policy (Phase 6). | Plan approved; no code. |
+| 1 | Fix the Finding 1 stale-balance overwrite in `handleCardSale`. | `cd backend && mvn -pl virtual-account-service test` passes; add a regression test asserting `va_account.balance` matches the posted entry's `balance_after` after a card-sale settlement. |
+| 2 | Narrow `AccountRepository.updateBalance` into `updateBalance(accountId, newBalance)` (ledger-owned, called only from `LedgerPostingService`) and `updateFrozenBalance(accountId, newFrozenBalance)` (used by the remaining direct hold call sites until Phase 5 lands). Makes the Finding 1 bug class structurally impossible elsewhere. | `mvn -pl virtual-account-service test` passes; no call site can pass a stale `balance` into a frozen-only update. |
+| 3 | Add an account-scope `EntryValidator`/`TransactionValidator`: `account.asset()` must equal `draft.asset()`; `account.mode()` must equal `tx.mode()`; for `TENANT` accounts, `account.merchantId()` must equal `tx.merchantId()`. | New validator unit tests; `mvn -pl virtual-account-service test` passes. |
+| 4 | Fix `fundCard()` idempotency: add a request idempotency key to `FundVccRequest`, route through `LedgerFacade.postIfNew` (inbox-backed) instead of `postDirect` + fresh Snowflake `source_event_id`. | Regression test: two identical `fundCard` calls with the same key post exactly one journal. |
+| 5 | Model authorization holds as real ledger entries (see Implementation Details below). Retire `frozen_balance` as an independently-mutated column; derive it from the paired hold account. Move `IssuerAuthService` and both `CardRailSettlementHandler` auth/reversal/settlement paths onto `LedgerFacade`. Wire `EntryStatus.REVERSED` on reversal entries. | New migration + entity/service tests; `mvn -pl virtual-account-service,rail-service -am test` passes; MR-suite rail settlement tests still pass. |
+| 6 | Fix `closeCard`: release any outstanding hold through a real reversal entry (or reject close while a hold exists — see Review Questions), then set `va_account.status = CLOSED` on the card account (and its paired hold account). | Regression test: closing a card with an open hold either auto-releases it via a ledger entry or is rejected with a clear error; closed account rejects further postings via the existing `AccountStatus.ACTIVE` check. |
+| 7 | Optional: scheduled reconciliation job — Σdebits = Σcredits per `transaction_id`; `va_account.balance` matches the account's last `balance_after`. No DB triggers. | Job runs in a non-prod profile first; alerts wired before enabling broadly. Can be deferred to Phase 15 platform-maturity work. |
+
+## High-Priority Implementation Details
+
+### Phase 1 — stale-balance fix
+
+`handleCardSale` must use the balance the ledger actually wrote, not the pre-post snapshot, when releasing the hold. Two ways to get there:
+- Re-fetch the account (`accountRepo.findByIdForUpdate`) after `ledger.postIfNew` returns `true`, before computing `newFrozen`.
+- Or (cleaner, and what Phase 2 pushes toward) stop passing `balance` into the frozen-release call at all — use `updateFrozenBalance(accountId, newFrozen)` so there is no `balance` argument to go stale.
+
+Given Phase 2 lands immediately after, prefer landing Phase 2's narrower method first if sequencing allows; otherwise fix Phase 1 with a re-fetch and let Phase 2 remove the sharp edge.
+
+### Phase 5 — authorization holds as ledger entries
+
+Recommended shape (fits the existing append-only, HMAC-chained engine without a `PENDING`/mutate-in-place status, which the migration comment explicitly disallows — "NEVER UPDATE or DELETE rows"):
+
+- Every `PREPAID_CARD` account gets a paired hold account, same `accountRole`/`orgId`/`merchantId`/`asset`, created at card-creation time. New `AccountType.PREPAID_CARD_HOLD` (generic naming per [[feedback_domain_naming_card_products]] — not VCC-specific).
+- **Auth placement** (`IssuerAuthService.authorize`): `DR PREPAID_CARD_HOLD / CR PREPAID_CARD` for the auth amount, posted through `LedgerFacade`. This is the entry that currently doesn't exist at all.
+- **Auth reversal** (`CardRailSettlementHandler.handleCardReversal`, currently posts *nothing*): `DR PREPAID_CARD / CR PREPAID_CARD_HOLD` — a real reversing entry, `EntryStatus` semantics can mark the transaction type as reversal.
+- **Settlement** (`CardRailSettlementHandler.handleCardSale`): change from `DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD` to `DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD_HOLD` — releases the hold into the network payable instead of crediting the primary account a second time (which is the root cause Finding 1 exploited).
+- `VaAccount.frozenBalance()` becomes a derived read of the paired hold account's balance rather than a stored/mutated column; `availableBalance()` becomes just the primary account's own `balance`.
+- This needs a schema migration (new `PREPAID_CARD_HOLD` accounts, a link from card → hold account — likely on `virtual_card` or `va_account` itself) and touches `IssuerAuthService`, `CardRailSettlementHandler`, `VirtualCardService`, `VaAccount`, `AccountResponse`/`VccResponse` DTOs. Highest-risk phase — do it only after Phases 1-4 are shipped and stable.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Phase 5 schema/behavior change touches live card-issuing accounts | Additive migration (new hold accounts alongside existing ones); keep `frozen_balance` column readable and dual-verified against the derived value for a transition window before removing it. |
+| Changing `CardRailSettlementHandler` entry shape changes what new transactions look like vs. historical ones | Only applies going forward; historical `va_ledger_entry` rows are immutable and are not rewritten. |
+| `fundCard` request-shape change (idempotency key) breaks existing callers | Add the key as optional first, reject unkeyed requests only after caller migration — same additive pattern used in [[project_phase_mr]]/gateway-id-standardization precedent. |
+| Rejecting `closeCard` on an open hold surprises callers relying on today's silent-zero behavior | Return a specific error (e.g. `VA_CARD_HAS_OPEN_HOLD`) and document the required release-then-close flow; or auto-release via a real reversal entry — decide in Phase 0. |
+| New account-scope validator (Phase 3) false-positives on a legitimate cross-scope posting (e.g. platform fee/clearing accounts) | Write validator tests against every existing `TransactionType` produced today (`CARD_SALE`, `BANK_TRANSFER`, `REVERSAL`, `INTERNAL`) before enabling; scope the merchantId check to `TENANT`-role accounts only, not `PLATFORM`/`EXTERNAL`. |
+
+## Review Questions
+
+1. Hold model: paired `PREPAID_CARD_HOLD` sub-account (recommended above) vs. `PENDING`-status entries against the same account? The latter needs a status-flip mechanism that sits awkwardly against this table's append-only design.
+2. Once holds are derived from the ledger, should the `frozen_balance` column on `va_account` be dropped entirely, or kept as a materialized cache synced on every posting (read-performance tradeoff)?
+3. For `fundCard`, should the idempotency key be caller-supplied (merchant sends a request ID) or derived server-side from a natural key (e.g. `cardId` + amount + a caller-supplied client reference)?
+4. `closeCard` with an open hold: auto-release via a reversal entry, or hard-reject until the caller releases it explicitly?
+5. Does the Phase 3 account-scope validator need an escape hatch for any legitimate cross-tenant/cross-mode posting, or is "always same mode, tenant accounts always match merchantId" a safe universal invariant given today's `TransactionType`s?
+
+## Initial Recommendation
+
+Approve Phases 1-4 first — independent of each other, low risk, no schema changes, fast to ship:
+1. Fix the active stale-balance bug.
+2. Narrow the repository API so that bug class can't recur.
+3. Add the missing account-scope validator.
+4. Fix `fundCard` idempotency.
+
+Then design-review Phase 5 in detail (it's the actual "accounting-grade" deliverable this branch is named for) before writing any migration. Phase 6 depends on Phase 5's hold-release mechanism. Phase 7 is optional and can be deferred to the Phase 15 platform-maturity track per `CLAUDE.md`.
+
+## Progress
+
+Not started.
+
+## Changelog
+
+- 2026-07-02: Plan created on branch `refactor/accounting-grade-double-entry` from manual review + independent codex pass findings.
