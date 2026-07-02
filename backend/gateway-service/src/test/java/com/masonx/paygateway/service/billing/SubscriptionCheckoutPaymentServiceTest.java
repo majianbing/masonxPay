@@ -21,6 +21,7 @@ import com.masonx.paygateway.domain.instrument.InstrumentSource;
 import com.masonx.paygateway.domain.instrument.InstrumentType;
 import com.masonx.paygateway.domain.instrument.PaymentInstrument;
 import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
@@ -415,7 +416,11 @@ class SubscriptionCheckoutPaymentServiceTest {
         assertThat(attemptCaptor.getValue().getProviderIdempotencyKey()).isEqualTo(intent.getIdempotencyKey());
         verify(customerPaymentMethodRepository).clearDefault(merchantId, customerId);
         verify(customerPaymentMethodRepository).save(any(CustomerPaymentMethod.class));
-        verify(outboxEventRepository).save(any());
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository, times(2)).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getAllValues())
+                .extracting(OutboxEvent::getEventType)
+                .containsExactlyInAnyOrder("subscription.activated", "payment_intent.succeeded");
         verify(metrics).recordIntentConfirmed(eq("SIMULATOR"), eq("SUCCEEDED"), isNull());
 
         // A second resume call (e.g. duplicate poll/postMessage) must not re-activate.

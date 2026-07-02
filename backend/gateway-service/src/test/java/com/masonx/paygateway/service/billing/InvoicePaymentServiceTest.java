@@ -20,6 +20,7 @@ import com.masonx.paygateway.domain.instrument.InstrumentSource;
 import com.masonx.paygateway.domain.instrument.InstrumentType;
 import com.masonx.paygateway.domain.instrument.PaymentInstrument;
 import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.PaymentIntent;
 import com.masonx.paygateway.domain.payment.PaymentIntentRepository;
@@ -125,6 +126,12 @@ class InvoicePaymentServiceTest {
         verify(attemptRepository).save(attemptCaptor.capture());
         assertThat(attemptCaptor.getValue().getStatus()).isEqualTo(InvoicePaymentAttemptStatus.SUCCEEDED);
         assertThat(attemptCaptor.getValue().getMode()).isEqualTo(ApiKeyMode.TEST);
+
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository, org.mockito.Mockito.times(2)).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getAllValues())
+                .extracting(OutboxEvent::getEventType)
+                .containsExactlyInAnyOrder("payment_intent.succeeded", "invoice.paid");
     }
 
     @Test
@@ -146,6 +153,12 @@ class InvoicePaymentServiceTest {
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.OPEN);
         assertThat(invoice.getNextPaymentAttemptAt()).isNotNull();
         assertThat(sub.getStatus()).isEqualTo(SubscriptionStatus.PAST_DUE);
+
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository, org.mockito.Mockito.times(2)).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getAllValues())
+                .extracting(OutboxEvent::getEventType)
+                .containsExactlyInAnyOrder("payment_intent.failed", "invoice.payment_failed");
     }
 
     @Test

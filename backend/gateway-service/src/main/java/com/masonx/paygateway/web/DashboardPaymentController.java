@@ -168,6 +168,7 @@ public class DashboardPaymentController {
                 String term = "%" + search.toLowerCase() + "%";
                 predicates.add(cb.or(
                         cb.like(cb.lower(root.get("id").as(String.class)), term),
+                        cb.like(cb.lower(root.get("externalId")), term),
                         cb.like(cb.lower(root.get("providerPaymentId")), term),
                         cb.like(cb.lower(root.get("orderId")), term),
                         cb.like(cb.lower(root.get("description")), term)));
