@@ -5,6 +5,7 @@ import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.validator.AssetConsistencyValidator;
+import com.masonx.virtualaccount.domain.ledger.validator.AccountScopeValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.InsufficientBalanceValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.NetZeroValidator;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
@@ -43,13 +44,14 @@ class LedgerPostingServiceTest {
                 accountRepo, entryRepo, txRepo, signatureService,
                 new SnowflakeIdGenerator(0),
                 List.of(new AssetConsistencyValidator(), new NetZeroValidator()),
+                List.of(new AccountScopeValidator()),
                 List.of(new InsufficientBalanceValidator()));
     }
 
     private PostTransaction tx(List<EntryDraft> entries) {
         return new PostTransaction("tx_1", entries,
                 TransactionType.INTERNAL, null, null,
-                LocalDate.of(2026, 1, 1), Mode.LIVE, null, null);
+                LocalDate.of(2026, 1, 1), Mode.LIVE, "org_1", "mer_1");
     }
 
     // --- helpers ---

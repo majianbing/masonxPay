@@ -8,6 +8,7 @@ import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.EntryStatus;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.ledger.validator.api.EntryValidator;
+import com.masonx.virtualaccount.domain.ledger.validator.api.LockedAccountValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.api.TransactionValidator;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
 import com.masonx.virtualaccount.domain.po.VaAccount;
@@ -46,6 +47,7 @@ public class LedgerPostingService {
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator idGenerator;
     private final List<TransactionValidator> txValidators;
+    private final List<LockedAccountValidator> lockedAccountValidators;
     private final List<EntryValidator> entryValidators;
 
     public LedgerPostingService(AccountRepository accountRepo,
@@ -54,6 +56,7 @@ public class LedgerPostingService {
                                 BalanceSignatureService signatureService,
                                 SnowflakeIdGenerator idGenerator,
                                 List<TransactionValidator> txValidators,
+                                List<LockedAccountValidator> lockedAccountValidators,
                                 List<EntryValidator> entryValidators) {
         this.accountRepo = accountRepo;
         this.entryRepo = entryRepo;
@@ -61,6 +64,7 @@ public class LedgerPostingService {
         this.signatureService = signatureService;
         this.idGenerator = idGenerator;
         this.txValidators = txValidators;
+        this.lockedAccountValidators = lockedAccountValidators;
         this.entryValidators = entryValidators;
     }
 
@@ -99,6 +103,10 @@ public class LedgerPostingService {
         for (EntryDraft draft : tx.entries()) {
             VaAccount account = accounts.get(draft.accountId());
             BigDecimal newBalance = computeNewBalance(account, draft);
+
+            for (LockedAccountValidator v : lockedAccountValidators) {
+                v.validate(tx, draft, account, newBalance);
+            }
 
             for (EntryValidator v : entryValidators) {
                 v.validate(draft, account, newBalance);
