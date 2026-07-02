@@ -19,9 +19,13 @@ import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -123,14 +127,15 @@ public class VirtualCardService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Owner account not found for card: " + cardId));
         String txId = idGen.generate(MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix());
+        String eventId = fundEventId(cardId, req.idempotencyKey());
         PostTransaction tx = new PostTransaction(txId, List.of(
                 new EntryDraft(card.vccAccountId(), Direction.DEBIT,
-                        req.amount(), card.currency(), txId),
+                        req.amount(), card.currency(), eventId),
                 new EntryDraft(card.ownerAccountId(), Direction.CREDIT,
-                        req.amount(), card.currency(), txId)
+                        req.amount(), card.currency(), eventId)
         ), TransactionType.INTERNAL, "Fund card " + cardId, null,
                 LocalDate.now(), ownerAcct.mode(), ownerAcct.orgId(), ownerAcct.merchantId());
-        ledger.postDirect(tx);
+        ledger.postIfNew(tx, eventId, "vcc-card-fund");
 
         return getCard(cardId);
     }
@@ -212,5 +217,15 @@ public class VirtualCardService {
 
     private static String randomPanSuffix() {
         return String.format("%010d", ThreadLocalRandom.current().nextLong(10_000_000_000L));
+    }
+
+    private static String fundEventId(String cardId, String idempotencyKey) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((cardId + ":" + idempotencyKey).getBytes(StandardCharsets.UTF_8));
+            return "vcc_fund_" + HexFormat.of().formatHex(hash).substring(0, 48);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest unavailable", e);
+        }
     }
 }

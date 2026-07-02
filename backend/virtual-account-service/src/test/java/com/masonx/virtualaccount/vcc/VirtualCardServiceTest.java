@@ -11,11 +11,14 @@ import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
 import com.masonx.virtualaccount.domain.ledger.AccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
+import com.masonx.virtualaccount.domain.ledger.PostTransaction;
 import com.masonx.virtualaccount.domain.po.VaAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.vcc.dto.FundVccRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -24,8 +27,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -75,7 +82,36 @@ class VirtualCardServiceTest {
 
         verify(virtualCardRepo).updateStatus(CARD_ID, VirtualCardStatus.CLOSED);
         verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, AccountStatus.CLOSED);
-        verify(ledger, never()).postDirect(org.mockito.ArgumentMatchers.any());
+        verify(ledger, never()).postDirect(any());
+    }
+
+    @Test
+    void fundCard_uses_stable_idempotency_event_for_retries() {
+        when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(accountRepo.findById(VCC_ACCOUNT_ID)).thenReturn(
+                Optional.of(vccAccount(new BigDecimal("25.00"), BigDecimal.ZERO)));
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix()))
+                .thenReturn("tx_fund_1", "tx_fund_2");
+        when(ledger.postIfNew(any(), any(), eq("vcc-card-fund"))).thenReturn(true, false);
+
+        FundVccRequest req = new FundVccRequest(MERCHANT_ID, "client-request-1", new BigDecimal("25.00"));
+
+        service.fundCard(CARD_ID, req);
+        service.fundCard(CARD_ID, req);
+
+        ArgumentCaptor<PostTransaction> txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
+        ArgumentCaptor<String> eventCaptor = ArgumentCaptor.forClass(String.class);
+        verify(ledger, times(2)).postIfNew(txCaptor.capture(), eventCaptor.capture(), eq("vcc-card-fund"));
+        verify(ledger, never()).postDirect(any());
+
+        assertThat(eventCaptor.getAllValues()).hasSize(2);
+        assertThat(eventCaptor.getAllValues().get(0)).isEqualTo(eventCaptor.getAllValues().get(1));
+        assertThat(eventCaptor.getAllValues().get(0)).startsWith("vcc_fund_");
+        assertThat(txCaptor.getAllValues())
+                .allSatisfy(tx -> assertThat(tx.entries())
+                        .allSatisfy(entry -> assertThat(entry.sourceEventId())
+                                .isEqualTo(eventCaptor.getAllValues().get(0))));
     }
 
     private static VirtualCard card() {
