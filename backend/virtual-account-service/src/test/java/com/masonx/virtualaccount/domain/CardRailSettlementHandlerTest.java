@@ -40,6 +40,7 @@ class CardRailSettlementHandlerTest {
     private static final String MASKED_PAN  = "999999****1234";
     private static final String MERCHANT_ID = "mer_abc";
     private static final String CARD_ACCT   = "ac_card_1";
+    private static final String HOLD_ACCT   = "ac_card_hold_1";
     private static final String WALLET_ACCT = "ac_wallet_1";
     private static final String RECEIVABLE_CARD_ACCT = "ac_rcv_visa";
     private static final String RECEIVABLE_BANK_ACCT = "ac_rcv_sepa";
@@ -72,7 +73,7 @@ class CardRailSettlementHandlerTest {
 
     private VirtualCard card() {
         return new VirtualCard(
-                "card_1", MASKED_PAN, "999999", CARD_ACCT, WALLET_ACCT,
+                "card_1", MASKED_PAN, "999999", CARD_ACCT, HOLD_ACCT, WALLET_ACCT,
                 VirtualCardStatus.ACTIVE, new BigDecimal("500.00"), "USD",
                 null, Instant.now(), Instant.now());
     }
@@ -83,6 +84,14 @@ class CardRailSettlementHandlerTest {
                 "org_1", MERCHANT_ID, null,
                 AccountType.PREPAID_CARD, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, balance, frozen, AccountStatus.ACTIVE);
+    }
+
+    private VaAccount holdAccount(BigDecimal balance) {
+        return new VaAccount(
+                HOLD_ACCT, Mode.TEST, AccountRole.TENANT,
+                "org_1", MERCHANT_ID, null,
+                AccountType.PREPAID_CARD_HOLD, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, balance, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private VaAccount receivableAccount(String id, AccountType type, String providerId) {
@@ -106,10 +115,12 @@ class CardRailSettlementHandlerTest {
     void card_sale_posts_journal_debit_receivable_credit_card_account() {
         VirtualCard testCard = card();
         VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
-        when(accountRepo.findByIdForUpdate(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
         when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
         when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-sale"))).thenReturn(true);
@@ -128,46 +139,44 @@ class CardRailSettlementHandlerTest {
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
 
         assertThat(debitEntry.accountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
-        assertThat(creditEntry.accountId()).isEqualTo(CARD_ACCT);
+        assertThat(creditEntry.accountId()).isEqualTo(HOLD_ACCT);
         assertThat(debitEntry.amount()).isEqualByComparingTo("100.00");
         assertThat(creditEntry.amount()).isEqualByComparingTo("100.00");
     }
 
     @Test
-    void card_sale_releases_frozen_balance_after_posting() {
+    void card_sale_does_not_mutate_frozen_balance_after_posting() {
         VirtualCard testCard = card();
         VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
-        when(accountRepo.findByIdForUpdate(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
         when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
         when(ledger.postIfNew(any(), any(), any())).thenReturn(true);
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
-
-        // frozen 100.00 − sale 100.00 = 0.00
-        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
-                argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
     }
 
     @Test
     void card_sale_duplicate_event_skips_balance_update() {
         VirtualCard testCard = card();
         VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
-        when(accountRepo.findByIdForUpdate(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
         when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
         // Duplicate delivery → postIfNew returns false
         when(ledger.postIfNew(any(), any(), any())).thenReturn(false);
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
-
-        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     @Test
@@ -189,36 +198,43 @@ class CardRailSettlementHandlerTest {
     // ── CARD_REVERSAL ─────────────────────────────────────────────────────────
 
     @Test
-    void card_reversal_releases_frozen_balance_without_ledger_entry() {
+    void card_reversal_posts_journal_debit_card_credit_hold_account() {
         VirtualCard testCard = card();
         VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
-        when(accountRepo.findByIdForUpdate(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
+        when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(true);
 
         handler.handle(event(MoneyMovementType.CARD_REVERSAL, MASKED_PAN, MERCHANT_ID));
 
-        // No ledger entry — auth never posted one
-        verifyNoInteractions(ledger);
-        // frozen 100.00 − reversal 100.00 = 0.00
-        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
-                argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
+        var txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
+        verify(ledger).postIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-reversal"));
+
+        EntryDraft debitEntry = txCaptor.getValue().entries().stream()
+                .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
+        EntryDraft creditEntry = txCaptor.getValue().entries().stream()
+                .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
+        assertThat(debitEntry.accountId()).isEqualTo(CARD_ACCT);
+        assertThat(creditEntry.accountId()).isEqualTo(HOLD_ACCT);
     }
 
     @Test
-    void card_reversal_clamps_frozen_balance_to_zero_if_already_released() {
-        // Defensive: frozen balance less than reversal amount (e.g. partial earlier release)
+    void card_reversal_duplicate_event_skips_second_journal() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("50.00"));
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), BigDecimal.ZERO);
+        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
-        when(accountRepo.findByIdForUpdate(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
+        when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(false);
 
         handler.handle(event(MoneyMovementType.CARD_REVERSAL, MASKED_PAN, MERCHANT_ID));
 
-        // 50.00 − 100.00 = −50.00 → clamped to 0.00
-        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
-                argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
+        verify(ledger).postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"));
     }
 
     // ── BANK_CREDIT_TRANSFER ─────────────────────────────────────────────────
@@ -267,7 +283,6 @@ class CardRailSettlementHandlerTest {
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, MERCHANT_ID));
 
         verify(ledger, times(1)).postIfNew(any(), any(), any());
-        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     @Test
@@ -275,7 +290,6 @@ class CardRailSettlementHandlerTest {
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, null));
 
         verifyNoInteractions(ledger);
-        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     // ── BANK_RETURN ───────────────────────────────────────────────────────────

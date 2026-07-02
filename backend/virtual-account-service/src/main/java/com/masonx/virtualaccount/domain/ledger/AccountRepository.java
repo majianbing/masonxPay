@@ -135,18 +135,11 @@ public class AccountRepository {
                 """, ROW_MAPPER, mode.name(), asset);
     }
 
-    /** Updates posted balance and frozen balance atomically — ledger engine only. */
-    void updateLedgerBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
+    /** Updates posted balance atomically — ledger engine only. */
+    void updateLedgerBalance(String accountId, BigDecimal balance) {
         jdbc.update(
-                "UPDATE va_account SET balance = ?, frozen_balance = ?, updated_at = now() WHERE account_id = ?",
-                balance, frozenBalance, accountId);
-    }
-
-    /** Updates only frozen_balance, leaving the ledger-owned posted balance untouched. */
-    public void updateFrozenBalance(String accountId, BigDecimal frozenBalance) {
-        jdbc.update(
-                "UPDATE va_account SET frozen_balance = ?, updated_at = now() WHERE account_id = ?",
-                frozenBalance, accountId);
+                "UPDATE va_account SET balance = ?, updated_at = now() WHERE account_id = ?",
+                balance, accountId);
     }
 
     public void updateStatus(String accountId, AccountStatus status) {

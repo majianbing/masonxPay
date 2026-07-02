@@ -18,6 +18,8 @@ public enum AccountType {
     // Phase MR — multi-rail infrastructure
     /** Ring-fenced wallet bound to a VirtualCard lifecycle (TENANT). NormalBalance: DEBIT. */
     PREPAID_CARD,
+    /** Paired account holding authorized-but-unsettled prepaid card funds (TENANT). NormalBalance: DEBIT. */
+    PREPAID_CARD_HOLD,
     /** Amounts owed by card network between sale and settlement batch (EXTERNAL). NormalBalance: DEBIT. */
     CARD_NETWORK_RECEIVABLE,
     /** Amounts owed from bank rail between pain.001 initiation and pacs.002 ACSC (EXTERNAL). NormalBalance: DEBIT. */

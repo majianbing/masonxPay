@@ -23,14 +23,15 @@ public class VirtualCardRepository {
     public void save(VirtualCard card) {
         jdbc.update("""
                 INSERT INTO virtual_card (
-                    card_id, masked_pan, bin, vcc_account_id, owner_account_id,
+                    card_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
                     status, spending_limit, currency, expiry
-                ) VALUES (?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
                 """,
                 card.cardId(),
                 card.maskedPan(),
                 card.bin(),
                 card.vccAccountId(),
+                card.holdAccountId(),
                 card.ownerAccountId(),
                 card.status().name(),
                 card.spendingLimit(),
@@ -103,6 +104,7 @@ public class VirtualCardRepository {
                 rs.getString("masked_pan"),
                 rs.getString("bin"),
                 rs.getString("vcc_account_id"),
+                rs.getString("hold_account_id"),
                 rs.getString("owner_account_id"),
                 VirtualCardStatus.valueOf(rs.getString("status")),
                 rs.getBigDecimal("spending_limit"),

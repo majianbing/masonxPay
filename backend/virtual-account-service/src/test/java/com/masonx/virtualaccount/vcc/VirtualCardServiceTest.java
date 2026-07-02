@@ -14,6 +14,7 @@ import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
 import com.masonx.virtualaccount.domain.ledger.PostTransaction;
 import com.masonx.virtualaccount.domain.po.VaAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.vcc.dto.CreateVccRequest;
 import com.masonx.virtualaccount.vcc.dto.FundVccRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,7 @@ class VirtualCardServiceTest {
 
     private static final String CARD_ID = "card_1";
     private static final String VCC_ACCOUNT_ID = "ac_card";
+    private static final String HOLD_ACCOUNT_ID = "ac_card_hold";
     private static final String OWNER_ACCOUNT_ID = "ac_owner";
     private static final String MERCHANT_ID = "mer_1";
 
@@ -60,7 +62,9 @@ class VirtualCardServiceTest {
     void closeCard_rejects_open_authorization_hold() {
         when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
         when(accountRepo.findByIdForUpdate(VCC_ACCOUNT_ID)).thenReturn(
-                Optional.of(vccAccount(BigDecimal.ZERO, new BigDecimal("25.00"))));
+                Optional.of(vccAccount(BigDecimal.ZERO)));
+        when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(
+                Optional.of(holdAccount(new BigDecimal("25.00"))));
         when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
 
         assertThatThrownBy(() -> service.closeCard(CARD_ID, MERCHANT_ID))
@@ -75,13 +79,16 @@ class VirtualCardServiceTest {
     void closeCard_marks_card_and_backing_account_closed_when_no_balance_or_hold() {
         when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
         when(accountRepo.findByIdForUpdate(VCC_ACCOUNT_ID)).thenReturn(
-                Optional.of(vccAccount(BigDecimal.ZERO, BigDecimal.ZERO)));
+                Optional.of(vccAccount(BigDecimal.ZERO)));
+        when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(
+                Optional.of(holdAccount(BigDecimal.ZERO)));
         when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
 
         service.closeCard(CARD_ID, MERCHANT_ID);
 
         verify(virtualCardRepo).updateStatus(CARD_ID, VirtualCardStatus.CLOSED);
         verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, AccountStatus.CLOSED);
+        verify(accountRepo).updateStatus(HOLD_ACCOUNT_ID, AccountStatus.CLOSED);
         verify(ledger, never()).postDirect(any());
     }
 
@@ -90,7 +97,8 @@ class VirtualCardServiceTest {
         when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
         when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
         when(accountRepo.findById(VCC_ACCOUNT_ID)).thenReturn(
-                Optional.of(vccAccount(new BigDecimal("25.00"), BigDecimal.ZERO)));
+                Optional.of(vccAccount(new BigDecimal("25.00"))));
+        when(accountRepo.findById(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount(BigDecimal.ZERO)));
         when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix()))
                 .thenReturn("tx_fund_1", "tx_fund_2");
         when(ledger.postIfNew(any(), any(), eq("vcc-card-fund"))).thenReturn(true, false);
@@ -114,12 +122,36 @@ class VirtualCardServiceTest {
                                 .isEqualTo(eventCaptor.getAllValues().get(0))));
     }
 
+    @Test
+    void createCard_creates_primary_and_hold_accounts() {
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VCC_ACCOUNT.prefix()))
+                .thenReturn(VCC_ACCOUNT_ID, HOLD_ACCOUNT_ID);
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VIRTUAL_CARD.prefix()))
+                .thenReturn(CARD_ID);
+
+        service.createCard(new CreateVccRequest(
+                MERCHANT_ID, OWNER_ACCOUNT_ID, "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1)));
+
+        ArgumentCaptor<VaAccount> accountCaptor = ArgumentCaptor.forClass(VaAccount.class);
+        verify(accountRepo, times(2)).save(accountCaptor.capture());
+        assertThat(accountCaptor.getAllValues())
+                .extracting(VaAccount::accountType)
+                .containsExactly(AccountType.PREPAID_CARD, AccountType.PREPAID_CARD_HOLD);
+
+        ArgumentCaptor<VirtualCard> cardCaptor = ArgumentCaptor.forClass(VirtualCard.class);
+        verify(virtualCardRepo).save(cardCaptor.capture());
+        assertThat(cardCaptor.getValue().vccAccountId()).isEqualTo(VCC_ACCOUNT_ID);
+        assertThat(cardCaptor.getValue().holdAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
+    }
+
     private static VirtualCard card() {
         return new VirtualCard(
                 CARD_ID,
                 "999999****1234",
                 "999999",
                 VCC_ACCOUNT_ID,
+                HOLD_ACCOUNT_ID,
                 OWNER_ACCOUNT_ID,
                 VirtualCardStatus.ACTIVE,
                 null,
@@ -129,7 +161,7 @@ class VirtualCardServiceTest {
                 Instant.now());
     }
 
-    private static VaAccount vccAccount(BigDecimal balance, BigDecimal frozenBalance) {
+    private static VaAccount vccAccount(BigDecimal balance) {
         return new VaAccount(
                 VCC_ACCOUNT_ID,
                 Mode.LIVE,
@@ -143,7 +175,25 @@ class VirtualCardServiceTest {
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                frozenBalance,
+                BigDecimal.ZERO,
+                AccountStatus.ACTIVE);
+    }
+
+    private static VaAccount holdAccount(BigDecimal balance) {
+        return new VaAccount(
+                HOLD_ACCOUNT_ID,
+                Mode.LIVE,
+                AccountRole.TENANT,
+                "org_1",
+                MERCHANT_ID,
+                null,
+                AccountType.PREPAID_CARD_HOLD,
+                "USD",
+                AssetClass.FIAT,
+                2,
+                NormalBalance.DEBIT,
+                balance,
+                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }
 

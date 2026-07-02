@@ -20,7 +20,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -30,10 +29,8 @@ import java.util.UUID;
  *
  * <p>Handles four movement types:
  * <ul>
- *   <li><b>CARD_SALE</b> — DR CARD_NETWORK_RECEIVABLE / CR card account (PREPAID_CARD);
- *       releases the frozen amount that was set at auth (0100/0110).
- *   <li><b>CARD_REVERSAL</b> — no ledger entry (auth never posted one);
- *       releases the frozen amount so the card balance is restored.
+ *   <li><b>CARD_SALE</b> — DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD_HOLD.
+ *   <li><b>CARD_REVERSAL</b> — DR PREPAID_CARD / CR PREPAID_CARD_HOLD.
  *   <li><b>BANK_CREDIT_TRANSFER</b> — DR BANK_RAIL_RECEIVABLE / CR merchant WALLET.
  *   <li><b>BANK_RETURN</b> — reverses the settlement: DR merchant WALLET / CR BANK_RAIL_RECEIVABLE.
  * </ul>
@@ -88,9 +85,12 @@ public class CardRailSettlementHandler {
         VirtualCard card = findCardByMaskedPan(event.maskedPan(), eventId);
         if (card == null) return;
 
-        VaAccount cardAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
+        VaAccount cardAccount = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + card.cardId()));
+        VaAccount holdAccount = accountRepo.findById(card.holdAccountId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
 
         VaAccount receivable = findReceivableAccount(
                 event.networkName(), event.asset(), AccountType.CARD_NETWORK_RECEIVABLE, eventId);
@@ -99,16 +99,12 @@ public class CardRailSettlementHandler {
         String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(receivable.accountId(),   Direction.DEBIT,  event.amount(), event.asset(), eventId),
-                new EntryDraft(cardAccount.accountId(),  Direction.CREDIT, event.amount(), event.asset(), eventId)
+                new EntryDraft(holdAccount.accountId(),  Direction.CREDIT, event.amount(), event.asset(), eventId)
         ), TransactionType.CARD_SALE, "Card sale " + event.maskedPan(), event.railPaymentId(),
                 LocalDate.now(), cardAccount.mode(), cardAccount.orgId(), cardAccount.merchantId()),
                 eventId, "rail-card-sale");
 
         if (posted) {
-            // Release the freeze set at auth time (0100/0110).
-            BigDecimal newFrozen = cardAccount.frozenBalance().subtract(event.amount())
-                    .max(BigDecimal.ZERO);
-            accountRepo.updateFrozenBalance(cardAccount.accountId(), newFrozen);
             log.info("Card sale journal posted: eventId={} cardId={} amount={}",
                     eventId, card.cardId(), event.amount());
         } else {
@@ -126,16 +122,27 @@ public class CardRailSettlementHandler {
         VirtualCard card = findCardByMaskedPan(event.maskedPan(), eventId);
         if (card == null) return;
 
-        VaAccount cardAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
+        VaAccount cardAccount = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + card.cardId()));
+        VaAccount holdAccount = accountRepo.findById(card.holdAccountId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
 
-        BigDecimal newFrozen = cardAccount.frozenBalance().subtract(event.amount())
-                .max(BigDecimal.ZERO);
-        accountRepo.updateFrozenBalance(cardAccount.accountId(), newFrozen);
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
+        boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
+                new EntryDraft(cardAccount.accountId(), Direction.DEBIT, event.amount(), event.asset(), eventId),
+                new EntryDraft(holdAccount.accountId(), Direction.CREDIT, event.amount(), event.asset(), eventId)
+        ), TransactionType.REVERSAL, "Card auth reversal " + event.maskedPan(), event.railPaymentId(),
+                LocalDate.now(), cardAccount.mode(), cardAccount.orgId(), cardAccount.merchantId()),
+                eventId, "rail-card-reversal");
 
-        log.info("Card reversal freeze released: eventId={} cardId={} amount={}",
-                eventId, card.cardId(), event.amount());
+        if (posted) {
+            log.info("Card reversal journal posted: eventId={} cardId={} amount={}",
+                    eventId, card.cardId(), event.amount());
+        } else {
+            log.info("Card reversal duplicate skipped: eventId={}", eventId);
+        }
     }
 
     // ── Bank transfer settled (pacs.002 ACSC) ────────────────────────────────

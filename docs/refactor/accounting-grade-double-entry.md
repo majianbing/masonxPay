@@ -109,9 +109,10 @@ Then design-review Phase 5 in detail (it's the actual "accounting-grade" deliver
 - Phase 3 complete: locked-account scope validator added for asset, mode, and tenant checks.
 - Phase 4 complete: `fundCard` now requires an idempotency key and posts through inbox-backed `LedgerFacade#postIfNew`.
 - Phase 6 partially complete ahead of Phase 5: `closeCard` now rejects open holds and marks the backing account `CLOSED` instead of force-zeroing balances. Full ledger-native hold release still depends on Phase 5.
-- Phase 5 pending design approval: paired hold-account schema and API balance semantics still need review before migration/code.
+- Phase 5 complete: paired `PREPAID_CARD_HOLD` accounts added; new cards create a hold account; issuer auth, auth reversal, and card sale settlement now post balanced hold journals. Application code no longer writes `va_account.frozen_balance`.
 
 ## Changelog
 
 - 2026-07-02: Plan created on branch `refactor/accounting-grade-double-entry` from manual review + independent codex pass findings.
 - 2026-07-02: Completed Phases 1-4 and the non-ledger-native part of Phase 6 in local commits; VA unit suite passes.
+- 2026-07-02: Completed Phase 5 paired hold-account implementation; VA unit suite passes.
