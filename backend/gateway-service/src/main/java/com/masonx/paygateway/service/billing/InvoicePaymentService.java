@@ -1,5 +1,7 @@
 package com.masonx.paygateway.service.billing;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethod;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodStatus;
@@ -28,6 +30,9 @@ import com.masonx.paygateway.provider.PaymentProviderDispatcher;
 import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.service.GatewayIdService;
 import com.masonx.paygateway.web.dto.InvoicePaymentResponse;
+import com.masonx.paygateway.web.dto.PaymentIntentResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,6 +49,8 @@ import java.util.UUID;
 @Service
 public class InvoicePaymentService {
 
+    private static final Logger log = LoggerFactory.getLogger(InvoicePaymentService.class);
+
     private final InvoiceRepository invoiceRepository;
     private final InvoicePaymentAttemptRepository attemptRepository;
     private final CustomerPaymentMethodRepository paymentMethodRepository;
@@ -54,6 +61,7 @@ public class InvoicePaymentService {
     private final OutboxEventRepository outboxEventRepository;
     private final CredentialsCodec credentialsCodec;
     private final PaymentProviderDispatcher dispatcher;
+    private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
     private final GatewayIdService gatewayIdService;
 
@@ -70,7 +78,7 @@ public class InvoicePaymentService {
                           PlatformTransactionManager txManager) {
         this(invoiceRepository, attemptRepository, paymentMethodRepository, instrumentRepository,
                 providerAccountRepository, subscriptionRepository, paymentIntentRepository, outboxEventRepository,
-                credentialsCodec, dispatcher, txManager, defaultGatewayIdService());
+                credentialsCodec, dispatcher, new ObjectMapper().findAndRegisterModules(), txManager, defaultGatewayIdService());
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -84,6 +92,7 @@ public class InvoicePaymentService {
                                  OutboxEventRepository outboxEventRepository,
                                  CredentialsCodec credentialsCodec,
                                  PaymentProviderDispatcher dispatcher,
+                                 ObjectMapper objectMapper,
                                  PlatformTransactionManager txManager,
                                  GatewayIdService gatewayIdService) {
         this.invoiceRepository = invoiceRepository;
@@ -96,6 +105,7 @@ public class InvoicePaymentService {
         this.outboxEventRepository = outboxEventRepository;
         this.credentialsCodec = credentialsCodec;
         this.dispatcher = dispatcher;
+        this.objectMapper = objectMapper;
         this.txTemplate = new TransactionTemplate(txManager);
         this.gatewayIdService = gatewayIdService;
     }
@@ -205,6 +215,9 @@ public class InvoicePaymentService {
             savedIntent.setProviderPaymentId(result.providerPaymentId());
             savedIntent.setProviderResponse(result.providerResponseJson());
             paymentIntentRepository.save(savedIntent);
+            writePaymentIntentOutboxEvent(merchantId,
+                    success ? "payment_intent.succeeded" : "payment_intent.failed",
+                    savedIntent);
 
             // Write invoice payment attempt
             List<InvoicePaymentAttempt> prior = attemptRepository
@@ -266,6 +279,20 @@ public class InvoicePaymentService {
                 success,
                 failureCode,
                 failureMessage);
+    }
+
+    private void writePaymentIntentOutboxEvent(UUID merchantId, String eventType, PaymentIntent intent) {
+        try {
+            PaymentIntentResponse payload = PaymentIntentResponse.from(intent, List.of(), objectMapper, null);
+            outboxEventRepository.save(gatewayIdService.outboxEvent(
+                    merchantId,
+                    eventType,
+                    intent.getId(),
+                    objectMapper.writeValueAsString(payload)));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize payment intent projection event {} for invoice payment intent {}: {}",
+                    eventType, intent.getId(), e.getMessage());
+        }
     }
 
 }

@@ -1,5 +1,7 @@
 package com.masonx.paygateway.service.billing;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethod;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodRepository;
 import com.masonx.paygateway.domain.billing.CustomerPaymentMethodStatus;
@@ -41,15 +43,21 @@ import com.masonx.paygateway.provider.credentials.CredentialsCodec;
 import com.masonx.paygateway.provider.credentials.ProviderCredentials;
 import com.masonx.paygateway.service.PaymentTokenService;
 import com.masonx.paygateway.service.GatewayIdService;
+import com.masonx.paygateway.web.dto.PaymentIntentResponse;
 import com.masonx.paygateway.web.dto.PublicSubscriptionCheckoutResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class SubscriptionCheckoutPaymentService {
+
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionCheckoutPaymentService.class);
 
     private final SubscriptionCheckoutLinkRepository checkoutLinkRepository;
     private final SubscriptionRepository subscriptionRepository;
@@ -66,6 +74,7 @@ public class SubscriptionCheckoutPaymentService {
     private final CustomerPaymentMethodRepository customerPaymentMethodRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PaymentMetrics metrics;
+    private final ObjectMapper objectMapper;
     private final GatewayIdService gatewayIdService;
 
     @Value("${app.pay-base-url:http://localhost:3000}")
@@ -89,7 +98,8 @@ public class SubscriptionCheckoutPaymentService {
         this(checkoutLinkRepository, subscriptionRepository, itemRepository, paymentTokenService, customerRepository,
                 providerAccountRepository, credentialsCodec, dispatcher, reusablePaymentMethodDispatcher,
                 paymentIntentRepository, paymentRequestRepository, paymentInstrumentRepository,
-                customerPaymentMethodRepository, outboxEventRepository, metrics, defaultGatewayIdService());
+                customerPaymentMethodRepository, outboxEventRepository, metrics,
+                new ObjectMapper().findAndRegisterModules(), defaultGatewayIdService());
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -108,6 +118,7 @@ public class SubscriptionCheckoutPaymentService {
                                               CustomerPaymentMethodRepository customerPaymentMethodRepository,
                                               OutboxEventRepository outboxEventRepository,
                                               PaymentMetrics metrics,
+                                              ObjectMapper objectMapper,
                                               GatewayIdService gatewayIdService) {
         this.checkoutLinkRepository = checkoutLinkRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -124,6 +135,7 @@ public class SubscriptionCheckoutPaymentService {
         this.customerPaymentMethodRepository = customerPaymentMethodRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.metrics = metrics;
+        this.objectMapper = objectMapper;
         this.gatewayIdService = gatewayIdService;
     }
 
@@ -240,6 +252,8 @@ public class SubscriptionCheckoutPaymentService {
             savedIntent.setActionType(result.actionType());
             savedIntent.setActionUrl(result.actionUrl());
             paymentIntentRepository.save(savedIntent);
+            writePaymentIntentOutboxEvent(
+                    subscription.getMerchantId(), "payment_intent.requires_action", savedIntent);
             // Link stays claimed during 3DS to prevent a parallel checkout attempt.
             // It will be released on cancel (/cancel-3ds) or stay used on success.
             return new PublicSubscriptionCheckoutResponse(
@@ -268,6 +282,10 @@ public class SubscriptionCheckoutPaymentService {
         attempt.setFailureMessage(result.failureMessage());
         attempt.setConnectorAccountId(account.getId());
         paymentRequestRepository.save(attempt);
+        writePaymentIntentOutboxEvent(
+                subscription.getMerchantId(),
+                result.success() ? "payment_intent.succeeded" : "payment_intent.failed",
+                savedIntent);
 
         metrics.recordIntentConfirmed(provider.name(), savedIntent.getStatus().name(), result.failureCode());
 
@@ -319,6 +337,8 @@ public class SubscriptionCheckoutPaymentService {
                             intent.getResolvedProvider(), intent.getConnectorAccountId())
                     .orElseThrow(() -> new IllegalStateException("Reusable payment instrument not found"));
             activateSubscription(subscription, link, reusableInstrument, intent);
+            writePaymentIntentOutboxEvent(
+                    subscription.getMerchantId(), "payment_intent.succeeded", intent);
 
             metrics.recordIntentConfirmed(
                     intent.getResolvedProvider() != null ? intent.getResolvedProvider().name() : "unknown",
@@ -356,6 +376,8 @@ public class SubscriptionCheckoutPaymentService {
 
         intent.setStatus(PaymentIntentStatus.CANCELED);
         paymentIntentRepository.save(intent);
+        writePaymentIntentOutboxEvent(
+                subscription.getMerchantId(), "payment_intent.canceled", intent);
         checkoutLinkRepository.releaseLink(token);
     }
 
@@ -371,6 +393,20 @@ public class SubscriptionCheckoutPaymentService {
                 subscription.getId(),
                 "{\"subscriptionId\":\"" + subscription.getId()
                         + "\",\"paymentIntentId\":\"" + savedIntent.getId() + "\"}"));
+    }
+
+    private void writePaymentIntentOutboxEvent(UUID merchantId, String eventType, PaymentIntent intent) {
+        try {
+            PaymentIntentResponse payload = PaymentIntentResponse.from(intent, List.of(), objectMapper, null);
+            outboxEventRepository.save(gatewayIdService.outboxEvent(
+                    merchantId,
+                    eventType,
+                    intent.getId(),
+                    objectMapper.writeValueAsString(payload)));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize payment intent projection event {} for subscription payment intent {}: {}",
+                    eventType, intent.getId(), e.getMessage());
+        }
     }
 
     private SubscriptionCheckoutLink loadUsableLink(String token) {

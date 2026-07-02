@@ -98,6 +98,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                 )
                 INSERT INTO payment_read_models (
                     payment_intent_id,
+                    external_id,
                     merchant_id,
                     mode,
                     amount,
@@ -118,6 +119,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                 )
                 SELECT
                     pi.id,
+                    pi.external_id,
                     pi.merchant_id,
                     pi.mode,
                     pi.amount,
@@ -134,6 +136,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                     lm.payment_method_type,
                     lower(concat_ws(' ',
                         pi.id::text,
+                        pi.external_id,
                         pi.provider_payment_id,
                         pi.order_id,
                         pi.description,
@@ -150,6 +153,7 @@ public class PaymentProjectionBackfillService implements ApplicationRunner {
                 ) r ON r.payment_intent_id = pi.id
                 LEFT JOIN latest_method lm ON lm.payment_intent_id = pi.id
                 ON CONFLICT (payment_intent_id) DO UPDATE SET
+                    external_id = EXCLUDED.external_id,
                     merchant_id = EXCLUDED.merchant_id,
                     mode = EXCLUDED.mode,
                     amount = EXCLUDED.amount,
