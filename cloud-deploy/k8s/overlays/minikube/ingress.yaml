@@ -18,6 +18,18 @@ spec:
                 name: gateway-service
                 port:
                   number: 8080
+          # Public unauthenticated checkout/webhook-test endpoints — PublicCheckoutController,
+          # PublicPaymentController (/pub/pay), PublicSubscriptionCheckoutController
+          # (/pub/subscription-checkout). Used by the browser SDK / hosted checkout widget and
+          # the dashboard's connector preview flow. Without this rule these fall through to the
+          # "/" catch-all below and 404 against the dashboard instead of reaching gateway-service.
+          - path: /pub
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway-service
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

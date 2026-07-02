@@ -28,6 +28,16 @@ spec:
                 name: gateway-service
                 port:
                   number: 8080
+          # Public unauthenticated checkout/webhook-test endpoints — see the matching rule in
+          # overlays/minikube/ingress.yaml for why this is needed (falls through to the "/"
+          # catch-all and 404s against the dashboard otherwise).
+          - path: /pub
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway-service
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:
