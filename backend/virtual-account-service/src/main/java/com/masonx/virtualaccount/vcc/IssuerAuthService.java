@@ -82,7 +82,7 @@ public class IssuerAuthService {
 
         // Freeze the authorization amount.
         BigDecimal newFrozen = account.frozenBalance().add(req.amount());
-        accountRepo.updateBalance(account.accountId(), account.balance(), newFrozen);
+        accountRepo.updateFrozenBalance(account.accountId(), newFrozen);
 
         String authCode = generateAuthCode();
         log.info("Issuer approved cardId={} amount={} authCode={}", card.cardId(), req.amount(), authCode);

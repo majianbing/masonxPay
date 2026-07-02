@@ -163,7 +163,7 @@ class LedgerPostingServiceTest {
         service.post(tx);
 
         verify(entryRepo, times(2)).insert(any());
-        verify(accountRepo, times(2)).updateBalance(any(), any(), any());
+        verify(accountRepo, times(2)).updateLedgerBalance(any(), any(), any());
     }
 
     @Test

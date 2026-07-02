@@ -148,7 +148,7 @@ class CardRailSettlementHandlerTest {
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
 
         // frozen 100.00 − sale 100.00 = 0.00
-        verify(accountRepo).updateBalance(eq(CARD_ACCT), eq(new BigDecimal("300.00")),
+        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
                 argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
     }
 
@@ -167,7 +167,7 @@ class CardRailSettlementHandlerTest {
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
 
-        verify(accountRepo, never()).updateBalance(any(), any(), any());
+        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     @Test
@@ -201,7 +201,7 @@ class CardRailSettlementHandlerTest {
         // No ledger entry — auth never posted one
         verifyNoInteractions(ledger);
         // frozen 100.00 − reversal 100.00 = 0.00
-        verify(accountRepo).updateBalance(eq(CARD_ACCT), eq(new BigDecimal("300.00")),
+        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
                 argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
     }
 
@@ -217,7 +217,7 @@ class CardRailSettlementHandlerTest {
         handler.handle(event(MoneyMovementType.CARD_REVERSAL, MASKED_PAN, MERCHANT_ID));
 
         // 50.00 − 100.00 = −50.00 → clamped to 0.00
-        verify(accountRepo).updateBalance(eq(CARD_ACCT), eq(new BigDecimal("300.00")),
+        verify(accountRepo).updateFrozenBalance(eq(CARD_ACCT),
                 argThat(v -> v.compareTo(BigDecimal.ZERO) == 0));
     }
 
@@ -267,7 +267,7 @@ class CardRailSettlementHandlerTest {
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, MERCHANT_ID));
 
         verify(ledger, times(1)).postIfNew(any(), any(), any());
-        verify(accountRepo, never()).updateBalance(any(), any(), any());
+        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     @Test
@@ -275,7 +275,7 @@ class CardRailSettlementHandlerTest {
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, null));
 
         verifyNoInteractions(ledger);
-        verify(accountRepo, never()).updateBalance(any(), any(), any());
+        verify(accountRepo, never()).updateFrozenBalance(any(), any());
     }
 
     // ── BANK_RETURN ───────────────────────────────────────────────────────────

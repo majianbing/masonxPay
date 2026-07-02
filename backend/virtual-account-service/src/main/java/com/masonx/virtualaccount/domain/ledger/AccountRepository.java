@@ -135,11 +135,24 @@ public class AccountRepository {
                 """, ROW_MAPPER, mode.name(), asset);
     }
 
-    /** Updates balance and frozen_balance atomically — called inside the posting transaction. */
-    public void updateBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
+    /** Updates posted balance and frozen balance atomically — ledger engine only. */
+    void updateLedgerBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
         jdbc.update(
                 "UPDATE va_account SET balance = ?, frozen_balance = ?, updated_at = now() WHERE account_id = ?",
                 balance, frozenBalance, accountId);
+    }
+
+    /** Updates only frozen_balance, leaving the ledger-owned posted balance untouched. */
+    public void updateFrozenBalance(String accountId, BigDecimal frozenBalance) {
+        jdbc.update(
+                "UPDATE va_account SET frozen_balance = ?, updated_at = now() WHERE account_id = ?",
+                frozenBalance, accountId);
+    }
+
+    public void updateStatus(String accountId, AccountStatus status) {
+        jdbc.update(
+                "UPDATE va_account SET status = ?::va_account_status, updated_at = now() WHERE account_id = ?",
+                status.name(), accountId);
     }
 
     private static final RowMapper<VaAccount> ROW_MAPPER = (rs, __) -> new VaAccount(

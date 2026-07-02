@@ -137,7 +137,7 @@ public class LedgerPostingService {
                     Instant.now());
 
             entryRepo.insert(entry);
-            accountRepo.updateBalance(draft.accountId(), newBalance, account.frozenBalance());
+            accountRepo.updateLedgerBalance(draft.accountId(), newBalance, account.frozenBalance());
 
             // Reflect new balance in local map for any subsequent entries on this account.
             accounts.put(draft.accountId(), account.withBalance(newBalance));

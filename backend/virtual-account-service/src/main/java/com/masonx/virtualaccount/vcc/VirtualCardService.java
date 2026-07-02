@@ -175,6 +175,10 @@ public class VirtualCardService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card does not belong to merchant: " + merchantId));
 
+        if (vccAccount.frozenBalance().compareTo(BigDecimal.ZERO) > 0) {
+            throw new IllegalStateException("Cannot close card with open authorization hold: " + cardId);
+        }
+
         BigDecimal remaining = vccAccount.availableBalance();
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
             String txId = idGen.generate(MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix());
@@ -188,7 +192,7 @@ public class VirtualCardService {
         }
 
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.CLOSED);
-        accountRepo.updateBalance(vccAccount.accountId(), BigDecimal.ZERO, BigDecimal.ZERO);
+        accountRepo.updateStatus(vccAccount.accountId(), AccountStatus.CLOSED);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

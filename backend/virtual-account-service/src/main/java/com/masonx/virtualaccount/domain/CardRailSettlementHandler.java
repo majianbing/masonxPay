@@ -108,7 +108,7 @@ public class CardRailSettlementHandler {
             // Release the freeze set at auth time (0100/0110).
             BigDecimal newFrozen = cardAccount.frozenBalance().subtract(event.amount())
                     .max(BigDecimal.ZERO);
-            accountRepo.updateBalance(cardAccount.accountId(), cardAccount.balance(), newFrozen);
+            accountRepo.updateFrozenBalance(cardAccount.accountId(), newFrozen);
             log.info("Card sale journal posted: eventId={} cardId={} amount={}",
                     eventId, card.cardId(), event.amount());
         } else {
@@ -132,7 +132,7 @@ public class CardRailSettlementHandler {
 
         BigDecimal newFrozen = cardAccount.frozenBalance().subtract(event.amount())
                 .max(BigDecimal.ZERO);
-        accountRepo.updateBalance(cardAccount.accountId(), cardAccount.balance(), newFrozen);
+        accountRepo.updateFrozenBalance(cardAccount.accountId(), newFrozen);
 
         log.info("Card reversal freeze released: eventId={} cardId={} amount={}",
                 eventId, card.cardId(), event.amount());
