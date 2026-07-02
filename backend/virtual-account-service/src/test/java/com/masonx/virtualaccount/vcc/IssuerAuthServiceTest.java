@@ -133,7 +133,6 @@ class IssuerAuthServiceTest {
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }
 
@@ -150,7 +149,6 @@ class IssuerAuthServiceTest {
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
-                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }

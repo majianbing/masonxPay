@@ -77,7 +77,6 @@ public class VirtualCardService {
                 2,
                 NormalBalance.DEBIT,
                 BigDecimal.ZERO,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
         accountRepo.save(vccAccount);
 
@@ -95,7 +94,6 @@ public class VirtualCardService {
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
-                BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
         accountRepo.save(holdAccount);

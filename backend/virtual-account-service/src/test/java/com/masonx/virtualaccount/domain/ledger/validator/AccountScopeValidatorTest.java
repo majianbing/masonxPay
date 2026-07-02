@@ -77,13 +77,13 @@ class AccountScopeValidatorTest {
         return new VaAccount("ac_1", mode, AccountRole.TENANT,
                 "org_1", merchantId, null,
                 AccountType.WALLET, asset, AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private static VaAccount externalAccount() {
         return new VaAccount("ac_ext", Mode.LIVE, AccountRole.EXTERNAL,
                 null, null, "provider_1",
                 AccountType.CLEARING, "USD", AssetClass.FIAT, 2,
-                NormalBalance.CREDIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 }

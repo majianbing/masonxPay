@@ -43,7 +43,6 @@ public class VaAccountManagementService {
                 deriveScale(req.asset()),
                 deriveNormalBalance(req.accountType()),
                 BigDecimal.ZERO,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE
         );
 
@@ -98,8 +97,6 @@ public class VaAccountManagementService {
                 a.merchantId(),
                 a.asset(),
                 a.balance(),
-                a.frozenBalance(),
-                a.availableBalance(),
                 a.status().name()
         );
     }

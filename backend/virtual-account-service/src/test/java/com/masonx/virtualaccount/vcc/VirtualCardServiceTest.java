@@ -175,7 +175,6 @@ class VirtualCardServiceTest {
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }
 
@@ -193,7 +192,6 @@ class VirtualCardServiceTest {
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }
 
@@ -211,7 +209,6 @@ class VirtualCardServiceTest {
                 2,
                 NormalBalance.DEBIT,
                 new BigDecimal("100.00"),
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
     }
 }

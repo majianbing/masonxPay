@@ -10,7 +10,7 @@ import java.math.BigDecimal;
  *
  * Canonical string (null-byte separated):
  *   accountId \0 entrySeq \0 amount \0 direction \0 balanceAfter
- *   \0 frozenBalance \0 transactionId \0 prevSignature
+ *   \0 transactionId \0 prevSignature
  */
 public record SignatureInput(
         String accountId,
@@ -18,7 +18,6 @@ public record SignatureInput(
         BigDecimal amount,
         Direction direction,
         BigDecimal balanceAfter,
-        BigDecimal frozenBalance,
         String transactionId,
         String prevSignature
 ) {
@@ -31,7 +30,6 @@ public record SignatureInput(
                 + amount.stripTrailingZeros().toPlainString() + '\0'
                 + direction.name() + '\0'
                 + balanceAfter.stripTrailingZeros().toPlainString() + '\0'
-                + frozenBalance.stripTrailingZeros().toPlainString() + '\0'
                 + transactionId + '\0'
                 + prevSignature;
     }

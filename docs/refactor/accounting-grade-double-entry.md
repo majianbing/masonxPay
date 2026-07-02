@@ -1,6 +1,6 @@
 # Accounting-Grade Double-Entry — Refactor Plan
 
-Status: **Draft — pending review on branch `refactor/accounting-grade-double-entry`. No code changed yet.**
+Status: **Implementation in review on branch `refactor/accounting-grade-double-entry`. Code changed locally; not pushed.**
 
 `virtual-account-service`'s posting engine (`LedgerPostingService`, `NetZeroValidator`, `AssetConsistencyValidator`, `InsufficientBalanceValidator`, HMAC hash-chained `va_ledger_entry`) is a genuine double-entry system for everything that goes through it. This plan closes the gaps found by manual review + a second independent pass (codex): call sites that reach around the engine and mutate `va_account.balance` / `va_account.frozen_balance` directly, plus a couple of missing invariant checks inside the engine itself.
 
@@ -92,6 +92,24 @@ Recommended shape (fits the existing append-only, HMAC-chained engine without a 
 5. Does the Phase 3 account-scope validator need an escape hatch for any legitimate cross-tenant/cross-mode posting, or is "always same mode, tenant accounts always match merchantId" a safe universal invariant given today's `TransactionType`s?
 6. Should `EntryStatus.REVERSED` be removed/deferred until a real void/supersession model exists, or kept as a reserved enum value while reversal journals remain `POSTED`?
 
+## Implementation Review (Phases 1-6, post-Codex)
+
+Independent review of the Codex implementation against this plan (code read + `mvn -pl virtual-account-service -am test`, which passed, 76/76). Phases 1-5 matched the plan; Phase 6 landed ahead of Phase 5 as noted in Progress. Two gaps found that weren't in the Progress notes:
+
+1. **No backfill / inconsistent null-handling for `hold_account_id`.** `V9__prepaid_card_hold_account.sql` adds the column nullable with no backfill for pre-existing cards. `IssuerAuthService.authorize()` and `CardRailSettlementHandler.handleCardSale/handleCardReversal` unconditionally `.orElseThrow()` on the hold-account lookup — a card without a hold account fails auth/settlement/reversal outright. `getCard`/`listCards`/`closeCard` were made null-safe; the money-moving paths were not.
+2. **Silent semantic change to `VccResponse.balance`.** Before Phase 5, `balance` meant total card funds (available + held). After, `toResponse` sets `avail = balance` — they're always equal now, since held funds live in a separate account. No `totalBalance` field was added and no doc/changelog note flagged the change, even though this plan's own Phase 5 section called out that exact risk.
+
+Also flagged: `frozen_balance` is now write-once-then-dead (never mutated after account creation) but still fed into every `LedgerEntry.frozen_balance` snapshot and the HMAC signature input (Review Question 2, previously open); `IssuerAuthService.authorize()` ignores `postIfNew`'s return value, so a genuine duplicate ISO8583 auth retry (same RRN/STAN) skips the second hold correctly but still returns a freshly generated `authCode` instead of replaying the original.
+
+## Decision Log
+
+1. **Pre-existing cards without `hold_account_id`:** no backfill needed. Test/lab environment only — existing accounts can be cleaned up rather than migrated. No code change required for this gap.
+2. **`VccResponse.balance` semantics:** splitting `balance` (available) and `frozenBalance` (held) is accepted as correct. A `totalBalance` convenience field is a business-layer concern to build later on top of the fundamental account layer, not part of this refactor — noted here for future work, not implemented now.
+3. **`frozen_balance` column:** removed entirely (not kept as a cache). Retired from `va_account`, `va_ledger_entry`, `LedgerEntry`, `ChainHead`, `SignatureInput` (and its canonical HMAC string), `AccountResponse`, `TrialBalanceResponse`, and all call sites. No backward-compatibility shim — consistent with decision 1 (test/lab data, not preserved across this change). See `V10__drop_frozen_balance.sql`.
+4. **`IssuerAuthService.authorize()` not replaying `authCode` on duplicate retry:** not worth a design change right now. Left as a `TODO` comment at the call site; no behavior change.
+5. **Existing ledger rows before `V10`:** no compatibility path needed. `V10__drop_frozen_balance.sql` intentionally changes the HMAC canonical string by removing `frozen_balance`; any pre-V10 ledger row was signed with the old format and is not expected to remain postable after this refactor. Local/test environments should be reset with Docker volume cleanup before applying the migration. Production-grade migration would need a separate compatibility or re-signing plan, but that is explicitly out of scope for this branch.
+6. **Historical migration comments:** comments in earlier migrations (`V3`, `V4`, `V5`, `V7`) still describe the old `frozen_balance` model because migrations are historical artifacts. They are superseded by `V9` paired hold accounts and `V10` column removal; current architecture should be read from this refactor note and the latest schema state, not old migration comments in isolation.
+
 ## Initial Recommendation
 
 Approve Phases 1-4 first — independent of each other, low risk, no schema changes, fast to ship:
@@ -110,9 +128,17 @@ Then design-review Phase 5 in detail (it's the actual "accounting-grade" deliver
 - Phase 4 complete: `fundCard` now requires an idempotency key and posts through inbox-backed `LedgerFacade#postIfNew`.
 - Phase 6 partially complete ahead of Phase 5: `closeCard` now rejects open holds and marks the backing account `CLOSED` instead of force-zeroing balances. Full ledger-native hold release still depends on Phase 5.
 - Phase 5 complete: paired `PREPAID_CARD_HOLD` accounts added; new cards create a hold account; issuer auth, auth reversal, and card sale settlement now post balanced hold journals. Application code no longer writes `va_account.frozen_balance`.
+- Post-implementation review complete: 76/76 VA unit tests verified passing; confirmed Phases 1-5 match the plan; found and logged the `hold_account_id` backfill gap and the `VccResponse.balance` semantics change (see Implementation Review above).
+- `frozen_balance` column fully removed per Decision Log #3: new migration `V10__drop_frozen_balance.sql` drops it from `va_account` and `va_ledger_entry`; `VaAccount`, `LedgerEntry`, `ChainHead`, `SignatureInput` (HMAC canonical string), `AccountResponse`, and `TrialBalanceResponse` updated to match; all call sites and tests updated. `mvn -pl virtual-account-service -am test` passes (76/76) after the change.
+- TODO comment added at `IssuerAuthService.authorize()` per Decision Log #4 — no behavior change.
+- Review follow-up accepted: V10 does not preserve or verify pre-existing ledger rows; clean Docker volume reset is the migration path for this branch. Refactor doc status corrected from draft/no-code to implementation-in-review.
+- Final local verification complete: `mvn -pl virtual-account-service -am test` passed; `mvn -pl virtual-account-service,rail-service -am test` passed after aligning `rail-service` with the existing Mockito subclass mock-maker test configuration used by gateway/VA; Docker VA rebuild applied Flyway V10 successfully; V10 E2E smoke verified idempotent VCC funding, auth hold movement to `PREPAID_CARD_HOLD`, net-zero VCC journals, and no remaining `frozen_balance` columns.
 
 ## Changelog
 
 - 2026-07-02: Plan created on branch `refactor/accounting-grade-double-entry` from manual review + independent codex pass findings.
 - 2026-07-02: Completed Phases 1-4 and the non-ledger-native part of Phase 6 in local commits; VA unit suite passes.
 - 2026-07-02: Completed Phase 5 paired hold-account implementation; VA unit suite passes.
+- 2026-07-02: Reviewed Phases 1-6 implementation; logged decisions on the `hold_account_id` backfill gap (accepted, test data), `VccResponse.balance` semantics (accepted, `totalBalance` deferred to business layer), `frozen_balance` column (removed via `V10__drop_frozen_balance.sql`), and the auth-code replay gap (TODO only). VA unit suite passes (76/76) after `frozen_balance` removal.
+- 2026-07-02: Updated review notes: branch is implementation-in-review, V10 requires a clean DB reset because old HMAC signatures are intentionally not preserved, and older migration comments are historical/superseded.
+- 2026-07-02: Final verification recorded before PR: VA + rail Maven suites pass, Docker Flyway V10 migration applied cleanly, and V10 runtime ledger smoke passed.

@@ -9,8 +9,6 @@ public record AccountResponse(
         String     merchantId,
         String     asset,
         BigDecimal balance,
-        BigDecimal frozenBalance,
-        BigDecimal availableBalance,
         String     status
 ) {
 }

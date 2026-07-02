@@ -61,19 +61,19 @@ class LedgerSettlementHandlerIntegrationTest {
                 "ac_test_cash_1", Mode.LIVE, AccountRole.TENANT,
                 "org_1", merchantId, null,
                 AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
 
         externalClearing = new VaAccount(
                 "ac_test_ext_1", Mode.LIVE, AccountRole.EXTERNAL,
                 null, null, "stripe",
                 AccountType.CLEARING, "USD", AssetClass.FIAT, 2,
-                NormalBalance.CREDIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
 
         platformFee = new VaAccount(
                 "ac_test_fee_1", Mode.LIVE, AccountRole.PLATFORM,
                 null, null, null,
                 AccountType.FEE_INCOME, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
 
         accountRepo.save(tenantCash);
         accountRepo.save(externalClearing);

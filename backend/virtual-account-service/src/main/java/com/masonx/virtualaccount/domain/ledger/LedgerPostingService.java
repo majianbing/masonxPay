@@ -35,8 +35,8 @@ import java.util.Map;
  * Lock ordering: accounts are locked by account_id (alphabetical) to prevent
  * deadlocks when concurrent transactions share overlapping accounts.
  * <p>
- * The HMAC chain guarantees tamper-evidence: entry_seq, balance_after, and
- * frozen_balance are all signed. Any direct DB edit is detectable at next post.
+ * The HMAC chain guarantees tamper-evidence: entry_seq and balance_after are
+ * signed. Any direct DB edit is detectable at next post.
  */
 @Service
 public class LedgerPostingService {
@@ -123,7 +123,6 @@ public class LedgerPostingService {
                     draft.amount(),
                     draft.direction(),
                     newBalance,
-                    account.frozenBalance(),
                     tx.transactionId(),
                     anchor.signature()));
 
@@ -136,7 +135,6 @@ public class LedgerPostingService {
                     draft.asset(),
                     entrySeq,
                     newBalance,
-                    account.frozenBalance(),
                     anchor.signature(),
                     signature,
                     draft.sourceEventId(),
@@ -188,7 +186,6 @@ public class LedgerPostingService {
                                     head.amount(),
                                     head.direction(),
                                     head.balanceAfter(),
-                                    head.frozenBalance(),
                                     head.transactionId(),
                                     head.prevSignature()),
                             head.signature());

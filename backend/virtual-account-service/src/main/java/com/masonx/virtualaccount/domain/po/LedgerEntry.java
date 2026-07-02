@@ -26,7 +26,6 @@ public record LedgerEntry(
         String asset,
         long entrySeq,
         BigDecimal balanceAfter,
-        BigDecimal frozenBalance,   // point-in-time snapshot — needed to re-verify this entry's HMAC
         String prevSignature,       // balance_signature of the preceding entry (GENESIS for seq=1)
         String balanceSignature,
         String sourceEventId,

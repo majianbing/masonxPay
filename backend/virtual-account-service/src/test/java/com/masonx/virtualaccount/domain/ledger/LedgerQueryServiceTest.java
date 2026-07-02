@@ -45,7 +45,7 @@ class LedgerQueryServiceTest {
         return new VaAccount(id, mode, AccountRole.TENANT,
                 "org_1", merchantId, null, AccountType.CASH,
                 "USD", AssetClass.FIAT, 2, NormalBalance.DEBIT,
-                BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private TransactionRecord txRecord(String txId, String merchantId, Mode mode) {
@@ -59,7 +59,7 @@ class LedgerQueryServiceTest {
                 entryId, "tx_1", accountId,
                 com.masonx.virtualaccount.domain.constant.Direction.DEBIT,
                 new BigDecimal("100.00"), "USD", seq,
-                new BigDecimal("100.00"), BigDecimal.ZERO,
+                new BigDecimal("100.00"),
                 "GENESIS", "sig_abc", "evt_1",
                 EntryStatus.POSTED, LocalDate.of(2026, 1, 15), Instant.now());
     }
@@ -198,7 +198,7 @@ class LedgerQueryServiceTest {
         return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
                 "org_1", merchantId, null, AccountType.CASH,
                 "USD", AssetClass.FIAT, 2, NormalBalance.DEBIT,
-                new BigDecimal("300.00"), BigDecimal.ZERO, AccountStatus.ACTIVE);
+                new BigDecimal("300.00"), AccountStatus.ACTIVE);
     }
 
     private com.masonx.virtualaccount.domain.po.LedgerEntry debitEntry(
@@ -206,7 +206,7 @@ class LedgerQueryServiceTest {
         return new com.masonx.virtualaccount.domain.po.LedgerEntry(
                 id, "tx_1", "ac_1",
                 com.masonx.virtualaccount.domain.constant.Direction.DEBIT,
-                amount, "USD", 1L, amount, BigDecimal.ZERO,
+                amount, "USD", 1L, amount,
                 "GENESIS", "sig", "evt_1",
                 EntryStatus.POSTED, date, Instant.now());
     }
@@ -216,7 +216,7 @@ class LedgerQueryServiceTest {
         return new com.masonx.virtualaccount.domain.po.LedgerEntry(
                 id, "tx_1", "ac_1",
                 com.masonx.virtualaccount.domain.constant.Direction.CREDIT,
-                amount, "USD", 2L, amount, BigDecimal.ZERO,
+                amount, "USD", 2L, amount,
                 "sig_prev", "sig", "evt_2",
                 EntryStatus.POSTED, date, Instant.now());
     }
@@ -278,7 +278,7 @@ class LedgerQueryServiceTest {
         return new VaAccount(id, Mode.LIVE, role,
                 "org_1", merchantId, role == AccountRole.EXTERNAL ? "prov_1" : null,
                 type, "USD", AssetClass.FIAT, 2, nb,
-                balance, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                balance, AccountStatus.ACTIVE);
     }
 
     @Test
@@ -345,7 +345,7 @@ class LedgerQueryServiceTest {
         VaAccount creditAcct = new VaAccount("ac_crl", Mode.LIVE, AccountRole.TENANT,
                 "org_1", "mer_1", null, AccountType.CREDIT_LINE,
                 "USD", AssetClass.FIAT, 2, NormalBalance.CREDIT,
-                BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                BigDecimal.ZERO, AccountStatus.ACTIVE);
         when(accountRepo.findById("ac_crl")).thenReturn(Optional.of(creditAcct));
         when(entryRepo.sumDebitNetBeforeDate("ac_crl", LocalDate.of(2026, 1, 1)))
                 .thenReturn(BigDecimal.ZERO);

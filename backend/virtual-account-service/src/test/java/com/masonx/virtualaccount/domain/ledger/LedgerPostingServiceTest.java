@@ -60,14 +60,14 @@ class LedgerPostingServiceTest {
         return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
                 "org_1", "mer_1", null,
                 AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
     }
 
     private VaAccount externalAccount(String id) {
         return new VaAccount(id, Mode.LIVE, AccountRole.EXTERNAL,
                 null, null, "provider_stripe",
                 AccountType.CLEARING, "USD", AssetClass.FIAT, 2,
-                NormalBalance.CREDIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private EntryDraft credit(String accountId, String amount) {
@@ -83,7 +83,7 @@ class LedgerPostingServiceTest {
     /** A ChainHead whose verify() call will pass when mocked to return true. */
     private ChainHead chainHead(long seq, String sig) {
         return new ChainHead(seq, new BigDecimal("100.00"), Direction.DEBIT,
-                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_prev",
+                new BigDecimal("100.00"), "tx_prev",
                 ChainAnchor.GENESIS_SIGNATURE, sig);
     }
 
@@ -115,7 +115,7 @@ class LedgerPostingServiceTest {
     void rejects_frozen_account() {
         var frozen = new VaAccount("ac_1", Mode.LIVE, AccountRole.TENANT,
                 "org_1", "mer_1", null, AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, new BigDecimal("200"), BigDecimal.ZERO, AccountStatus.FROZEN);
+                NormalBalance.DEBIT, new BigDecimal("200"), AccountStatus.FROZEN);
 
         // "ac_1" sorts before "ac_ext" — it's locked first and throws before ac_ext is touched
         when(accountRepo.findByIdForUpdate("ac_1")).thenReturn(Optional.of(frozen));
@@ -235,7 +235,7 @@ class LedgerPostingServiceTest {
         // Simulate: attacker ran UPDATE va_account SET balance = 0 but left va_ledger_entry intact.
         // account.balance() = 0, but last entry balance_after = 100 → mismatch caught before HMAC check.
         ChainHead head = new ChainHead(1L, new BigDecimal("100.00"), Direction.DEBIT,
-                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_prev",
+                new BigDecimal("100.00"), "tx_prev",
                 ChainAnchor.GENESIS_SIGNATURE, "sig");
 
         when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(

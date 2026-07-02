@@ -99,6 +99,9 @@ public class IssuerAuthService {
 
         String eventId = authEventId(req);
         String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
+        // TODO: on a duplicate eventId (retried auth with the same RRN/STAN), postIfNew
+        // skips the second hold correctly, but we still mint and return a fresh random
+        // authCode below instead of replaying the original one from the first attempt.
         ledger.postIfNew(new PostTransaction(txId, List.of(
                 new EntryDraft(holdAccount.accountId(), Direction.DEBIT,
                         req.amount(), req.currency(), eventId),

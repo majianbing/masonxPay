@@ -43,11 +43,11 @@ public class AccountRepository {
                 INSERT INTO va_account (
                     account_id, mode, account_role, org_id, merchant_id, provider_id,
                     account_type, asset, asset_class, scale, normal_balance,
-                    balance, frozen_balance, status
+                    balance, status
                 ) VALUES (
                     ?, ?::va_mode, ?::va_account_role, ?, ?, ?,
                     ?::va_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
-                    ?, ?, ?::va_account_status
+                    ?, ?::va_account_status
                 )
                 """,
                 account.accountId(),
@@ -62,7 +62,6 @@ public class AccountRepository {
                 account.scale(),
                 account.normalBalance().name(),
                 account.balance(),
-                account.frozenBalance(),
                 account.status().name());
     }
 
@@ -161,7 +160,6 @@ public class AccountRepository {
             rs.getInt("scale"),
             NormalBalance.valueOf(rs.getString("normal_balance")),
             rs.getBigDecimal("balance"),
-            rs.getBigDecimal("frozen_balance"),
             AccountStatus.valueOf(rs.getString("status"))
     );
 }

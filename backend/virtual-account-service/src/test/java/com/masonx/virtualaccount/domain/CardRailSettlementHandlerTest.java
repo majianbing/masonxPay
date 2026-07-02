@@ -78,12 +78,12 @@ class CardRailSettlementHandlerTest {
                 null, Instant.now(), Instant.now());
     }
 
-    private VaAccount cardAccount(BigDecimal balance, BigDecimal frozen) {
+    private VaAccount cardAccount(BigDecimal balance) {
         return new VaAccount(
                 CARD_ACCT, Mode.TEST, AccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 AccountType.PREPAID_CARD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, frozen, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
     }
 
     private VaAccount holdAccount(BigDecimal balance) {
@@ -91,14 +91,14 @@ class CardRailSettlementHandlerTest {
                 HOLD_ACCT, Mode.TEST, AccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 AccountType.PREPAID_CARD_HOLD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
     }
 
     private VaAccount receivableAccount(String id, AccountType type, String providerId) {
         return new VaAccount(
                 id, Mode.TEST, AccountRole.EXTERNAL,
                 null, null, providerId, type, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private VaAccount walletAccount() {
@@ -106,7 +106,7 @@ class CardRailSettlementHandlerTest {
                 WALLET_ACCT, Mode.TEST, AccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 AccountType.WALLET, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, new BigDecimal("500.00"), BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, new BigDecimal("500.00"), AccountStatus.ACTIVE);
     }
 
     // ── CARD_SALE ─────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_posts_journal_debit_receivable_credit_card_account() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
         VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
@@ -147,7 +147,7 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_does_not_mutate_frozen_balance_after_posting() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
         VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
@@ -164,7 +164,7 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_duplicate_event_skips_balance_update() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
         VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
         VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
@@ -200,7 +200,7 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_reversal_posts_journal_debit_card_credit_hold_account() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), new BigDecimal("100.00"));
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
         VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
@@ -224,7 +224,7 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_reversal_duplicate_event_skips_second_journal() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"), BigDecimal.ZERO);
+        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
         VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));

@@ -65,12 +65,12 @@ public class BenchController {
             accountRepo.save(new VaAccount(cashId, Mode.LIVE, AccountRole.TENANT,
                     "org_bench", mId, null, AccountType.CASH,
                     "USD", AssetClass.FIAT, 2,
-                    NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE));
+                    NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE));
 
             accountRepo.save(new VaAccount(extId, Mode.LIVE, AccountRole.EXTERNAL,
                     null, null, pId, AccountType.CLEARING,
                     "USD", AssetClass.FIAT, 2,
-                    NormalBalance.CREDIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE));
+                    NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE));
 
             pairs.add(new PairInfo(i, cashId, extId));
         }
@@ -131,12 +131,12 @@ public class BenchController {
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
 
         record EntryRow(long entrySeq, BigDecimal amount, Direction direction,
-                        BigDecimal balanceAfter, BigDecimal frozenBalance,
+                        BigDecimal balanceAfter,
                         String prevSignature, String balanceSignature, String transactionId) {}
 
         List<EntryRow> entries = jdbc.query("""
                 SELECT entry_seq, amount, direction, balance_after,
-                       frozen_balance, prev_signature, balance_signature, transaction_id
+                       prev_signature, balance_signature, transaction_id
                 FROM va_ledger_entry
                 WHERE account_id = ?
                 ORDER BY entry_seq ASC
@@ -146,7 +146,6 @@ public class BenchController {
                         rs.getBigDecimal("amount"),
                         Direction.valueOf(rs.getString("direction")),
                         rs.getBigDecimal("balance_after"),
-                        rs.getBigDecimal("frozen_balance"),
                         rs.getString("prev_signature"),
                         rs.getString("balance_signature"),
                         rs.getString("transaction_id")),
@@ -181,14 +180,14 @@ public class BenchController {
             }
         }
 
-        // HMAC chain: each entry now stores its own frozen_balance snapshot and
-        // prev_signature, so it is fully self-verifiable without external context.
+        // HMAC chain: each entry stores its own balance_after and prev_signature,
+        // so it is fully self-verifiable without external context.
         boolean chainOk = true;
         Long firstBrokenChainAtSeq = null;
         for (EntryRow e : entries) {
             String expected = signatureService.compute(new SignatureInput(
                     accountId, e.entrySeq(), e.amount(), e.direction(),
-                    e.balanceAfter(), e.frozenBalance(), e.transactionId(), e.prevSignature()));
+                    e.balanceAfter(), e.transactionId(), e.prevSignature()));
             if (!expected.equals(e.balanceSignature())) {
                 chainOk = false;
                 firstBrokenChainAtSeq = e.entrySeq();
