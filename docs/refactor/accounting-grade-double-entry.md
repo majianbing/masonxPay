@@ -104,8 +104,14 @@ Then design-review Phase 5 in detail (it's the actual "accounting-grade" deliver
 
 ## Progress
 
-Not started.
+- Phase 1/2 complete: stale card-sale balance overwrite fixed by splitting ledger-owned balance updates from frozen-only updates.
+- Test environment blocker resolved for this module: VA unit tests use Mockito's subclass mock maker and now run locally.
+- Phase 3 complete: locked-account scope validator added for asset, mode, and tenant checks.
+- Phase 4 complete: `fundCard` now requires an idempotency key and posts through inbox-backed `LedgerFacade#postIfNew`.
+- Phase 6 partially complete ahead of Phase 5: `closeCard` now rejects open holds and marks the backing account `CLOSED` instead of force-zeroing balances. Full ledger-native hold release still depends on Phase 5.
+- Phase 5 pending design approval: paired hold-account schema and API balance semantics still need review before migration/code.
 
 ## Changelog
 
 - 2026-07-02: Plan created on branch `refactor/accounting-grade-double-entry` from manual review + independent codex pass findings.
+- 2026-07-02: Completed Phases 1-4 and the non-ledger-native part of Phase 6 in local commits; VA unit suite passes.
