@@ -17,7 +17,6 @@ public record ChainHead(
         BigDecimal amount,
         Direction direction,
         BigDecimal balanceAfter,
-        BigDecimal frozenBalance,
         String transactionId,
         String prevSignature,
         String signature          // balance_signature of this entry; becomes prevSignature for next

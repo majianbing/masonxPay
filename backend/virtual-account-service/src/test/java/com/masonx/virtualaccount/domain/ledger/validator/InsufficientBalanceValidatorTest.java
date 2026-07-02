@@ -20,7 +20,7 @@ class InsufficientBalanceValidatorTest {
         return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
                 "org_1", "mer_1", null,
                 AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
     }
 
     private EntryDraft debit(String amount) {

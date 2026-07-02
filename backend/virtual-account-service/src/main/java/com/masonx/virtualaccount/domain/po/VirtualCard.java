@@ -14,6 +14,8 @@ import java.time.LocalDate;
  * it travels in the CanonicalPaymentCommand and is masked before any log write.
  *
  * <p>vccAccountId points to the PREPAID_CARD account that holds the loaded balance.
+ * holdAccountId points to the paired PREPAID_CARD_HOLD account for authorized
+ * but unsettled funds.
  * ownerAccountId points to the WALLET account that funded the card.
  * Closing the card sweeps remaining balance from vccAccount back to ownerAccount.
  */
@@ -22,6 +24,7 @@ public record VirtualCard(
         String maskedPan,
         String bin,
         String vccAccountId,
+        String holdAccountId,
         String ownerAccountId,
         VirtualCardStatus status,
         BigDecimal spendingLimit,

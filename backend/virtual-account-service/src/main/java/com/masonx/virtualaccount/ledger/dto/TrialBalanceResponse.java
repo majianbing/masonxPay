@@ -19,7 +19,6 @@ public record TrialBalanceResponse(
             String accountRole,
             String merchantId,   // null for PLATFORM/EXTERNAL
             String normalBalance,
-            BigDecimal balance,
-            BigDecimal frozenBalance
+            BigDecimal balance
     ) {}
 }

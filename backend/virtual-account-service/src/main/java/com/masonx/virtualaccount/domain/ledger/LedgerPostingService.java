@@ -8,6 +8,7 @@ import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.EntryStatus;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.ledger.validator.api.EntryValidator;
+import com.masonx.virtualaccount.domain.ledger.validator.api.LockedAccountValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.api.TransactionValidator;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
 import com.masonx.virtualaccount.domain.po.VaAccount;
@@ -34,8 +35,8 @@ import java.util.Map;
  * Lock ordering: accounts are locked by account_id (alphabetical) to prevent
  * deadlocks when concurrent transactions share overlapping accounts.
  * <p>
- * The HMAC chain guarantees tamper-evidence: entry_seq, balance_after, and
- * frozen_balance are all signed. Any direct DB edit is detectable at next post.
+ * The HMAC chain guarantees tamper-evidence: entry_seq and balance_after are
+ * signed. Any direct DB edit is detectable at next post.
  */
 @Service
 public class LedgerPostingService {
@@ -46,6 +47,7 @@ public class LedgerPostingService {
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator idGenerator;
     private final List<TransactionValidator> txValidators;
+    private final List<LockedAccountValidator> lockedAccountValidators;
     private final List<EntryValidator> entryValidators;
 
     public LedgerPostingService(AccountRepository accountRepo,
@@ -54,6 +56,7 @@ public class LedgerPostingService {
                                 BalanceSignatureService signatureService,
                                 SnowflakeIdGenerator idGenerator,
                                 List<TransactionValidator> txValidators,
+                                List<LockedAccountValidator> lockedAccountValidators,
                                 List<EntryValidator> entryValidators) {
         this.accountRepo = accountRepo;
         this.entryRepo = entryRepo;
@@ -61,6 +64,7 @@ public class LedgerPostingService {
         this.signatureService = signatureService;
         this.idGenerator = idGenerator;
         this.txValidators = txValidators;
+        this.lockedAccountValidators = lockedAccountValidators;
         this.entryValidators = entryValidators;
     }
 
@@ -100,6 +104,10 @@ public class LedgerPostingService {
             VaAccount account = accounts.get(draft.accountId());
             BigDecimal newBalance = computeNewBalance(account, draft);
 
+            for (LockedAccountValidator v : lockedAccountValidators) {
+                v.validate(tx, draft, account, newBalance);
+            }
+
             for (EntryValidator v : entryValidators) {
                 v.validate(draft, account, newBalance);
             }
@@ -115,7 +123,6 @@ public class LedgerPostingService {
                     draft.amount(),
                     draft.direction(),
                     newBalance,
-                    account.frozenBalance(),
                     tx.transactionId(),
                     anchor.signature()));
 
@@ -128,7 +135,6 @@ public class LedgerPostingService {
                     draft.asset(),
                     entrySeq,
                     newBalance,
-                    account.frozenBalance(),
                     anchor.signature(),
                     signature,
                     draft.sourceEventId(),
@@ -137,7 +143,7 @@ public class LedgerPostingService {
                     Instant.now());
 
             entryRepo.insert(entry);
-            accountRepo.updateBalance(draft.accountId(), newBalance, account.frozenBalance());
+            accountRepo.updateLedgerBalance(draft.accountId(), newBalance);
 
             // Reflect new balance in local map for any subsequent entries on this account.
             accounts.put(draft.accountId(), account.withBalance(newBalance));
@@ -180,7 +186,6 @@ public class LedgerPostingService {
                                     head.amount(),
                                     head.direction(),
                                     head.balanceAfter(),
-                                    head.frozenBalance(),
                                     head.transactionId(),
                                     head.prevSignature()),
                             head.signature());

@@ -25,11 +25,11 @@ public class LedgerEntryRepository {
         jdbc.update("""
                 INSERT INTO va_ledger_entry (
                     entry_id, transaction_id, account_id, direction, amount, asset,
-                    entry_seq, balance_after, frozen_balance, prev_signature,
+                    entry_seq, balance_after, prev_signature,
                     balance_signature, source_event_id, status, effective_date
                 ) VALUES (
                     ?, ?, ?, ?::va_entry_direction, ?, ?,
-                    ?, ?, ?, ?,
+                    ?, ?, ?,
                     ?, ?, ?::va_entry_status, ?
                 )
                 """,
@@ -41,7 +41,6 @@ public class LedgerEntryRepository {
                 entry.asset(),
                 entry.entrySeq(),
                 entry.balanceAfter(),
-                entry.frozenBalance(),
                 entry.prevSignature(),
                 entry.balanceSignature(),
                 entry.sourceEventId(),
@@ -124,7 +123,6 @@ public class LedgerEntryRepository {
             rs.getString("asset"),
             rs.getLong("entry_seq"),
             rs.getBigDecimal("balance_after"),
-            rs.getBigDecimal("frozen_balance"),
             rs.getString("prev_signature"),
             rs.getString("balance_signature"),
             rs.getString("source_event_id"),
@@ -142,7 +140,7 @@ public class LedgerEntryRepository {
         var rows = jdbc.query(
                 """
                 SELECT entry_seq, amount, direction, balance_after,
-                       frozen_balance, transaction_id, prev_signature, balance_signature
+                       transaction_id, prev_signature, balance_signature
                 FROM va_ledger_entry
                 WHERE account_id = ?
                 ORDER BY entry_seq DESC
@@ -153,7 +151,6 @@ public class LedgerEntryRepository {
                         rs.getBigDecimal("amount"),
                         Direction.valueOf(rs.getString("direction")),
                         rs.getBigDecimal("balance_after"),
-                        rs.getBigDecimal("frozen_balance"),
                         rs.getString("transaction_id"),
                         rs.getString("prev_signature"),
                         rs.getString("balance_signature")),

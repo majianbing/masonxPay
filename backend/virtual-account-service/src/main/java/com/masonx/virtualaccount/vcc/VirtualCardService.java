@@ -19,9 +19,13 @@ import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -58,7 +62,7 @@ public class VirtualCardService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WALLET account not found or does not belong to merchant: " + req.ownerAccountId()));
 
-        // Create the ring-fenced PREPAID_CARD account.
+        // Create the ring-fenced PREPAID_CARD account for available funds.
         String vccAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
         VaAccount vccAccount = new VaAccount(
                 vccAccountId,
@@ -73,9 +77,26 @@ public class VirtualCardService {
                 2,
                 NormalBalance.DEBIT,
                 BigDecimal.ZERO,
-                BigDecimal.ZERO,
                 AccountStatus.ACTIVE);
         accountRepo.save(vccAccount);
+
+        // Create the paired hold account for authorized-but-unsettled funds.
+        String holdAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
+        VaAccount holdAccount = new VaAccount(
+                holdAccountId,
+                ownerAccount.mode(),
+                AccountRole.TENANT,
+                ownerAccount.orgId(),
+                req.merchantId(),
+                null,
+                AccountType.PREPAID_CARD_HOLD,
+                req.currency(),
+                AssetClass.FIAT,
+                2,
+                NormalBalance.DEBIT,
+                BigDecimal.ZERO,
+                AccountStatus.ACTIVE);
+        accountRepo.save(holdAccount);
 
         // Generate simulator test PAN: BIN 999999 + 10 random digits.
         String testPan   = VA_BIN + randomPanSuffix();
@@ -88,6 +109,7 @@ public class VirtualCardService {
                 maskedPan,
                 VA_BIN,
                 vccAccountId,
+                holdAccountId,
                 req.ownerAccountId(),
                 VirtualCardStatus.ACTIVE,
                 req.spendingLimit(),
@@ -123,14 +145,15 @@ public class VirtualCardService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Owner account not found for card: " + cardId));
         String txId = idGen.generate(MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix());
+        String eventId = fundEventId(cardId, req.idempotencyKey());
         PostTransaction tx = new PostTransaction(txId, List.of(
                 new EntryDraft(card.vccAccountId(), Direction.DEBIT,
-                        req.amount(), card.currency(), txId),
+                        req.amount(), card.currency(), eventId),
                 new EntryDraft(card.ownerAccountId(), Direction.CREDIT,
-                        req.amount(), card.currency(), txId)
+                        req.amount(), card.currency(), eventId)
         ), TransactionType.INTERNAL, "Fund card " + cardId, null,
                 LocalDate.now(), ownerAcct.mode(), ownerAcct.orgId(), ownerAcct.merchantId());
-        ledger.postDirect(tx);
+        ledger.postIfNew(tx, eventId, "vcc-card-fund");
 
         return getCard(cardId);
     }
@@ -141,7 +164,8 @@ public class VirtualCardService {
         VaAccount account = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + cardId));
-        return toResponse(card, account);
+        VaAccount holdAccount = findHoldAccount(card);
+        return toResponse(card, account, holdAccount);
     }
 
     public PagedResult<VccResponse> listCards(String merchantId, int page, int size) {
@@ -149,7 +173,8 @@ public class VirtualCardService {
         List<VccResponse> content = virtualCardRepo.findByMerchantId(merchantId, page, size).stream()
                 .map(card -> {
                     VaAccount acct = accountRepo.findById(card.vccAccountId()).orElse(null);
-                    return toResponse(card, acct);
+                    VaAccount holdAcct = findHoldAccount(card);
+                    return toResponse(card, acct, holdAcct);
                 })
                 .toList();
         int totalPages = (int) Math.ceil((double) total / size);
@@ -168,6 +193,7 @@ public class VirtualCardService {
         VaAccount vccAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + cardId));
+        VaAccount holdAccount = findHoldAccountForUpdate(card);
 
         // Validate ownership via the owner account's merchantId.
         VaAccount ownerAccount = accountRepo.findById(card.ownerAccountId())
@@ -175,7 +201,11 @@ public class VirtualCardService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card does not belong to merchant: " + merchantId));
 
-        BigDecimal remaining = vccAccount.availableBalance();
+        if (holdAccount != null && holdAccount.balance().compareTo(BigDecimal.ZERO) > 0) {
+            throw new IllegalStateException("Cannot close card with open authorization hold: " + cardId);
+        }
+
+        BigDecimal remaining = vccAccount.balance();
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
             String txId = idGen.generate(MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix());
             ledger.postDirect(new PostTransaction(txId, List.of(
@@ -188,15 +218,34 @@ public class VirtualCardService {
         }
 
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.CLOSED);
-        accountRepo.updateBalance(vccAccount.accountId(), BigDecimal.ZERO, BigDecimal.ZERO);
+        accountRepo.updateStatus(vccAccount.accountId(), AccountStatus.CLOSED);
+        if (holdAccount != null) {
+            accountRepo.updateStatus(holdAccount.accountId(), AccountStatus.CLOSED);
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private static VccResponse toResponse(VirtualCard card, VaAccount account) {
+    private VaAccount findHoldAccount(VirtualCard card) {
+        if (card.holdAccountId() == null) {
+            return null;
+        }
+        return accountRepo.findById(card.holdAccountId()).orElse(null);
+    }
+
+    private VaAccount findHoldAccountForUpdate(VirtualCard card) {
+        if (card.holdAccountId() == null) {
+            return null;
+        }
+        return accountRepo.findByIdForUpdate(card.holdAccountId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
+    }
+
+    private static VccResponse toResponse(VirtualCard card, VaAccount account, VaAccount holdAccount) {
         BigDecimal balance  = account != null ? account.balance()         : BigDecimal.ZERO;
-        BigDecimal frozen   = account != null ? account.frozenBalance()   : BigDecimal.ZERO;
-        BigDecimal avail    = account != null ? account.availableBalance(): BigDecimal.ZERO;
+        BigDecimal frozen   = holdAccount != null ? holdAccount.balance() : BigDecimal.ZERO;
+        BigDecimal avail    = balance;
         return new VccResponse(
                 card.cardId(), card.maskedPan(), card.bin(),
                 card.status().name(),
@@ -208,5 +257,15 @@ public class VirtualCardService {
 
     private static String randomPanSuffix() {
         return String.format("%010d", ThreadLocalRandom.current().nextLong(10_000_000_000L));
+    }
+
+    private static String fundEventId(String cardId, String idempotencyKey) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((cardId + ":" + idempotencyKey).getBytes(StandardCharsets.UTF_8));
+            return "vcc_fund_" + HexFormat.of().formatHex(hash).substring(0, 48);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest unavailable", e);
+        }
     }
 }

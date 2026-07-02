@@ -43,11 +43,11 @@ public class AccountRepository {
                 INSERT INTO va_account (
                     account_id, mode, account_role, org_id, merchant_id, provider_id,
                     account_type, asset, asset_class, scale, normal_balance,
-                    balance, frozen_balance, status
+                    balance, status
                 ) VALUES (
                     ?, ?::va_mode, ?::va_account_role, ?, ?, ?,
                     ?::va_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
-                    ?, ?, ?::va_account_status
+                    ?, ?::va_account_status
                 )
                 """,
                 account.accountId(),
@@ -62,7 +62,6 @@ public class AccountRepository {
                 account.scale(),
                 account.normalBalance().name(),
                 account.balance(),
-                account.frozenBalance(),
                 account.status().name());
     }
 
@@ -135,11 +134,17 @@ public class AccountRepository {
                 """, ROW_MAPPER, mode.name(), asset);
     }
 
-    /** Updates balance and frozen_balance atomically — called inside the posting transaction. */
-    public void updateBalance(String accountId, BigDecimal balance, BigDecimal frozenBalance) {
+    /** Updates posted balance atomically — ledger engine only. */
+    void updateLedgerBalance(String accountId, BigDecimal balance) {
         jdbc.update(
-                "UPDATE va_account SET balance = ?, frozen_balance = ?, updated_at = now() WHERE account_id = ?",
-                balance, frozenBalance, accountId);
+                "UPDATE va_account SET balance = ?, updated_at = now() WHERE account_id = ?",
+                balance, accountId);
+    }
+
+    public void updateStatus(String accountId, AccountStatus status) {
+        jdbc.update(
+                "UPDATE va_account SET status = ?::va_account_status, updated_at = now() WHERE account_id = ?",
+                status.name(), accountId);
     }
 
     private static final RowMapper<VaAccount> ROW_MAPPER = (rs, __) -> new VaAccount(
@@ -155,7 +160,6 @@ public class AccountRepository {
             rs.getInt("scale"),
             NormalBalance.valueOf(rs.getString("normal_balance")),
             rs.getBigDecimal("balance"),
-            rs.getBigDecimal("frozen_balance"),
             AccountStatus.valueOf(rs.getString("status"))
     );
 }

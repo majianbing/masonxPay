@@ -121,8 +121,7 @@ public class LedgerQueryService {
                     a.accountRole().name(),
                     a.merchantId(),
                     a.normalBalance().name(),
-                    a.balance(),
-                    a.frozenBalance());
+                    a.balance());
         }).toList();
 
         for (VaAccount a : accounts) {

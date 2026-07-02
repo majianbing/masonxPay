@@ -15,7 +15,7 @@ class BalanceSignatureServiceTest {
         return new SignatureInput(
                 "ac_123", 1L,
                 new BigDecimal("100.00"), Direction.CREDIT,
-                new BigDecimal("100.00"), BigDecimal.ZERO,
+                new BigDecimal("100.00"),
                 "tx_456", prevSig);
     }
 
@@ -42,18 +42,9 @@ class BalanceSignatureServiceTest {
     @Test
     void different_amount_changes_output() {
         var input1 = new SignatureInput("ac_1", 1L, new BigDecimal("100.00"), Direction.CREDIT,
-                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_1", "GENESIS");
+                new BigDecimal("100.00"), "tx_1", "GENESIS");
         var input2 = new SignatureInput("ac_1", 1L, new BigDecimal("200.00"), Direction.CREDIT,
-                new BigDecimal("200.00"), BigDecimal.ZERO, "tx_1", "GENESIS");
-        assertThat(service.compute(input1)).isNotEqualTo(service.compute(input2));
-    }
-
-    @Test
-    void different_frozen_balance_changes_output() {
-        var input1 = new SignatureInput("ac_1", 1L, new BigDecimal("100.00"), Direction.CREDIT,
-                new BigDecimal("100.00"), BigDecimal.ZERO, "tx_1", "GENESIS");
-        var input2 = new SignatureInput("ac_1", 1L, new BigDecimal("100.00"), Direction.CREDIT,
-                new BigDecimal("100.00"), new BigDecimal("50.00"), "tx_1", "GENESIS");
+                new BigDecimal("200.00"), "tx_1", "GENESIS");
         assertThat(service.compute(input1)).isNotEqualTo(service.compute(input2));
     }
 
@@ -74,10 +65,10 @@ class BalanceSignatureServiceTest {
         // canonical() must be invariant to scale.
         var withScale2 = new SignatureInput("ac_1", 1L,
                 new BigDecimal("10.00"), Direction.DEBIT,
-                new BigDecimal("10.00"), BigDecimal.ZERO, "tx_1", "GENESIS");
+                new BigDecimal("10.00"), "tx_1", "GENESIS");
         var withScale8 = new SignatureInput("ac_1", 1L,
                 new BigDecimal("10.00000000"), Direction.DEBIT,
-                new BigDecimal("10.00000000"), new BigDecimal("0.00000000"), "tx_1", "GENESIS");
+                new BigDecimal("10.00000000"), "tx_1", "GENESIS");
         assertThat(service.compute(withScale2)).isEqualTo(service.compute(withScale8));
     }
 
@@ -86,7 +77,7 @@ class BalanceSignatureServiceTest {
         String sig1 = service.compute(input("GENESIS"));
         var input2 = new SignatureInput("ac_123", 2L,
                 new BigDecimal("50.00"), Direction.DEBIT,
-                new BigDecimal("50.00"), BigDecimal.ZERO,
+                new BigDecimal("50.00"),
                 "tx_789", sig1);
         String sig2 = service.compute(input2);
         assertThat(sig2).isNotEqualTo(sig1);
