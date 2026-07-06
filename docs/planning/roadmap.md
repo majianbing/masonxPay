@@ -172,7 +172,7 @@ Core safety rule: the RAG assistant does not read operational payment data or mu
 
 MasonXPay should eventually add an AI-assisted payment operations agent, but this phase is lower priority than the deterministic orchestration engine and the read-only RAG assistant. The operations agent should analyze, explain, and draft policy changes after routing, retry, telemetry, and instrument boundaries are mature.
 
-See [payment operations agent plan](ai-control-plane-plan.md).
+See [payment operations agent plan](payment-operations-agent-plan.md).
 
 Core safety rule: AI does not authorize, decline, or route payments directly. AI analyzes telemetry, explains incidents, recommends routing-policy changes, and can draft safe configuration updates. A deterministic validator and a human approval step remain between AI output and production routing changes. The runtime routing engine continues to execute explicit, versioned configuration only.
 

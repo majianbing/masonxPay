@@ -90,4 +90,4 @@ The dashboard should not call the AI service directly for protected workflows. T
 - [Security boundaries](security-boundaries.md)
 - [Routing and orchestration](routing-orchestration.md)
 - [RAG assistant plan](../planning/rag-assistant-plan.md)
-- [Payment operations agent plan](../planning/ai-control-plane-plan.md)
+- [Payment operations agent plan](../planning/payment-operations-agent-plan.md)

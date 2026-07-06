@@ -30,7 +30,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Multi-rail ISO 8583 / ISO 20022 plan: `docs/planning/multi-rail-iso8583-iso20022-plan.md`
 - Ledger completeness plan: `docs/planning/ledger-completeness-plan.md`
 - RAG support assistant plan: `docs/planning/rag-assistant-plan.md`
-- Payment operations agent plan: `docs/planning/ai-control-plane-plan.md`
+- Payment operations agent plan: `docs/planning/payment-operations-agent-plan.md`
 - Detailed development guide: `docs/engineering/development-guide.md`
 - Connector development guide: `docs/engineering/connector-development.md`
 - Testing strategy: `docs/engineering/testing-strategy.md`

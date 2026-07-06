@@ -1,6 +1,6 @@
 # MasonXPay RAG Support Assistant Plan
 
-Stable architecture shared by all AI capabilities lives in [AI capabilities](../architecture/ai-control-plane.md). Keep this file focused on the RAG assistant phase plan, implementation notes, and open decisions.
+Stable architecture shared by all AI capabilities lives in [AI capabilities](../architecture/ai-capabilities.md). Keep this file focused on the RAG assistant phase plan, implementation notes, and open decisions.
 
 MasonXPay is large enough that users need a product and developer assistant for setup, connector configuration, dashboard workflows, SDK usage, routing policies, subscriptions, rails, ledger concepts, and operational troubleshooting. This assistant is separate from the payment operations agent. It answers questions from approved knowledge sources and does not touch payment execution or configuration mutation.
 
@@ -20,6 +20,7 @@ The RAG assistant may not:
 - Create, publish, or mutate routing rules, connectors, payment links, subscriptions, invoices, webhooks, API keys, ledger entries, or rail payments.
 - Read raw production logs, raw database rows, provider payloads, webhook bodies, secrets, credentials, card data, unredacted PII, or customer payment payloads.
 - Bypass tenant scope, TEST/LIVE mode scope, RBAC, or platform-admin boundaries.
+- Return documentation scoped to a role the requester does not hold. Retrieval must filter candidate chunks by the requesting user's `audience`/role before ranking, so that platform-admin or operator guidance cannot surface in a merchant user's answer.
 - Present archived or planning material as current behavior when stable architecture or engineering docs disagree.
 
 ## Relationship To The Operations Agent
@@ -68,6 +69,8 @@ Every chunk should carry metadata that lets the system rank stable, current guid
 
 The answer generator should cite source paths and headings. If retrieved chunks conflict, stable architecture and engineering docs win over planning docs, and archive docs must be labeled historical.
 
+Retrieval must also be filtered by the requesting user's role. The gateway facade resolves the caller's `audience` (merchant, developer, platform-admin, operator) and passes it to the AI service, which restricts the candidate set to chunks the caller is entitled to. Role filtering is applied before ranking, never as a post-hoc answer redaction.
+
 ## Service Architecture
 
 Recommended runtime:
@@ -113,7 +116,7 @@ Scoring criteria:
 | RAG0 | **Safety and scope model** | [ ] | Define allowed sources, excluded sources, roles, sensitive-data refusals, and docs-only first-version boundary. |
 | RAG1 | **Vector database foundation** | [ ] | Add standalone vector DB to local Docker and deployment docs; define collection schema, metadata indexes, retention, backups, and security requirements. |
 | RAG2 | **Ingestion pipeline** | [ ] | Chunk approved docs, attach metadata, compute embeddings, upsert to vector DB, and track source git commit/version. |
-| RAG3 | **Answer API** | [ ] | Add AI service endpoint and gateway facade for question answering with citations, confidence/refusal fields, correlation IDs, and rate limits. |
+| RAG3 | **Answer API** | [ ] | Add AI service endpoint and gateway facade for question answering with citations, confidence/refusal fields, correlation IDs, role/`audience`-filtered retrieval, and rate limits. The facade carries a self-contained per-tenant request/token budget so RAG can ship without waiting on the deferred Phase 15 platform-wide rate limiter. |
 | RAG4 | **Dashboard assistant UI** | [ ] | Add a read-only assistant surface with citations, source links, feedback controls, and clear unsupported-answer states. |
 | RAG5 | **Framework bakeoff** | [ ] | Compare LlamaIndex, LangChain/LangGraph, and thin custom orchestration against a shared Qdrant-backed golden-question set. |
 | RAG6 | **Evals and auditability** | [ ] | Build golden usage questions, citation checks, sensitive-data refusal tests, stale-doc conflict tests, model/provider comparison reports, and prompt/template versioning. |
@@ -133,6 +136,7 @@ Seed eval questions should cover:
 - Why cross-provider fallback requires a portable instrument or re-authorization.
 - How subscription retry and dunning work.
 - What data is forbidden in logs and AI evidence.
+- A merchant-role question must not surface platform-admin- or operator-only guidance (role/`audience` filter check).
 - How provider webhooks are verified.
 - What UNKNOWN rail state means.
 - How VA ledger trial balance and account statements should be interpreted.

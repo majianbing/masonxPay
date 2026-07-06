@@ -129,7 +129,7 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 - [Payment orchestration, routing, retry, and instrument plan](docs/planning/payment-orchestration-routing-retry-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](docs/planning/multi-rail-iso8583-iso20022-plan.md)
 - [RAG support assistant plan](docs/planning/rag-assistant-plan.md)
-- [Payment operations agent plan](docs/planning/ai-control-plane-plan.md)
+- [Payment operations agent plan](docs/planning/payment-operations-agent-plan.md)
 - [Development guide](docs/engineering/development-guide.md)
 - [Connector development](docs/engineering/connector-development.md)
 - [Server SDK](sdk/server/README.md)

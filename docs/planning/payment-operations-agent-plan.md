@@ -1,6 +1,6 @@
 # MasonXPay Payment Operations Agent Plan
 
-Stable architecture shared by all AI capabilities lives in [AI capabilities](../architecture/ai-control-plane.md). Keep this file focused on the payment operations agent, phase status, open decisions, and implementation notes. The documentation-focused RAG assistant is tracked separately in [RAG assistant plan](rag-assistant-plan.md).
+Stable architecture shared by all AI capabilities lives in [AI capabilities](../architecture/ai-capabilities.md). Keep this file focused on the payment operations agent, phase status, open decisions, and implementation notes. The documentation-focused RAG assistant is tracked separately in [RAG assistant plan](rag-assistant-plan.md).
 
 MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted operations agent. This agent investigates telemetry, explains incidents, and drafts payment-operations configuration proposals. It is not the product-support RAG assistant, and it is not in the payment execution path.
 

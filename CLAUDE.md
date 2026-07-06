@@ -14,7 +14,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `docs/planning/high-throughput-payment-core-plan.md`: sharding, Kafka, Redis, projections, and preview design.
 - `docs/planning/payment-orchestration-routing-retry-plan.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
 - `docs/planning/rag-assistant-plan.md`: RAG support assistant plan.
-- `docs/planning/ai-control-plane-plan.md`: payment operations agent plan.
+- `docs/planning/payment-operations-agent-plan.md`: payment operations agent plan.
 - `docs/planning/multi-rail-iso8583-iso20022-plan.md`: Phase MR — ISO8583 card rail, ISO 20022 bank rail, VCC product, ledger integration milestone tracker.
 - `docs/engineering/development-guide.md`: engineering docs index.
 - `docs/engineering/connector-development.md`: connector implementation workflow.
@@ -78,7 +78,7 @@ See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 Next likely work:
 
 - Phase RAG (next): docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
-- Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/ai-control-plane-plan.md`.
+- Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
 - Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 

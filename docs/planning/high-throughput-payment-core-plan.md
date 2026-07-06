@@ -509,7 +509,7 @@ Follow-up hardening, not H7 blockers:
 
 The payment operations agent is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
 
-See [payment operations agent plan](ai-control-plane-plan.md).
+See [payment operations agent plan](payment-operations-agent-plan.md).
 
 ## Open Decisions
 

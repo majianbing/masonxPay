@@ -49,6 +49,6 @@ The AI service, when present, is a separate top-level service. `gateway-service`
 - [Sharding, Kafka, and Redis](sharding-kafka-redis.md)
 - [Routing and orchestration](routing-orchestration.md)
 - [Subscriptions and billing](subscriptions-billing.md)
-- [AI capabilities](ai-control-plane.md)
+- [AI capabilities](ai-capabilities.md)
 - [Development guide](../engineering/development-guide.md)
 - [Roadmap](../planning/roadmap.md)

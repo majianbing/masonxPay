@@ -27,7 +27,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Multi-rail ISO 8583 / ISO 20022 plan](planning/multi-rail-iso8583-iso20022-plan.md)
 - [Ledger completeness plan](planning/ledger-completeness-plan.md)
 - [RAG support assistant plan](planning/rag-assistant-plan.md)
-- [Payment operations agent plan](planning/ai-control-plane-plan.md)
+- [Payment operations agent plan](planning/payment-operations-agent-plan.md)
 
 ## Root Docs
 
