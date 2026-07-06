@@ -1,6 +1,6 @@
 # MasonXPay Agent Guide
 
-MasonXPay is a multi-provider payment gateway and payment operations platform. It covers the full stack from PSP integration (Stripe, Square, Braintree, Mollie) through orchestration, subscriptions, and a high-throughput Kafka/Redis/sharding core, and extends into a multi-rail payment infrastructure layer (ISO 8583 card rail and ISO 20022 bank rail) with a Virtual Credit Card product backed by a double-entry ledger. The AI control plane is advisory only and never executes payment decisions directly.
+MasonXPay is a multi-provider payment gateway and payment operations platform. It covers the full stack from PSP integration (Stripe, Square, Braintree, Mollie) through orchestration, subscriptions, and a high-throughput Kafka/Redis/sharding core, and extends into a multi-rail payment infrastructure layer (ISO 8583 card rail and ISO 20022 bank rail) with a Virtual Credit Card product backed by a double-entry ledger. AI capabilities are advisory only: the RAG assistant is read-only and documentation-backed, and the payment operations agent never executes payment decisions directly.
 
 ## Repository Map
 
@@ -11,6 +11,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
   - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
   - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091) and bank-rail-sim (HTTP, port 9090) (`com.masonx.railsim`).
+- `ai-service/`: optional top-level Python AI coprocessor for RAG, model orchestration, embeddings, and evals. It is not a Maven module and must not own payment, connector, routing, ledger, approval, tenant, or credential state.
 - `dashboard/`: Next.js merchant/admin UI.
 - `sdk/server/`, `sdk/browser/`: TypeScript SDKs. Browser checkout UI lives in `sdk/browser/src/index.ts`.
 - `monitor/`: Prometheus, Grafana, Kafka JMX assets.
@@ -28,7 +29,8 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - High-throughput payment core plan: `docs/planning/high-throughput-payment-core-plan.md`
 - Multi-rail ISO 8583 / ISO 20022 plan: `docs/planning/multi-rail-iso8583-iso20022-plan.md`
 - Ledger completeness plan: `docs/planning/ledger-completeness-plan.md`
-- AI-assisted operations control-plane plan: `docs/planning/ai-control-plane-plan.md`
+- RAG support assistant plan: `docs/planning/rag-assistant-plan.md`
+- Payment operations agent plan: `docs/planning/ai-control-plane-plan.md`
 - Detailed development guide: `docs/engineering/development-guide.md`
 - Connector development guide: `docs/engineering/connector-development.md`
 - Testing strategy: `docs/engineering/testing-strategy.md`
@@ -41,7 +43,8 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Idempotency: DB-backed reservation/route records. Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
 - Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger, VA accounts, and card issuance for VCCs; `rail-service` (Phase MR) owns the ISO 8583 and ISO 20022 acquirer-side clients; `rail-simulator` (Phase MR) owns the card-network and bank-rail simulators; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
-- AI control plane: advisory only. AI investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
+- AI service placement: `ai-service/` is a top-level Python service, not part of `backend/`. The Java gateway remains the policy gate for identity, tenant scope, TEST/LIVE mode scope, RBAC, approval state, and payment-domain mutation.
+- AI capabilities: advisory only. The RAG assistant answers from approved docs/help content and does not read operational payment data. The payment operations agent investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
 
 ## Current Phases
 
@@ -51,7 +54,8 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Phase O (advanced orchestration) O1–O5 and O3b: complete — payment instruments, capability matrix, route policies, outcome-based fallback, scheduled retry. O6 (portable card) deferred until cross-PSP portability is a real requirement.
 - Phase MR (multi-rail infrastructure) MR0–MR5: complete. ISO 8583 card rail (Netty/jPOS), ISO 20022 bank rail (HTTP/JAXB), VCC product, ledger integration, VA Account APIs, gateway→rail bridge. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 - Phase LC (ledger completeness): complete — persisted journal headers (`va_transaction`), GL query APIs, effective-date account statements, and trial balance reporting. See `docs/planning/ledger-completeness-plan.md`.
-- Phase AI (AI-assisted control plane): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
+- Phase RAG (documentation support assistant): planned. RAG answers product, integration, SDK, dashboard, routing, subscription, rail, and ledger questions from approved docs/help content with citations.
+- Phase AI (payment operations agent): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
 
@@ -85,6 +89,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Keep submodules clean and focused; avoid turning one module into a catch-all.
 - Keep the backend as a clean modular monolith. Treat package boundaries as module boundaries: payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, and dashboard/API entrypoints should each own one concern. Cross-module calls should go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
 - AI must not authorize, decline, or route payments directly. AI output must pass deterministic validation and human approval before config changes are applied.
+- The RAG assistant must remain read-only and retrieve only approved documentation/help sources. Its vector database must not contain production logs, raw database rows, provider payloads, webhook bodies, secrets, credentials, card data, customer PII, or payment/ledger records.
 - External AI models must receive only redacted, aggregated, policy-approved evidence. Secrets, raw payment payloads, card data, provider credentials, webhook signatures, private keys, tokens, and unredacted PII must never be sent to model providers. Support a no-external-AI mode where deterministic workers and human review function without external model calls.
 
 ## Engineering Style

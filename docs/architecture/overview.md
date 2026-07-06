@@ -1,6 +1,6 @@
 # MasonXPay Architecture Overview
 
-MasonXPay is a payment operations platform built around a deterministic multi-provider payment gateway. The system supports hosted and embedded checkout, provider abstraction, route policies, webhooks, observability, high-throughput infrastructure, subscriptions, and a future advisory AI control plane.
+MasonXPay is a payment operations platform built around a deterministic multi-provider payment gateway. The system supports hosted and embedded checkout, provider abstraction, route policies, webhooks, observability, high-throughput infrastructure, subscriptions, and future advisory AI capabilities.
 
 ## System Map
 
@@ -11,6 +11,7 @@ MasonXPay is a payment operations platform built around a deterministic multi-pr
   - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
   - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091), bank-rail-sim (HTTP, port 9090), BIN-based issuer routing, PAN/account-suffix behavior table.
+- `ai-service/`: optional top-level Python AI coprocessor for RAG, model orchestration, embeddings, redacted model-call audit, and evals. It is not a `backend/` Maven module and must not own payment-domain authority.
 - `dashboard/`: Next.js merchant and admin UI.
 - `sdk/server/`: TypeScript server SDK.
 - `sdk/browser/`: browser checkout SDK and all client-side payment UI.
@@ -27,7 +28,7 @@ MasonXPay is a payment operations platform built around a deterministic multi-pr
 - TEST/LIVE mode isolation is separate from tenant isolation and must be enforced for mode-scoped resources.
 - Provider webhooks are unauthenticated at the HTTP edge, so signature verification is mandatory.
 - Raw PAN, track data, and CVV must never enter MasonXPay core services.
-- AI is advisory only. Deterministic validators and human approval must sit between AI output and any applied config change.
+- AI is advisory only. The RAG assistant is read-only and documentation-backed. The payment operations agent may draft recommendations, but deterministic validators and human approval must sit between AI output and any applied config change.
 
 ## Payment Runtime
 
@@ -39,6 +40,8 @@ Webhook and outbox writes must remain atomic with payment state. Kafka workers, 
 
 The backend is a modular monolith. Payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, billing, and dashboard/API entrypoints each own one concern. Cross-module calls should go through services, interfaces, or outbox events.
 
+The AI service, when present, is a separate top-level service. `gateway-service` remains the policy and domain boundary for user identity, merchant scope, TEST/LIVE mode scope, RBAC, approval state, and all payment-domain mutation. The dashboard should call the gateway for protected AI workflows, not the AI service directly.
+
 ## Detailed References
 
 - [Security boundaries](security-boundaries.md)
@@ -46,6 +49,6 @@ The backend is a modular monolith. Payment/refund state transitions, provider ad
 - [Sharding, Kafka, and Redis](sharding-kafka-redis.md)
 - [Routing and orchestration](routing-orchestration.md)
 - [Subscriptions and billing](subscriptions-billing.md)
-- [AI control plane](ai-control-plane.md)
+- [AI capabilities](ai-control-plane.md)
 - [Development guide](../engineering/development-guide.md)
 - [Roadmap](../planning/roadmap.md)

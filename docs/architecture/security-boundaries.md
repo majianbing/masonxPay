@@ -30,9 +30,12 @@ AI is outside the payment execution authority path. External model providers are
 
 AI may analyze, explain, recommend, and draft. AI may not authorize, decline, route, mutate routing rules directly, bypass tenant/RBAC checks, or receive secrets, raw payment payloads, card data, webhook signatures, provider credentials, private keys, tokens, or unredacted customer PII.
 
+The RAG assistant is read-only and should retrieve only approved documentation/help sources. Its vector database must not contain production logs, raw database rows, provider payloads, webhook bodies, secrets, credentials, card data, customer PII, or payment/ledger records.
+
 ## References
 
 - [Payment core](payment-core.md)
 - [Routing and orchestration](routing-orchestration.md)
-- [AI control plane](ai-control-plane.md)
-- [AI-assisted operations control plane plan](../planning/ai-control-plane-plan.md)
+- [AI capabilities](ai-control-plane.md)
+- [RAG assistant plan](../planning/rag-assistant-plan.md)
+- [Payment operations agent plan](../planning/ai-control-plane-plan.md)

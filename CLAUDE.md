@@ -13,7 +13,8 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `docs/planning/roadmap.md`: product phases and future tracks.
 - `docs/planning/high-throughput-payment-core-plan.md`: sharding, Kafka, Redis, projections, and preview design.
 - `docs/planning/payment-orchestration-routing-retry-plan.md`: Phase O orchestration tracker for instruments, routing, retry, and capability-aware simulation.
-- `docs/planning/ai-control-plane-plan.md`: AI-assisted payment operations control-plane design.
+- `docs/planning/rag-assistant-plan.md`: RAG support assistant plan.
+- `docs/planning/ai-control-plane-plan.md`: payment operations agent plan.
 - `docs/planning/multi-rail-iso8583-iso20022-plan.md`: Phase MR — ISO8583 card rail, ISO 20022 bank rail, VCC product, ledger integration milestone tracker.
 - `docs/engineering/development-guide.md`: engineering docs index.
 - `docs/engineering/connector-development.md`: connector implementation workflow.
@@ -29,6 +30,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
   - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
   - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091) and bank-rail-sim (HTTP, port 9090).
+- `ai-service/`: optional top-level Python AI coprocessor for RAG, model orchestration, embeddings, and evals. It is not a Maven module and must not own payment, connector, routing, ledger, approval, tenant, or credential state.
 - `dashboard/`: Next.js merchant portal and admin surfaces.
 - `sdk/browser/`: browser checkout UI and provider SDK integration.
 - `sdk/server/`: server SDK.
@@ -44,7 +46,8 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - Search/read views: Postgres projection tables now; OpenSearch remains an optional future adapter if search outgrows Postgres, not state authority.
 - Runtime routing: deterministic rules and service logic.
 - Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/planning/payment-orchestration-routing-retry-plan.md` is the durable status tracker.
-- AI control plane: planned advisory layer only. AI may investigate and propose; validators and humans approve; deterministic workers execute.
+- AI capabilities: planned advisory layers only. The RAG assistant answers from approved docs/help content and does not read operational payment data. The payment operations agent investigates and proposes; validators and humans approve; deterministic workers execute.
+- AI service placement: `ai-service/` is a top-level Python service, not part of `backend/`. The Java gateway remains the policy gate for identity, tenant scope, TEST/LIVE mode scope, RBAC, approval state, and payment-domain mutation.
 
 ## Current Track
 
@@ -74,7 +77,8 @@ See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 
 Next likely work:
 
-- Phase AI (next): model-agnostic AI-assisted operations control plane — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/ai-control-plane-plan.md`.
+- Phase RAG (next): docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
+- Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/ai-control-plane-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
 - Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 
@@ -130,6 +134,7 @@ Keep tests modular:
 - Keep the backend as a clean modular monolith; cross-module calls go through services/interfaces or outbox events, not direct shortcuts into another module's internals.
 - Every merchant-facing list API that can grow beyond 50 items must use Spring Data `Pageable` with `@PageableDefault(size=20)` and return `Page<T>`. Frontend list components must bind a `page` state to the query key and render prev/next controls. Unbounded `List<T>` responses are only acceptable for small, bounded sets (e.g. items on a single record).
 - Keep route fallback credential-safe: provider-scoped payment tokens can only be reused on the original provider account. Cross-route fallback requires a portable instrument, future vault/network token support, or explicit customer re-authorization.
+- The RAG assistant must remain read-only and retrieve only approved documentation/help sources. Its vector database must not contain production logs, raw database rows, provider payloads, webhook bodies, secrets, credentials, card data, customer PII, or payment/ledger records.
 - Keep external AI model calls outside the sensitive data boundary; use redacted, aggregated evidence only, and support a no-external-AI mode.
 - Keep browser payment UI centralized in `sdk/browser/src/index.ts`.
 - Use `docs/engineering/development-guide.md` as the engineering index; use the focused engineering docs for connector, SDK, MFA, testing, and database rules.
