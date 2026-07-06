@@ -193,6 +193,10 @@ app:
       base-url: ${AI_SERVICE_BASE_URL:http://localhost:8090}
       connect-timeout-ms: ${AI_SERVICE_CONNECT_TIMEOUT_MS:1000}
       read-timeout-ms: ${AI_SERVICE_READ_TIMEOUT_MS:5000}
+      auth-token: ${AI_SERVICE_AUTH_TOKEN:}
+      request-limit-per-window: ${AI_ASSISTANT_REQUEST_LIMIT_PER_WINDOW:60}
+      token-limit-per-window: ${AI_ASSISTANT_TOKEN_LIMIT_PER_WINDOW:12000}
+      budget-window-seconds: ${AI_ASSISTANT_BUDGET_WINDOW_SECONDS:3600}
 
   # ── Sentinel rate limiting + circuit breaking ──────────────────────────────
   # Rules are loaded at startup from these properties.

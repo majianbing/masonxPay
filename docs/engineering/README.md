@@ -10,4 +10,5 @@ Engineering docs explain how to build, test, and extend MasonXPay.
 - [SDK guide](sdk-guide.md)
 - [Auth and security implementation](auth-security.md)
 - [Testing strategy](testing-strategy.md)
+- [RAG assistant operations](rag-operations.md)
 - [Engineering anti-patterns](anti-patterns.md)

@@ -38,6 +38,7 @@ class RagQuestionRequest(ApiModel):
     audience: Audience = "merchant"
     max_citations: int = Field(default=4, ge=1, le=8)
     correlation_id: str | None = Field(default=None, max_length=128)
+    merchant_id: str | None = Field(default=None, max_length=128)
 
 
 class RagAnswerResponse(ApiModel):
@@ -46,6 +47,10 @@ class RagAnswerResponse(ApiModel):
     refusal_reason: str | None = None
     confidence: Literal["none", "low", "medium", "high"]
     retrieved_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    prompt_template_version: str
+    answer_policy_version: str
+    model_provider: str
+    model_name: str
 
 
 class SourceSummary(ApiModel):
@@ -63,4 +68,8 @@ class RagIndexStatus(ApiModel):
     chunk_count: int
     source_count: int
     vector_backend: str
+    prompt_template_version: str
+    answer_policy_version: str
+    model_provider: str
+    model_name: str
     sources: list[SourceSummary]

@@ -7,6 +7,7 @@ from pathlib import Path
 from app.ingest import normalized_index
 from app.knowledge import INDEX_VERSION, KnowledgeBase, build_index, stable_chunk_id, stable_point_id, write_index
 from app.models import RagQuestionRequest
+from app.prompting import ANSWER_POLICY_VERSION, MODEL_NAME, MODEL_PROVIDER, PROMPT_TEMPLATE_VERSION
 from app.vector_store import embedding_for_text
 
 
@@ -31,6 +32,10 @@ class KnowledgeBaseTest(unittest.TestCase):
             self.assertIsNone(response.refusal_reason)
             self.assertGreaterEqual(len(response.citations), 1)
             self.assertIn("TEST", response.answer)
+            self.assertEqual(PROMPT_TEMPLATE_VERSION, response.prompt_template_version)
+            self.assertEqual(ANSWER_POLICY_VERSION, response.answer_policy_version)
+            self.assertEqual(MODEL_PROVIDER, response.model_provider)
+            self.assertEqual(MODEL_NAME, response.model_name)
 
     def test_refuses_sensitive_questions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,6 +114,10 @@ class KnowledgeBaseTest(unittest.TestCase):
 
             self.assertEqual(INDEX_VERSION, status.index_version)
             self.assertEqual("json", status.vector_backend)
+            self.assertEqual(PROMPT_TEMPLATE_VERSION, status.prompt_template_version)
+            self.assertEqual(ANSWER_POLICY_VERSION, status.answer_policy_version)
+            self.assertEqual(MODEL_PROVIDER, status.model_provider)
+            self.assertEqual(MODEL_NAME, status.model_name)
             self.assertEqual(2, status.source_count)
             self.assertEqual(2, status.chunk_count)
             self.assertEqual(["README.md", "docs/architecture/overview.md"],
@@ -135,6 +144,34 @@ class KnowledgeBaseTest(unittest.TestCase):
         }
 
         self.assertEqual(normalized_index(base), normalized_index(updated))
+
+    def test_stable_docs_rank_above_conflicting_planning_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            architecture = root / "docs" / "architecture"
+            planning = root / "docs" / "planning"
+            architecture.mkdir(parents=True)
+            planning.mkdir(parents=True)
+            (architecture / "routing-orchestration.md").write_text(
+                "# Routing\n\nCross-provider fallback requires a portable instrument or explicit customer re-authorization.",
+                encoding="utf-8",
+            )
+            (planning / "old-routing-plan.md").write_text(
+                "# Routing Plan\n\nCross-provider fallback does not require explicit customer re-authorization.",
+                encoding="utf-8",
+            )
+            index_path = root / "rag_index.json"
+            write_index(root, index_path)
+
+            response = KnowledgeBase(index_path).answer(
+                RagQuestionRequest(
+                    question="Does cross-provider fallback require customer re-authorization?",
+                    audience="developer",
+                )
+            )
+
+            self.assertEqual("docs/architecture/routing-orchestration.md", response.citations[0].source_path)
+            self.assertIn("re-authorization", response.answer)
 
 
 if __name__ == "__main__":

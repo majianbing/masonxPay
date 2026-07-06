@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from app.models import Citation, RagAnswerResponse, RagIndexStatus, RagQuestionRequest, RetrievedChunk, SourceSummary
+from app.prompting import ANSWER_POLICY_VERSION, MODEL_NAME, MODEL_PROVIDER, PROMPT_TEMPLATE_VERSION
 from app.text import tokenize
 from app.vector_store import JsonRetriever, Retriever
 
@@ -232,6 +233,7 @@ class KnowledgeBase:
                 citations=[],
                 refusal_reason="sensitive_data",
                 confidence="none",
+                **rag_response_versions(),
             )
 
         matches = self.retrieve(question, request.audience, request.max_citations)
@@ -241,6 +243,7 @@ class KnowledgeBase:
                 citations=[],
                 refusal_reason="insufficient_evidence",
                 confidence="none",
+                **rag_response_versions(),
             )
 
         citations = [citation_from_chunk(chunk) for chunk, _ in matches]
@@ -250,7 +253,13 @@ class KnowledgeBase:
         ]
         answer = synthesize_answer(question, [chunk for chunk, _ in matches])
         confidence = "high" if matches[0][1] >= 0.45 and len(matches) >= 2 else "medium" if matches[0][1] >= 0.25 else "low"
-        return RagAnswerResponse(answer=answer, citations=citations, confidence=confidence, retrieved_chunks=chunks)
+        return RagAnswerResponse(
+            answer=answer,
+            citations=citations,
+            confidence=confidence,
+            retrieved_chunks=chunks,
+            **rag_response_versions(),
+        )
 
     def retrieve(self, question: str, audience: str, limit: int) -> list[tuple[dict, float]]:
         return self.retriever.retrieve(question, audience, limit)
@@ -265,6 +274,7 @@ class KnowledgeBase:
                 chunk_count=0,
                 source_count=0,
                 vector_backend=vector_backend,
+                **rag_response_versions(),
                 sources=[],
             )
         sources: dict[str, SourceSummary] = {}
@@ -294,6 +304,7 @@ class KnowledgeBase:
             chunk_count=len(chunks),
             source_count=len(sources),
             vector_backend=vector_backend,
+            **rag_response_versions(),
             sources=sorted(sources.values(), key=lambda source: source.source_path),
         )
 
@@ -305,6 +316,15 @@ def citation_from_chunk(chunk: dict) -> Citation:
         source_type=chunk["source_type"],
         stability=chunk["stability"],
     )
+
+
+def rag_response_versions() -> dict[str, str]:
+    return {
+        "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+        "answer_policy_version": ANSWER_POLICY_VERSION,
+        "model_provider": MODEL_PROVIDER,
+        "model_name": MODEL_NAME,
+    }
 
 
 def synthesize_answer(question: str, chunks: list[dict]) -> str:

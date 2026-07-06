@@ -7,7 +7,11 @@ public record RagAnswerResponse(
         List<Citation> citations,
         String refusalReason,
         String confidence,
-        List<RetrievedChunk> retrievedChunks
+        List<RetrievedChunk> retrievedChunks,
+        String promptTemplateVersion,
+        String answerPolicyVersion,
+        String modelProvider,
+        String modelName
 ) {
     public record Citation(
             String sourcePath,

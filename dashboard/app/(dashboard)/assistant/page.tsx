@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, ExternalLink, Loader2, SendHorizontal } from 'lucide-react';
+import { Bot, Check, Copy, Loader2, SendHorizontal } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,7 @@ export default function AssistantPage() {
   const [answer, setAnswer] = useState<RagAnswerResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedSource, setCopiedSource] = useState<string | null>(null);
   const { data: indexStatus } = useQuery<RagIndexStatus>({
     queryKey: ['assistant-index-status', activeMerchantId],
     enabled: Boolean(activeMerchantId),
@@ -60,7 +61,6 @@ export default function AssistantPage() {
           method: 'POST',
           body: JSON.stringify({
             question: nextQuestion.trim(),
-            audience: 'merchant',
             maxCitations: 4,
             correlationId: crypto.randomUUID(),
           }),
@@ -73,6 +73,12 @@ export default function AssistantPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function copySource(sourcePath: string) {
+    navigator.clipboard.writeText(sourcePath);
+    setCopiedSource(sourcePath);
+    setTimeout(() => setCopiedSource(null), 1500);
   }
 
   return (
@@ -104,6 +110,10 @@ export default function AssistantPage() {
           <div>
             <div className="text-xs text-muted-foreground">Commit</div>
             <div className="font-mono text-xs">{indexStatus.gitCommit.slice(0, 12)}</div>
+          </div>
+          <div className="col-span-2 md:col-span-4">
+            <div className="text-xs text-muted-foreground">Indexed</div>
+            <div className="font-mono text-xs">{indexStatus.lastIndexedAt}</div>
           </div>
         </div>
       )}
@@ -160,19 +170,31 @@ export default function AssistantPage() {
                 <h2 className="text-sm font-medium">Sources</h2>
                 <div className="grid gap-2">
                   {answer.citations.map((citation) => (
-                    <a
+                    <div
                       key={`${citation.sourcePath}-${citation.headingPath}`}
-                      className="flex items-center justify-between rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                      href={`/${citation.sourcePath}`}
-                      target="_blank"
-                      rel="noreferrer"
+                      className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-sm"
                     >
-                      <span>
-                        {citation.sourcePath}
-                        <span className="ml-2 text-xs text-muted-foreground">{citation.headingPath}</span>
-                      </span>
-                      <ExternalLink className="size-4 text-muted-foreground" />
-                    </a>
+                      <div className="min-w-0 space-y-1">
+                        <div className="break-all font-mono text-xs">{citation.sourcePath}</div>
+                        <div className="text-xs text-muted-foreground">{citation.headingPath}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="rounded border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            {citation.sourceType}
+                          </span>
+                          <span className="rounded border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            {citation.stability}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={() => copySource(citation.sourcePath)}
+                        type="button"
+                        title="Copy source path"
+                      >
+                        {copiedSource === citation.sourcePath ? <Check className="size-4" /> : <Copy className="size-4" />}
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>

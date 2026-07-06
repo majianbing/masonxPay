@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
 import time
 from collections import Counter
 from typing import Protocol
@@ -51,9 +52,8 @@ class JsonRetriever:
             if not overlap:
                 continue
             density = len(overlap) / math.sqrt(max(len(token_set), 1))
-            stability_boost = 1.25 if chunk.get("stability") == "stable" else 1.0
             heading_boost = 1.15 if query_set & set(tokenize(chunk.get("heading_path", ""))) else 1.0
-            scored.append((chunk, density * stability_boost * heading_boost))
+            scored.append((chunk, density * ranking_multiplier(chunk) * heading_boost))
         scored.sort(key=lambda item: item[1], reverse=True)
         return scored[:limit]
 
@@ -65,6 +65,23 @@ class QdrantRetriever:
         self.client = QdrantClient(url=url)
         self.collection_name = collection_name
         self.chunks_provider = chunks_provider
+        self._index_synced = False
+        self._index_lock = threading.Lock()
+
+    def ensure_indexed(self) -> None:
+        """Sync the collection to the current index at most once per process.
+
+        Re-indexing after this is an explicit operation (the ``ingest`` CLI calls
+        ``ensure_index`` directly, or the service is restarted), so retrieval stays
+        off the write path and does not scroll/count the whole collection per query.
+        """
+        if self._index_synced:
+            return
+        with self._index_lock:
+            if self._index_synced:
+                return
+            self.ensure_index()
+            self._index_synced = True
 
     def ensure_index(self) -> None:
         from qdrant_client.models import Distance, PointIdsList, PointStruct, VectorParams
@@ -124,7 +141,10 @@ class QdrantRetriever:
     def retrieve(self, question: str, audience: str, limit: int) -> list[tuple[dict, float]]:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        self.ensure_index()
+        self.ensure_indexed()
+        # Over-fetch by raw vector score, then re-rank with the stability/source boost so a
+        # stable doc that ranks just outside `limit` can still win over an active-plan chunk.
+        candidate_limit = max(limit * 5, 20)
         results = self.client.search(
             collection_name=self.collection_name,
             query_vector=embedding_for_text(question),
@@ -136,7 +156,26 @@ class QdrantRetriever:
                     )
                 ]
             ),
-            limit=limit,
+            limit=candidate_limit,
             with_payload=True,
         )
-        return [(result.payload, float(result.score)) for result in results if result.payload]
+        scored = [
+            (result.payload, float(result.score) * ranking_multiplier(result.payload))
+            for result in results
+            if result.payload
+        ]
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[:limit]
+
+
+def ranking_multiplier(chunk: dict) -> float:
+    stability = chunk.get("stability")
+    source_type = chunk.get("source_type")
+    multiplier = 1.0
+    if stability == "stable":
+        multiplier *= 2.0
+    elif stability == "active-plan":
+        multiplier *= 0.6
+    if source_type in {"architecture", "engineering"}:
+        multiplier *= 1.2
+    return multiplier
