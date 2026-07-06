@@ -111,16 +111,34 @@ Scoring criteria:
 
 ## Phases
 
+Implementation order is intentionally not the same as the table number order once bootstrap work exists. Finish the ingestion pipeline before treating the vector database foundation as complete, because stable chunk identity and source-version metadata determine whether Qdrant can be synced safely.
+
+Current execution order:
+
+1. Finish RAG1 runtime validation: live Qdrant smoke test, retention/backups notes, and security gaps.
+2. Finish RAG3 gateway hardening: request/token budgets, audit events, timeout/error behavior.
+3. Finish RAG4 dashboard verification and UX polish.
+4. Build RAG6 eval harness.
+5. Defer RAG5 framework bakeoff until golden evals exist.
+6. Close RAG7 production hardening last.
+
 | # | Item | Status | Detail |
 |---|---|---|---|
-| RAG0 | **Safety and scope model** | [ ] | Define allowed sources, excluded sources, roles, sensitive-data refusals, and docs-only first-version boundary. |
-| RAG1 | **Vector database foundation** | [ ] | Add standalone vector DB to local Docker and deployment docs; define collection schema, metadata indexes, retention, backups, and security requirements. |
-| RAG2 | **Ingestion pipeline** | [ ] | Chunk approved docs, attach metadata, compute embeddings, upsert to vector DB, and track source git commit/version. |
-| RAG3 | **Answer API** | [ ] | Add AI service endpoint and gateway facade for question answering with citations, confidence/refusal fields, correlation IDs, role/`audience`-filtered retrieval, and rate limits. The facade carries a self-contained per-tenant request/token budget so RAG can ship without waiting on the deferred Phase 15 platform-wide rate limiter. |
-| RAG4 | **Dashboard assistant UI** | [ ] | Add a read-only assistant surface with citations, source links, feedback controls, and clear unsupported-answer states. |
+| RAG0 | **Safety and scope model** | [x] | Complete for bootstrap: allowlisted sources, excluded sensitive data, audience filtering, docs-only first-version boundary, and refusal behavior are implemented in `ai-service/`. |
+| RAG1 | **Vector database foundation** | [~] | Bootstrap runtime validated: Qdrant is wired into local Docker with a persistent volume and collection schema, and a live Qdrant-backed answer/status smoke test passed. Remaining: auth/TLS, backups, retention policy, and production security notes. |
+| RAG2 | **Ingestion pipeline** | [x] | Complete for bootstrap: approved docs are chunked with stable chunk IDs, source hashes, git commit metadata, index timestamps, deterministic local embeddings, stable Qdrant point IDs, stale-vector cleanup, manual freshness checks, and API/UI surfacing of indexed source version. |
+| RAG3 | **Answer API** | [~] | Partial: AI service answer endpoint and gateway facade return citations, confidence, refusal fields, correlation IDs, and audience-filtered retrieval. Remaining: self-contained tenant request/token budgets and product audit events. |
+| RAG4 | **Dashboard assistant UI** | [~] | Partial: read-only dashboard assistant page, citations, and unsupported-answer states are implemented. Remaining: dashboard build verification and stronger source-link UX. |
 | RAG5 | **Framework bakeoff** | [ ] | Compare LlamaIndex, LangChain/LangGraph, and thin custom orchestration against a shared Qdrant-backed golden-question set. |
-| RAG6 | **Evals and auditability** | [ ] | Build golden usage questions, citation checks, sensitive-data refusal tests, stale-doc conflict tests, model/provider comparison reports, and prompt/template versioning. |
+| RAG6 | **Evals and auditability** | [~] | Partial: unit tests cover citations, sensitive-data refusal, audience filtering, deterministic embeddings, gateway facade behavior, and compose config. Remaining: golden-question eval runner, stale-doc conflict tests, model/provider reports, prompt/template versioning, and audit logs. |
 | RAG7 | **Production hardening** | [ ] | Add auth between gateway and AI service, vector DB auth/TLS where supported, request budgets, provider fallbacks, no-external-AI mode, alerting, and operational runbooks. |
+
+## Implementation Notes
+
+- 2026-07-06: Added first-pass `ai-service/` RAG implementation. The service chunks allowlisted Markdown sources, stores chunk metadata in a JSON index, supports Qdrant as the Docker vector backend, and uses deterministic local hashing vectors so no external model provider is required. The gateway exposes the merchant-scoped assistant facade, and the dashboard calls the gateway rather than the AI service directly. This is still a bootstrap RAG implementation: production embeddings, stronger ranking/evals, Qdrant auth/TLS, request budgets, and audit logging remain future work.
+- 2026-07-06: Hardened RAG ingestion metadata. Chunks now carry stable IDs, stable Qdrant point IDs, source file SHA-256, index version, `last_indexed_at`, and git commit metadata. Qdrant sync deletes stale points when chunks are removed from the current allowlisted index.
+- 2026-07-06: Finished bootstrap RAG2 freshness/version surfacing. Added `python -m app.ingest --check`, `/v1/rag/status`, gateway `/assistant/status`, and dashboard index metadata display.
+- 2026-07-06: Validated bootstrap RAG1 runtime path with Docker. `ai-service` reported `vectorBackend=qdrant`, `/v1/rag/status` returned 458 chunks across 33 sources, and `/v1/rag/answer` returned cited answers through the live Qdrant-backed retriever.
 
 ## Golden Question Set
 
