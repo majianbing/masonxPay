@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
 from dataclasses import dataclass
@@ -9,10 +10,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Iterable
 
+from app.llm import LlmClient, LlmError
 from app.models import Citation, RagAnswerResponse, RagIndexStatus, RagQuestionRequest, RetrievedChunk, SourceSummary
-from app.prompting import ANSWER_POLICY_VERSION, MODEL_NAME, MODEL_PROVIDER, PROMPT_TEMPLATE_VERSION
+from app.prompting import (
+    ANSWER_POLICY_VERSION,
+    MODEL_NAME,
+    MODEL_PROVIDER,
+    PROMPT_TEMPLATE_VERSION,
+    SYSTEM_PROMPT,
+    build_answer_prompt,
+)
 from app.text import tokenize
 from app.vector_store import JsonRetriever, Retriever
+
+logger = logging.getLogger("masonxpay.ai_service.knowledge")
 
 INDEX_VERSION = "rag-docs-v1"
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -209,10 +220,21 @@ def write_index(repo_root: Path, index_path: Path) -> int:
 
 
 class KnowledgeBase:
-    def __init__(self, index_path: Path, repo_root: Path | None = None, retriever: Retriever | None = None):
+    def __init__(
+        self,
+        index_path: Path,
+        repo_root: Path | None = None,
+        retriever: Retriever | None = None,
+        llm_client: LlmClient | None = None,
+    ):
         self.index_path = index_path
         self.repo_root = repo_root
         self.retriever = retriever or JsonRetriever(self.chunks)
+        self.llm_client = llm_client
+        # Reported provider/model reflect what actually generated the answer: the
+        # configured external model, or the local extractive fallback.
+        self.model_provider = llm_client.provider if llm_client else MODEL_PROVIDER
+        self.model_name = llm_client.model if llm_client else MODEL_NAME
         self._chunks: list[dict] | None = None
 
     def chunks(self) -> list[dict]:
@@ -227,13 +249,15 @@ class KnowledgeBase:
 
     def answer(self, request: RagQuestionRequest) -> RagAnswerResponse:
         question = request.question.strip()
+        # Refusals are decided from retrieval before any external model call, so a
+        # sensitive or unanswerable question never reaches (or is billed by) a provider.
         if SENSITIVE_RE.search(question):
             return RagAnswerResponse(
                 answer="I cannot help with secrets, raw payment data, card data, provider payloads, or unredacted PII. Ask a documentation or setup question that does not require sensitive data.",
                 citations=[],
                 refusal_reason="sensitive_data",
                 confidence="none",
-                **rag_response_versions(),
+                **self._response_versions(),
             )
 
         matches = self.retrieve(question, request.audience, request.max_citations)
@@ -243,7 +267,7 @@ class KnowledgeBase:
                 citations=[],
                 refusal_reason="insufficient_evidence",
                 confidence="none",
-                **rag_response_versions(),
+                **self._response_versions(),
             )
 
         citations = [citation_from_chunk(chunk) for chunk, _ in matches]
@@ -251,15 +275,35 @@ class KnowledgeBase:
             RetrievedChunk(chunk_id=chunk["chunk_id"], text=chunk["text"], score=score, citation=citation_from_chunk(chunk))
             for chunk, score in matches
         ]
-        answer = synthesize_answer(question, [chunk for chunk, _ in matches])
+        match_chunks = [chunk for chunk, _ in matches]
+        answer, used_provider, used_model = self._generate_answer(question, match_chunks)
         confidence = "high" if matches[0][1] >= 0.45 and len(matches) >= 2 else "medium" if matches[0][1] >= 0.25 else "low"
         return RagAnswerResponse(
             answer=answer,
             citations=citations,
             confidence=confidence,
             retrieved_chunks=chunks,
-            **rag_response_versions(),
+            **self._response_versions(used_provider, used_model),
         )
+
+    def _generate_answer(self, question: str, chunks: list[dict]) -> tuple[str, str, str]:
+        """Return (answer, provider, model). Uses the external model when configured,
+        and falls back to the local extractive answer if it is absent or errors."""
+        if self.llm_client is not None:
+            try:
+                generated = self.llm_client.generate(SYSTEM_PROMPT, build_answer_prompt(question, chunks))
+                return generated, self.llm_client.provider, self.llm_client.model
+            except LlmError as exc:
+                logger.warning("LLM generation failed (%s); falling back to local extractive answer.", exc)
+        return synthesize_answer(question, chunks), MODEL_PROVIDER, MODEL_NAME
+
+    def _response_versions(self, provider: str | None = None, model: str | None = None) -> dict[str, str]:
+        return {
+            "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+            "answer_policy_version": ANSWER_POLICY_VERSION,
+            "model_provider": provider if provider is not None else self.model_provider,
+            "model_name": model if model is not None else self.model_name,
+        }
 
     def retrieve(self, question: str, audience: str, limit: int) -> list[tuple[dict, float]]:
         return self.retriever.retrieve(question, audience, limit)
@@ -274,7 +318,7 @@ class KnowledgeBase:
                 chunk_count=0,
                 source_count=0,
                 vector_backend=vector_backend,
-                **rag_response_versions(),
+                **self._response_versions(),
                 sources=[],
             )
         sources: dict[str, SourceSummary] = {}
@@ -304,7 +348,7 @@ class KnowledgeBase:
             chunk_count=len(chunks),
             source_count=len(sources),
             vector_backend=vector_backend,
-            **rag_response_versions(),
+            **self._response_versions(),
             sources=sorted(sources.values(), key=lambda source: source.source_path),
         )
 
@@ -316,15 +360,6 @@ def citation_from_chunk(chunk: dict) -> Citation:
         source_type=chunk["source_type"],
         stability=chunk["stability"],
     )
-
-
-def rag_response_versions() -> dict[str, str]:
-    return {
-        "prompt_template_version": PROMPT_TEMPLATE_VERSION,
-        "answer_policy_version": ANSWER_POLICY_VERSION,
-        "model_provider": MODEL_PROVIDER,
-        "model_name": MODEL_NAME,
-    }
 
 
 def synthesize_answer(question: str, chunks: list[dict]) -> str:

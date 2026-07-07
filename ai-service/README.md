@@ -30,6 +30,24 @@ docker compose --profile ai up --build
 
 The embeddings are deterministic local hashing vectors. This gives the service a real vector-store boundary without sending docs or questions to an external model provider.
 
+### Answer generation (optional external model)
+
+By default (`RAG_MODEL_PROVIDER=local`) answers are produced by deterministic local extraction — no external model, no API key. To generate answers with a frontier model instead, set the provider, model, and key:
+
+```bash
+RAG_MODEL_PROVIDER=openai \
+RAG_MODEL_NAME=gpt-4o-mini \
+OPENAI_API_KEY=sk-... \
+uvicorn app.main:app --port 8090
+```
+
+Notes:
+
+- Embeddings and retrieval are unchanged — only the final answer is model-generated. No re-index needed.
+- Only the already-retrieved, approved documentation excerpts and the user question are sent to the provider. Sensitive-data and insufficient-evidence refusals are decided from retrieval **before** any model call, and citations always come from retrieval, never the model.
+- If the model call fails (or the SDK/key is missing), the service falls back to the local extractive answer; `model_provider`/`model_name` in the response reflect what actually produced the answer.
+- `RAG_MODEL_PROVIDER=openai` requires the `openai` package (already in `requirements.txt`). `OPENAI_BASE_URL` can point at an OpenAI-compatible gateway.
+
 Index metadata is exposed at:
 
 ```bash

@@ -200,6 +200,11 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-masonxpay_docs}
       RAG_REQUIRE_AUTH: ${RAG_REQUIRE_AUTH:-false}
       RAG_AUTH_TOKEN: ${AI_SERVICE_AUTH_TOKEN:-}
+      # Answer generation. Default `local` = no external AI. Set RAG_MODEL_PROVIDER=openai
+      # and OPENAI_API_KEY to generate answers with a frontier model.
+      RAG_MODEL_PROVIDER: ${RAG_MODEL_PROVIDER:-local}
+      RAG_MODEL_NAME: ${RAG_MODEL_NAME:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8090:8090"
     healthcheck:
