@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Bot, Check, Copy, Loader2, SendHorizontal } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -163,7 +165,18 @@ export default function AssistantPage() {
             <CardTitle>{answer.refusalReason ? 'Unsupported request' : 'Answer'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="whitespace-pre-wrap text-sm leading-6">{answer.answer}</p>
+            <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted prose-pre:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:text-xs prose-code:before:content-none prose-code:after:content-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ node, ...props }) => (
+                    <a {...props} target="_blank" rel="noreferrer" />
+                  ),
+                }}
+              >
+                {answer.answer}
+              </ReactMarkdown>
+            </div>
             <div className="text-xs text-muted-foreground">Confidence: {answer.confidence}</div>
             {answer.citations.length > 0 && (
               <div className="space-y-2">
