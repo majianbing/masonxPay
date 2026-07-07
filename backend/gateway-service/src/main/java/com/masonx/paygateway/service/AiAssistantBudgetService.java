@@ -1,6 +1,7 @@
 package com.masonx.paygateway.service;
 
 import com.masonx.paygateway.config.AiAssistantProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -16,10 +17,12 @@ public class AiAssistantBudgetService {
     private final Clock clock;
     private final ConcurrentMap<UUID, WindowCounter> counters = new ConcurrentHashMap<>();
 
+    @Autowired
     public AiAssistantBudgetService(AiAssistantProperties properties) {
         this(properties, Clock.systemUTC());
     }
 
+    // Test-only constructor for injecting a fixed Clock; @Autowired above marks the Spring one.
     AiAssistantBudgetService(AiAssistantProperties properties, Clock clock) {
         this.properties = properties;
         this.clock = clock;
