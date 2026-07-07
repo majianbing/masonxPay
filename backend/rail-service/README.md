@@ -82,3 +82,6 @@ Port: **8081**
 - STAN and RRN are not globally unique. Always use the composite correlation key.
 - Never log raw DE2 (PAN), full IBAN, or account numbers.
 - Ledger journals must be idempotent. Use `railPaymentId + eventType` as the idempotency key.
+
+## TODO
+- Configurable authorization engine, per-card.
