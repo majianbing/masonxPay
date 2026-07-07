@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-paygateway}
+      POSTGRES_DB: ${DB_NAME:-mason_x_pay}
       POSTGRES_USER: ${DB_USERNAME:-pay_app_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
     volumes:
@@ -20,7 +20,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pay_app_user} -d ${DB_NAME:-paygateway}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pay_app_user} -d ${DB_NAME:-mason_x_pay}"]
       interval: 5s
       timeout: 5s
       retries: 10
