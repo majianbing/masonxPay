@@ -85,3 +85,7 @@ Port: **8081**
 
 ## TODO
 - Configurable authorization engine, per-card.
+- Incremental authorization
+- Incremental authorization timeout
+- Partial reversal
+- Partial authorization (issuer approves less than requested)
