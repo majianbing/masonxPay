@@ -41,14 +41,21 @@ def build_llm_client():
         return None
 
 
+def build_retriever():
+    if VECTOR_BACKEND == "qdrant":
+        base_chunks = KnowledgeBase(INDEX_PATH, REPO_ROOT).chunks
+        return QdrantRetriever(QDRANT_URL, QDRANT_COLLECTION, base_chunks)
+    if VECTOR_BACKEND == "llamaindex":
+        from app.llamaindex_retriever import LlamaIndexRetriever
+
+        base_chunks = KnowledgeBase(INDEX_PATH, REPO_ROOT).chunks
+        return LlamaIndexRetriever(base_chunks)
+    return None  # default JSON lexical retriever
+
+
 def create_knowledge_base() -> KnowledgeBase:
     llm_client = build_llm_client()
-    retriever = (
-        QdrantRetriever(QDRANT_URL, QDRANT_COLLECTION, KnowledgeBase(INDEX_PATH, REPO_ROOT).chunks)
-        if VECTOR_BACKEND == "qdrant"
-        else None
-    )
-    return KnowledgeBase(INDEX_PATH, REPO_ROOT, retriever, llm_client=llm_client)
+    return KnowledgeBase(INDEX_PATH, REPO_ROOT, build_retriever(), llm_client=llm_client)
 
 
 knowledge_base = create_knowledge_base()

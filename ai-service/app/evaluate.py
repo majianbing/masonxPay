@@ -120,6 +120,15 @@ def result_payload(results: list[EvalResult], metadata: dict[str, Any] | None = 
     }
 
 
+def build_eval_kb(index_path: Path, repo_root: Path, backend: str) -> KnowledgeBase:
+    if backend == "llamaindex":
+        from app.llamaindex_retriever import LlamaIndexRetriever
+
+        base = KnowledgeBase(index_path, repo_root)
+        return KnowledgeBase(index_path, repo_root, LlamaIndexRetriever(base.chunks))
+    return KnowledgeBase(index_path, repo_root)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run MasonXPay RAG golden-question evals.")
     parser.add_argument("--repo-root", default=".", help="Repository root containing approved documentation sources.")
@@ -127,14 +136,16 @@ def main() -> None:
     parser.add_argument("--questions", default="evals/golden_questions.json", help="Golden-question JSON file.")
     parser.add_argument("--json-output", action="store_true", help="Print machine-readable JSON report.")
     parser.add_argument("--report-path", help="Write the machine-readable JSON report to this path.")
+    parser.add_argument("--backend", default="json", choices=["json", "llamaindex"],
+                        help="Retrieval backend to evaluate (framework bakeoff).")
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
     index_path = Path(args.index_path).resolve()
     question_path = Path(args.questions).resolve()
-    kb = KnowledgeBase(index_path, repo_root)
+    kb = build_eval_kb(index_path, repo_root, args.backend)
     results = run_eval_cases(kb, load_cases(question_path))
-    status = kb.status("json")
+    status = kb.status(args.backend)
     payload = result_payload(
         results,
         {
