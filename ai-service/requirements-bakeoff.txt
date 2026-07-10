@@ -1,0 +1,10 @@
+# RAG5 framework bakeoff extras (RAG_VECTOR_BACKEND=llamaindex).
+#
+# NOT installed in the ai-service Docker image: llama-index-core requires a newer
+# pydantic than the pinned base, so it is kept out of the production build. Run the
+# bakeoff locally, installing this AFTER the base deps as a separate step so pip is
+# allowed to upgrade pydantic in that environment:
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-bakeoff.txt
+llama-index-core==0.12.52.post1

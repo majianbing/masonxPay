@@ -58,6 +58,19 @@ Use `python -m app.ingest --repo-root .. --check` as the manual freshness check.
 
 Run `python -m app.evaluate --repo-root .. --index-path /tmp/masonxpay-rag-eval-index.json --report-path /tmp/masonxpay-rag-eval-report.json` before changing retrieval behavior. The golden-question set checks required citations, sensitive-data refusals, and audience filtering without calling an external model provider. The report records index, prompt-template, answer-policy, model-provider, and model-name versions for framework bakeoffs and regression comparison.
 
+### RAG5 framework bakeoff (LlamaIndex)
+
+The LlamaIndex retrieval backend is experimental and its deps are **not** in the Docker image (they bump `pydantic`). To run it locally, install the extra deps after the base ones, then select the backend:
+
+```bash
+pip install -r requirements.txt
+pip install -r requirements-bakeoff.txt
+python -m app.evaluate --repo-root .. --index-path /tmp/rag-eval-index.json --backend llamaindex
+# or serve it: RAG_VECTOR_BACKEND=llamaindex uvicorn app.main:app --port 8090
+```
+
+Compare against `--backend json` on the same index. Setting `RAG_VECTOR_BACKEND=llamaindex` without these deps raises a clear error at startup.
+
 The answer endpoint appends safe audit records to `RAG_AUDIT_LOG_PATH` (`data/rag_audit.jsonl` by default). Audit records contain correlation IDs, audience, hashed question text, citations, refusal/confidence, retrieved chunk IDs, index metadata, prompt/template versions, and local model metadata. They do not store raw questions, raw answers, secrets, payment records, provider payloads, or PII.
 
 ## Boundary
