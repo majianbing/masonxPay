@@ -1,8 +1,8 @@
-# MasonXPay AI-Assisted Control Plane Plan
+# MasonXPay Payment Operations Agent Plan
 
-Stable architecture extracted from this tracker lives in [AI control plane](../architecture/ai-control-plane.md). Keep this file focused on phase status, open decisions, and implementation notes.
+Stable architecture shared by all AI capabilities lives in [AI capabilities](../architecture/ai-capabilities.md). Keep this file focused on the payment operations agent, phase status, open decisions, and implementation notes. The documentation-focused RAG assistant is tracked separately in [RAG assistant plan](rag-assistant-plan.md).
 
-MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted control plane.
+MasonXPay should evolve beyond a payment gateway demo into a payment operations platform with an AI-assisted operations agent. This agent investigates telemetry, explains incidents, and drafts payment-operations configuration proposals. It is not the product-support RAG assistant, and it is not in the payment execution path.
 
 ## Safety Boundary
 
@@ -25,9 +25,18 @@ AI may not:
 
 A deterministic validator and a human approval step remain between AI output and production routing changes. The runtime routing engine executes explicit, versioned configuration only.
 
+## Relationship To The RAG Assistant
+
+The operations agent and RAG assistant may share model-provider configuration, deployment modes, prompt/version audit, eval tooling, and AI service infrastructure. They must not share data authority.
+
+- The RAG assistant is read-only and answers from approved docs/help chunks.
+- The operations agent uses redacted telemetry, incident summaries, and current routing-policy metadata.
+- The Java gateway remains responsible for identity, tenant scope, mode scope, RBAC, approval state, route-policy persistence, and every payment-domain invariant.
+- The Python AI service, if used, is a top-level `ai-service/` coprocessor rather than a `backend/` Maven module. It must not own payment, connector, routing, ledger, approval, tenant, or credential state.
+
 ## Data Security and Privacy Policy
 
-The AI control plane must be designed as if every external model provider is outside the MasonXPay trust boundary unless a deployment explicitly configures otherwise.
+The payment operations agent must be designed as if every external model provider is outside the MasonXPay trust boundary unless a deployment explicitly configures otherwise.
 
 Default policy:
 
@@ -57,7 +66,7 @@ Deployment modes:
 | `internal-only` | Self-hosted/local model or internal model gateway | Broader but still policy-filtered context | Sensitive deployments |
 | `disabled` | No model call | Deterministic incident detection, validator, dashboard workflow still work | No-AI or outage fallback mode |
 
-The AI control plane should still work when external models are disabled. In `disabled` mode, MasonXPay can still detect incidents, show deterministic metric summaries, run policy validation, display manual routing-change forms, and execute approved deterministic rollback rules. The missing capability is natural-language investigation and recommendation drafting.
+The operations workflow should still work when external models are disabled. In `disabled` mode, MasonXPay can still detect incidents, show deterministic metric summaries, run policy validation, display manual routing-change forms, and execute approved deterministic rollback rules. The missing capability is natural-language investigation and recommendation drafting.
 
 Security controls:
 
@@ -72,7 +81,7 @@ Security controls:
 
 ## Model Strategy
 
-The AI control plane should be provider-agnostic. Support multiple model providers behind a stable internal `AiModelProvider` interface:
+AI capabilities should be provider-agnostic. Support multiple model providers behind a stable internal `AiModelProvider` interface:
 
 - OpenAI / ChatGPT
 - Anthropic Claude
@@ -122,9 +131,11 @@ payment traffic simulator
 ```text
 IncidentDetector
   -> EvidenceCollector
-  -> AiInvestigationWorkflow
-       -> AiModelProvider adapter
-       -> read-only tools only
+  -> Gateway AI Facade
+       -> AI service investigation endpoint
+            -> AiInvestigationWorkflow
+            -> AiModelProvider adapter
+            -> read-only tools only
   -> RoutingPolicyProposal
   -> PolicyValidator
   -> HumanApproval
@@ -251,8 +262,22 @@ Add production-grade agent engineering support:
 - Keep tools intentionally narrow: read metrics, read incidents, read current routing policy, draft proposal, validate proposal.
 - Do not expose direct payment, refund, or routing mutation tools to the model.
 - Do not expose tools that can retrieve raw provider payloads, credentials, card data, secrets, or unrestricted customer records.
+- Do not expose arbitrary SQL, arbitrary HTTP, filesystem-like access, or broad dashboard/admin APIs to the model.
 - Version prompts/templates, tool schemas, policy proposal schemas, validator rules, and model selections.
 - Store an audit trail for model provider, model name, prompt version, evidence IDs, generated proposal, validation result, approver, applied routing config version, and rollback outcome.
 - Build eval datasets from synthetic and real incidents before changing the default model.
 - Compare accuracy, hallucination rate, unsafe proposal rate, cost, latency, and explanation quality across providers.
 - Use existing RBAC and tenant isolation. The AI layer is an interface over allowed data, not a privileged bypass.
+
+## Framework Investigation
+
+The operations agent may eventually need a stateful workflow framework, but the first implementation should prove the domain contracts before committing to a framework.
+
+Evaluate:
+
+- LangGraph for bounded, stateful investigation workflows with durable state and human-in-the-loop checkpoints.
+- LangChain for provider/tool integration where it does not hide domain policy or validation behavior.
+- LlamaIndex only where retrieval over runbooks, incident notes, or documentation materially improves incident explanation.
+- Thin handwritten orchestration for the first provider-degradation workflow if it keeps behavior clearer and easier to audit.
+
+Framework code must stay behind MasonXPay-owned DTOs and service contracts. Model/tool outputs are untrusted drafts until deterministic Java validators accept them and a human approves the resulting change.

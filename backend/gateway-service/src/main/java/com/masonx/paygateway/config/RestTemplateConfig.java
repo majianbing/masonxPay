@@ -22,6 +22,15 @@ public class RestTemplateConfig {
                 .build();
     }
 
+    @Bean
+    public RestTemplate aiAssistantRestTemplate(RestTemplateBuilder builder, AiAssistantProperties properties) {
+        return builder
+                .setConnectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
+                .setReadTimeout(Duration.ofMillis(properties.readTimeoutMs()))
+                .errorHandler(new NoOpResponseErrorHandler())
+                .build();
+    }
+
     private static class NoOpResponseErrorHandler implements ResponseErrorHandler {
         @Override
         public boolean hasError(ClientHttpResponse response) throws IOException {

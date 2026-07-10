@@ -112,7 +112,7 @@ See [high-throughput payment core plan](high-throughput-payment-core-plan.md).
 
 ## Phase O — Advanced Payment Orchestration
 
-MasonXPay should prioritize Yuno-like deterministic orchestration before the AI control plane: richer routing context, payment-instrument abstraction, provider capability checks, route policy versioning, outcome-based fallback, and controlled retry orchestration.
+MasonXPay should prioritize Yuno-like deterministic orchestration before the payment operations agent: richer routing context, payment-instrument abstraction, provider capability checks, route policy versioning, outcome-based fallback, and controlled retry orchestration.
 
 See [payment orchestration, routing, retry, and instrument plan](payment-orchestration-routing-retry-plan.md).
 
@@ -147,15 +147,36 @@ See [subscription and recurring billing plan](subscription-recurring-billing-pla
 
 ---
 
+## Phase RAG — Documentation Support Assistant
+
+MasonXPay should add a RAG support assistant as the first low-risk AI product surface. It answers product, integration, SDK, dashboard, routing, subscription, rail, and ledger questions from approved documentation and help content. It is read-only, citation-backed, and separate from the payment operations agent.
+
+See [RAG support assistant plan](rag-assistant-plan.md).
+
+Core safety rule: the RAG assistant does not read operational payment data or mutate configuration. It retrieves only allowlisted docs/help chunks and returns answers with citations. It must refuse unsupported questions and sensitive-data requests instead of inventing behavior.
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| RAG0 | **Safety and scope model** | [ ] | Define allowed sources, excluded sources, roles, sensitive-data refusals, and docs-only first-version boundary. |
+| RAG1 | **Vector database foundation** | [ ] | Add standalone vector DB to local Docker and deployment docs; define collection schema, metadata indexes, retention, backups, and security requirements. |
+| RAG2 | **Ingestion pipeline** | [ ] | Chunk approved docs, attach metadata, compute embeddings, upsert to vector DB, and track source git commit/version. |
+| RAG3 | **Answer API** | [ ] | Add AI service endpoint and gateway facade for question answering with citations, confidence/refusal fields, correlation IDs, and rate limits. |
+| RAG4 | **Dashboard assistant UI** | [ ] | Add a read-only assistant surface with citations, source links, feedback controls, and clear unsupported-answer states. |
+| RAG5 | **Framework bakeoff** | [ ] | Compare LlamaIndex, LangChain/LangGraph, and thin custom orchestration against a shared Qdrant-backed golden-question set. |
+| RAG6 | **Evals and auditability** | [ ] | Build golden usage questions, citation checks, sensitive-data refusal tests, stale-doc conflict tests, model/provider comparison reports, and prompt/template versioning. |
+| RAG7 | **Production hardening** | [ ] | Add auth between gateway and AI service, vector DB auth/TLS where supported, request budgets, provider fallbacks, no-external-AI mode, alerting, and operational runbooks. |
+
+---
+
 ## Phase AI — Assisted Payment Operations Control Plane
 
-MasonXPay should eventually add an AI-assisted control plane, but this phase is lower priority than the deterministic orchestration engine. The AI layer should analyze, explain, and draft policy changes after routing, retry, telemetry, and instrument boundaries are mature.
+MasonXPay should eventually add an AI-assisted payment operations agent, but this phase is lower priority than the deterministic orchestration engine and the read-only RAG assistant. The operations agent should analyze, explain, and draft policy changes after routing, retry, telemetry, and instrument boundaries are mature.
 
-See [AI-assisted operations control plane plan](ai-control-plane-plan.md).
+See [payment operations agent plan](payment-operations-agent-plan.md).
 
 Core safety rule: AI does not authorize, decline, or route payments directly. AI analyzes telemetry, explains incidents, recommends routing-policy changes, and can draft safe configuration updates. A deterministic validator and a human approval step remain between AI output and production routing changes. The runtime routing engine continues to execute explicit, versioned configuration only.
 
-Model strategy: the AI control plane should be provider-agnostic. Support multiple model providers such as OpenAI/ChatGPT, Anthropic Claude, and Google Gemini behind a stable internal `AiModelProvider` interface. The dashboard should let platform admins configure available providers, credentials, default model, fallback model, cost/latency limits, and which model is allowed for each workflow stage. The selected model affects investigation and explanation quality only; it must not change payment execution semantics.
+Model strategy: AI capabilities should be provider-agnostic. Support multiple model providers such as OpenAI/ChatGPT, Anthropic Claude, and Google Gemini behind a stable internal `AiModelProvider` interface. The dashboard should let platform admins configure available providers, credentials, default model, fallback model, cost/latency limits, and which model is allowed for each workflow stage. The selected model affects investigation and explanation quality only; it must not change payment execution semantics.
 
 Engineering principles:
 
@@ -163,7 +184,7 @@ Engineering principles:
 - Use narrow, explicit tools for telemetry reads, incident summaries, policy drafting, and validation.
 - Keep all write-capable tools behind deterministic validators and human approval.
 - Treat external model providers as outside the trust boundary by default; send only redacted, aggregated, policy-approved evidence.
-- Keep the AI control plane useful when external models are disabled: deterministic incident detection, policy validation, human review, and rollback still work without model calls.
+- Keep the operations workflow useful when external models are disabled: deterministic incident detection, policy validation, human review, and rollback still work without model calls.
 - Run evaluations for incident classification, recommendation quality, policy validation, and explanation clarity before changing defaults.
 - Log model, prompt/template version, input evidence references, output proposal, validator result, approver, and final applied config version.
 - Enforce tenant and role permissions through existing MasonXPay access control; AI may only see data the requesting user or service role is allowed to inspect.

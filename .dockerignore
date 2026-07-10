@@ -5,6 +5,13 @@ backend/target/
 dashboard/.next/
 dashboard/node_modules/
 
+# AI service build artifacts
+ai-service/.venv/
+ai-service/.venv*/
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+ai-service/data/
+
 # SDK build artifacts
 sdk/browser/dist/
 sdk/browser/node_modules/

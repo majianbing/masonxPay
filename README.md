@@ -39,6 +39,7 @@ backend/
   virtual-account-service/ Double-entry ledger, VA accounts, VCC issuer
   rail-service/            ISO 8583 / ISO 20022 rail client and reconciliation API
   rail-simulator/          Two-sided network simulator (card-network + bank-rail)
+ai-service/     Optional Python AI coprocessor for RAG, model orchestration, embeddings, and evals
 dashboard/      Next.js merchant dashboard and hosted checkout
 sdk/server/     TypeScript server SDK
 sdk/browser/    TypeScript browser checkout SDK
@@ -47,6 +48,8 @@ bench/          k6 benchmark scenarios and results
 cloud-deploy/   AWS deployment references
 docs/           Architecture, engineering guidance, planning, and archive
 ```
+
+`ai-service/` is intentionally top-level rather than a `backend/` Maven module. The Java backend remains the payment-domain authority; the AI service owns only AI-specific concerns such as document chunks, embeddings, prompt/model adapters, redacted model-call audit, and evaluation runs.
 
 ## Recommended Local Run
 
@@ -125,7 +128,8 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 - [High-throughput payment core plan](docs/planning/high-throughput-payment-core-plan.md)
 - [Payment orchestration, routing, retry, and instrument plan](docs/planning/payment-orchestration-routing-retry-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](docs/planning/multi-rail-iso8583-iso20022-plan.md)
-- [AI-assisted operations control plane](docs/planning/ai-control-plane-plan.md)
+- [RAG support assistant plan](docs/planning/rag-assistant-plan.md)
+- [Payment operations agent plan](docs/planning/payment-operations-agent-plan.md)
 - [Development guide](docs/engineering/development-guide.md)
 - [Connector development](docs/engineering/connector-development.md)
 - [Server SDK](sdk/server/README.md)

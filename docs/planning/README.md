@@ -7,4 +7,5 @@ Planning docs are allowed to include status, checklists, deferred work, and impl
 - [Payment orchestration, routing, retry, and instrument plan](payment-orchestration-routing-retry-plan.md)
 - [Subscription and recurring billing plan](subscription-recurring-billing-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](multi-rail-iso8583-iso20022-plan.md)
-- [AI-assisted operations control plane plan](ai-control-plane-plan.md)
+- [RAG support assistant plan](rag-assistant-plan.md)
+- [Payment operations agent plan](payment-operations-agent-plan.md)

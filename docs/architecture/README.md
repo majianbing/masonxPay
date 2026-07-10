@@ -8,6 +8,6 @@ Durable system design lives here. These docs should describe ownership boundarie
 - [Sharding, Kafka, and Redis](sharding-kafka-redis.md)
 - [Routing and orchestration](routing-orchestration.md)
 - [Subscriptions and billing](subscriptions-billing.md)
-- [AI control plane](ai-control-plane.md)
+- [AI capabilities](ai-capabilities.md)
 
 Detailed phase design still lives in `../planning/` until it is extracted into stable architecture docs.

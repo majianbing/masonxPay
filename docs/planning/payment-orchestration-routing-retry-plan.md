@@ -6,7 +6,7 @@ This plan reorganizes the Yuno-like orchestration discussion into a staged Mason
 
 ## Positioning
 
-MasonXPay should prioritize deterministic orchestration before the AI control plane. AI remains useful later for investigation and recommendations, but runtime payment decisions must continue to be made by explicit configuration, validators, and payment-state services.
+MasonXPay should prioritize deterministic orchestration before the payment operations agent. AI remains useful later for investigation and recommendations, but runtime payment decisions must continue to be made by explicit configuration, validators, and payment-state services.
 
 The product direction is:
 

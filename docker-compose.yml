@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-paygateway}
+      POSTGRES_DB: ${DB_NAME:-mason_x_pay}
       POSTGRES_USER: ${DB_USERNAME:-pay_app_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
     volumes:
@@ -20,7 +20,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pay_app_user} -d ${DB_NAME:-paygateway}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-pay_app_user} -d ${DB_NAME:-mason_x_pay}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -160,6 +160,13 @@ services:
       RAIL_BASE_URL: ${RAIL_BASE_URL:-http://rail-service:8081}
       RAIL_RESOLVED_TOPIC: ${RAIL_RESOLVED_TOPIC:-rail.payment.resolved}
       RAIL_RESOLVED_CONSUMER_GROUP_ID: ${RAIL_RESOLVED_CONSUMER_GROUP_ID:-gateway-rail-resolved}
+      # RAG support assistant (docs-only)
+      AI_ASSISTANT_ENABLED: ${AI_ASSISTANT_ENABLED:-false}
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8090}
+      AI_SERVICE_AUTH_TOKEN: ${AI_SERVICE_AUTH_TOKEN:-}
+      AI_ASSISTANT_REQUEST_LIMIT_PER_WINDOW: ${AI_ASSISTANT_REQUEST_LIMIT_PER_WINDOW:-60}
+      AI_ASSISTANT_TOKEN_LIMIT_PER_WINDOW: ${AI_ASSISTANT_TOKEN_LIMIT_PER_WINDOW:-12000}
+      AI_ASSISTANT_BUDGET_WINDOW_SECONDS: ${AI_ASSISTANT_BUDGET_WINDOW_SECONDS:-3600}
       # Stripe (optional for local dev — leave blank to skip)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -176,6 +183,44 @@ services:
       timeout: 5s
       retries: 12
       start_period: 60s
+
+  # ── AI service (docs-only RAG assistant; profile: ai) ───────────────────────
+  # Enable with: AI_ASSISTANT_ENABLED=true docker compose --profile ai up --build
+  ai-service:
+    profiles: ["ai"]
+    build:
+      context: .
+      dockerfile: ai-service/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    environment:
+      RAG_VECTOR_BACKEND: ${RAG_VECTOR_BACKEND:-qdrant}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-masonxpay_docs}
+      RAG_REQUIRE_AUTH: ${RAG_REQUIRE_AUTH:-false}
+      RAG_AUTH_TOKEN: ${AI_SERVICE_AUTH_TOKEN:-}
+      # Answer generation. Default `local` = no external AI. Set RAG_MODEL_PROVIDER=openai
+      # and OPENAI_API_KEY to generate answers with a frontier model.
+      RAG_MODEL_PROVIDER: ${RAG_MODEL_PROVIDER:-local}
+      RAG_MODEL_NAME: ${RAG_MODEL_NAME:-gpt-4o-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=2)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  qdrant:
+    profiles: ["ai"]
+    image: qdrant/qdrant:v1.12.5
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
 
   # ── Prometheus ──────────────────────────────────────────────────────────────
   prometheus:
@@ -313,6 +358,7 @@ volumes:
   postgres_data:
   kafka_data:
   grafana_data:
+  qdrant_data:
 
 configs:
   # Inline Postgres init: creates the Virtual Account database. Runs only on a

@@ -7,6 +7,7 @@ import com.masonx.paygateway.domain.webhook.*;
 import com.masonx.paygateway.web.dto.WebhookDeliveryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -62,7 +63,7 @@ public class WebhookDeliveryService {
                                    WebhookDeliveryRepository webhookDeliveryRepository,
                                    WebhookSigningService signingService,
                                    OutboxEventRepository outboxEventRepository,
-                                   RestTemplate webhookRestTemplate,
+                                   @Qualifier("webhookRestTemplate") RestTemplate webhookRestTemplate,
                                    PlatformTransactionManager txManager,
                                    PaymentMetrics metrics,
                                    @Value("${app.webhook.outbox-poller.enabled:true}") boolean outboxPollerEnabled,

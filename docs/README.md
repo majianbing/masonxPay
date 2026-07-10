@@ -10,6 +10,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Development guide](engineering/development-guide.md): engineering docs index — connector, SDK, auth, testing, database, and anti-pattern guides.
 - [Connector development](engineering/connector-development.md): provider onboarding across backend, dashboard, SDK, and docs.
 - [Testing strategy](engineering/testing-strategy.md): expected coverage layers and test placement.
+- [RAG assistant operations](engineering/rag-operations.md): Qdrant runtime, indexing freshness, backup/retention, and security guidance.
 - [Roadmap](planning/roadmap.md): product phases, current status, and future tracks.
 
 ## Folders
@@ -26,7 +27,8 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Subscription and recurring billing plan](planning/subscription-recurring-billing-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](planning/multi-rail-iso8583-iso20022-plan.md)
 - [Ledger completeness plan](planning/ledger-completeness-plan.md)
-- [AI-assisted operations control plane plan](planning/ai-control-plane-plan.md)
+- [RAG support assistant plan](planning/rag-assistant-plan.md)
+- [Payment operations agent plan](planning/payment-operations-agent-plan.md)
 
 ## Root Docs
 

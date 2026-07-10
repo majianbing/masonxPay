@@ -28,6 +28,11 @@ target/
 /sdk/node/node_modules/
 /dashboard/node_modules/
 /dashboard/.next/
+/ai-service/.venv/
+/ai-service/.venv*/
+/ai-service/__pycache__/
+/ai-service/**/__pycache__/
+/ai-service/data/
 /sdk/node/dist/
 /sdk/browser/dist/
 /sdk/browser/node_modules/

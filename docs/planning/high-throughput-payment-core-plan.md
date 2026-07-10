@@ -505,11 +505,11 @@ Follow-up hardening, not H7 blockers:
   - payment projection lagging
   - provider timeout/retry storm
 
-### Related Track: AI-Assisted Operations Control Plane
+### Related Track: Payment Operations Agent
 
-The AI-assisted control plane is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
+The payment operations agent is intentionally split out of the high-throughput payment core plan. It depends on high-throughput telemetry, preview traffic simulation, routing rules, and deterministic rollback workers, but it is a separate product/operations track.
 
-See [AI-assisted operations control plane plan](ai-control-plane-plan.md).
+See [payment operations agent plan](payment-operations-agent-plan.md).
 
 ## Open Decisions
 
