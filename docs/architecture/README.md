@@ -5,6 +5,7 @@ Durable system design lives here. These docs should describe ownership boundarie
 - [Overview](overview.md)
 - [Security boundaries](security-boundaries.md)
 - [Payment core](payment-core.md)
+- [ID generation](id-generation.md)
 - [Sharding, Kafka, and Redis](sharding-kafka-redis.md)
 - [Routing and orchestration](routing-orchestration.md)
 - [Subscriptions and billing](subscriptions-billing.md)

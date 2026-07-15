@@ -7,6 +7,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Architecture overview](architecture/overview.md): system map, ownership boundaries, and core invariants.
 - [Security boundaries](architecture/security-boundaries.md): tenant/mode isolation, PCI boundary, AI data policy, and secret handling.
 - [Payment core](architecture/payment-core.md): financial state ownership, idempotency, provider calls, and outbox rules.
+- [ID generation](architecture/id-generation.md): Snowflake usage, clock rollback decision, node-id requirements, and future allocator direction.
 - [Development guide](engineering/development-guide.md): engineering docs index — connector, SDK, auth, testing, database, and anti-pattern guides.
 - [Connector development](engineering/connector-development.md): provider onboarding across backend, dashboard, SDK, and docs.
 - [Testing strategy](engineering/testing-strategy.md): expected coverage layers and test placement.
