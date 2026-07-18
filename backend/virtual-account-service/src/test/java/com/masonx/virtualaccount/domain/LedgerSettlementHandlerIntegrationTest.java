@@ -58,19 +58,19 @@ class LedgerSettlementHandlerIntegrationTest {
         merchantId   = merchantUuid.toString();
 
         tenantCash = new LedgerAccount(
-                "ac_test_cash_1", Mode.LIVE, LedgerAccountRole.TENANT,
+                "ac_test_cash_1", Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", merchantId, null,
                 LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
         externalClearing = new LedgerAccount(
-                "ac_test_ext_1", Mode.LIVE, LedgerAccountRole.EXTERNAL,
+                "ac_test_ext_1", Mode.TEST, LedgerAccountRole.EXTERNAL,
                 null, null, "stripe",
                 LedgerAccountType.CLEARING, "USD", AssetClass.FIAT, 2,
                 NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
         platformFee = new LedgerAccount(
-                "ac_test_fee_1", Mode.LIVE, LedgerAccountRole.PLATFORM,
+                "ac_test_fee_1", Mode.TEST, LedgerAccountRole.PLATFORM,
                 null, null, null,
                 LedgerAccountType.FEE_INCOME, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
@@ -95,7 +95,7 @@ class LedgerSettlementHandlerIntegrationTest {
     // --- helpers ---
 
     private TenantRef tenant() {
-        return new TenantRef(Mode.LIVE, null, new MerchantId(merchantUuid));
+        return new TenantRef(Mode.TEST, null, new MerchantId(merchantUuid));
     }
 
     private RecordSettlementCommand settlement(String eventId, BigDecimal amount,
@@ -171,7 +171,7 @@ class LedgerSettlementHandlerIntegrationTest {
     @Test
     void missing_tenant_account_throws_business_exception() {
         var cmd = new RecordSettlementCommand(
-                "evt_miss", new TenantRef(Mode.LIVE, null, new MerchantId(UUID.randomUUID())),
+                "evt_miss", new TenantRef(Mode.TEST, null, new MerchantId(UUID.randomUUID())),
                 UUID.randomUUID(), "stripe",
                 new BigDecimal("100.00"), BigDecimal.ZERO, new BigDecimal("100.00"),
                 "USD", AssetClass.FIAT, 2, Direction.CREDIT);

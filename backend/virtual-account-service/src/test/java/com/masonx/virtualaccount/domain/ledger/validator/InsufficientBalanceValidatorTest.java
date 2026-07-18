@@ -17,7 +17,7 @@ class InsufficientBalanceValidatorTest {
     private final InsufficientBalanceValidator validator = new InsufficientBalanceValidator();
 
     private LedgerAccount account(String id) {
-        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.TENANT,
+        return new LedgerAccount(id, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", "mer_1", null,
                 LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);

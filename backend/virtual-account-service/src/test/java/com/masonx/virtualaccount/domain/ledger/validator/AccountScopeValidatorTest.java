@@ -27,14 +27,14 @@ class AccountScopeValidatorTest {
 
     @Test
     void validate_accepts_matching_tenant_account() {
-        validator.validate(tx(Mode.LIVE, "mer_1"), draft("USD"), tenantAccount(Mode.LIVE, "mer_1", "USD"),
+        validator.validate(tx(Mode.TEST, "mer_1"), draft("USD"), tenantAccount(Mode.TEST, "mer_1", "USD"),
                 BigDecimal.ZERO);
     }
 
     @Test
     void validate_rejects_asset_mismatch() {
-        assertThatThrownBy(() -> validator.validate(tx(Mode.LIVE, "mer_1"), draft("USD"),
-                tenantAccount(Mode.LIVE, "mer_1", "EUR"), BigDecimal.ZERO))
+        assertThatThrownBy(() -> validator.validate(tx(Mode.TEST, "mer_1"), draft("USD"),
+                tenantAccount(Mode.TEST, "mer_1", "EUR"), BigDecimal.ZERO))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).code())
                         .isEqualTo("VA_ACCOUNT_ASSET_MISMATCH"));
@@ -51,8 +51,8 @@ class AccountScopeValidatorTest {
 
     @Test
     void validate_rejects_tenant_merchant_mismatch() {
-        assertThatThrownBy(() -> validator.validate(tx(Mode.LIVE, "mer_2"), draft("USD"),
-                tenantAccount(Mode.LIVE, "mer_1", "USD"), BigDecimal.ZERO))
+        assertThatThrownBy(() -> validator.validate(tx(Mode.TEST, "mer_2"), draft("USD"),
+                tenantAccount(Mode.TEST, "mer_1", "USD"), BigDecimal.ZERO))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).code())
                         .isEqualTo("VA_ACCOUNT_TENANT_MISMATCH"));
@@ -60,7 +60,7 @@ class AccountScopeValidatorTest {
 
     @Test
     void validate_allows_external_account_without_merchant_match() {
-        validator.validate(tx(Mode.LIVE, "mer_1"), draft("USD"), externalAccount(), BigDecimal.ZERO);
+        validator.validate(tx(Mode.TEST, "mer_1"), draft("USD"), externalAccount(), BigDecimal.ZERO);
     }
 
     private static LedgerPostingCommand tx(Mode mode, String merchantId) {
@@ -81,7 +81,7 @@ class AccountScopeValidatorTest {
     }
 
     private static LedgerAccount externalAccount() {
-        return new LedgerAccount("ac_ext", Mode.LIVE, LedgerAccountRole.EXTERNAL,
+        return new LedgerAccount("ac_ext", Mode.TEST, LedgerAccountRole.EXTERNAL,
                 null, null, "provider_1",
                 LedgerAccountType.CLEARING, "USD", AssetClass.FIAT, 2,
                 NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);

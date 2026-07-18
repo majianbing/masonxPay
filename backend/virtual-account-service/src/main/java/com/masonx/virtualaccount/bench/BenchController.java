@@ -62,12 +62,12 @@ public class BenchController {
             String mId    = "m_" + runId + "_" + i;
             String pId    = "p_" + runId + "_" + i;
 
-            accountRepo.save(new LedgerAccount(cashId, Mode.LIVE, LedgerAccountRole.TENANT,
+            accountRepo.save(new LedgerAccount(cashId, Mode.TEST, LedgerAccountRole.TENANT,
                     "org_bench", mId, null, LedgerAccountType.CASH,
                     "USD", AssetClass.FIAT, 2,
                     NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE));
 
-            accountRepo.save(new LedgerAccount(extId, Mode.LIVE, LedgerAccountRole.EXTERNAL,
+            accountRepo.save(new LedgerAccount(extId, Mode.TEST, LedgerAccountRole.EXTERNAL,
                     null, null, pId, LedgerAccountType.CLEARING,
                     "USD", AssetClass.FIAT, 2,
                     NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE));

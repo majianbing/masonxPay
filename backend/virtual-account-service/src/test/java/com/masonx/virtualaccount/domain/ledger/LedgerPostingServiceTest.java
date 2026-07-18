@@ -51,20 +51,20 @@ class LedgerPostingServiceTest {
     private LedgerPostingCommand tx(List<AccountingEntryDraft> entries) {
         return new LedgerPostingCommand("tx_1", entries,
                 TransactionType.INTERNAL, null, null,
-                LocalDate.of(2026, 1, 1), Mode.LIVE, "org_1", "mer_1");
+                LocalDate.of(2026, 1, 1), Mode.TEST, "org_1", "mer_1");
     }
 
     // --- helpers ---
 
     private LedgerAccount cashAccount(String id, BigDecimal balance) {
-        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.TENANT,
+        return new LedgerAccount(id, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", "mer_1", null,
                 LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
     private LedgerAccount externalAccount(String id) {
-        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.EXTERNAL,
+        return new LedgerAccount(id, Mode.TEST, LedgerAccountRole.EXTERNAL,
                 null, null, "provider_stripe",
                 LedgerAccountType.CLEARING, "USD", AssetClass.FIAT, 2,
                 NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
@@ -113,7 +113,7 @@ class LedgerPostingServiceTest {
 
     @Test
     void rejects_frozen_account() {
-        var frozen = new LedgerAccount("ac_1", Mode.LIVE, LedgerAccountRole.TENANT,
+        var frozen = new LedgerAccount("ac_1", Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", "mer_1", null, LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, new BigDecimal("200"), LedgerAccountStatus.FROZEN);
 

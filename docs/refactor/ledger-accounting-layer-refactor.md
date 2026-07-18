@@ -177,6 +177,23 @@ public interface PostingRule<T> {
 
 Posting rules return `List<LedgerPostingCommand>` from day one. For simple flows, the rule may return one command. For future flows, one business event can return multiple journal commands without changing the engine contract. Event-driven callers submit the whole list through `LedgerFacade#postAllIfNew`, so the inbox reserves the business event once and every generated journal posts in the same transaction.
 
+## Robustness Boundary
+
+Kafka/RocketMQ belongs at the **business-event delivery** boundary, not between a journal and its ledger-entry legs. Once `virtual-account-service` accepts an event, the conversion from posting rule output to `va_transaction`, `va_ledger_entry`, `ledger_account.balance`, and HMAC chain updates must be one database transaction.
+
+For one external event that produces multiple journals, the preferred path is:
+
+```text
+event_id
+  -> posting rule returns List<LedgerPostingCommand>
+  -> LedgerFacade#postAllIfNew(...)
+       reserves inbox event once
+       posts every generated journal and entry
+       commits all ledger projections atomically
+```
+
+This avoids partially visible accounting state such as "journal header exists but not all legs", "one generated journal posted but the sibling journal was skipped", or "balance projection moved without a matching signed entry". Use a saga/message workflow only when each generated journal is independently meaningful and has its own deterministic idempotency key, status tracking, reconciliation, and compensation policy.
+
 ## Schema Strategy
 
 Because local/dev DB reset is allowed, prefer rewriting the VA Flyway history instead of adding compatibility rename migrations.

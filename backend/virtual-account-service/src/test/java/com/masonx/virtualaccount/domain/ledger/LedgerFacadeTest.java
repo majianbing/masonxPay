@@ -60,7 +60,7 @@ class LedgerFacadeTest {
                 null,
                 null,
                 LocalDate.of(2026, 1, 1),
-                Mode.LIVE,
+                Mode.TEST,
                 "org_1",
                 "mer_1");
     }

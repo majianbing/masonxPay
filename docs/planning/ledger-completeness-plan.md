@@ -123,7 +123,7 @@ Every `LedgerPostingCommand` construction supplies the journal header fields:
 | `CardRailSettlementHandler` — CARD_SALE | `CARD_SALE` | `cardAccount.merchantId()` | `cardAccount.orgId()` | `cardAccount.mode()` |
 | `CardRailSettlementHandler` — BANK_CREDIT_TRANSFER | `BANK_TRANSFER` | `event.merchantId()` | null | `RAIL_MODE` |
 | `CardRailSettlementHandler` — BANK_RETURN | `REVERSAL` | `event.merchantId()` | null | `RAIL_MODE` |
-| `BenchController.post()` | `INTERNAL` | null | null | `Mode.LIVE` |
+| `BenchController.post()` | `INTERNAL` | tenant account merchant | tenant account org | tenant account mode (`TEST` for bench setup) |
 
 > **Note on CARD_SALE**: derive all three (`merchantId`, `orgId`, `mode`) from `cardAccount` (already fetched via `accountRepo.findByIdForUpdate(card.vccAccountId())`). Do not use the handler-level `RAIL_MODE` constant for the transaction header — the account's mode is the authoritative value and ensures the transaction header is consistent with the account it affects.
 

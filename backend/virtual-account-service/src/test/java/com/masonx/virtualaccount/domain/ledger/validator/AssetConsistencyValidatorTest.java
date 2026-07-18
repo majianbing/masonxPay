@@ -22,7 +22,7 @@ class AssetConsistencyValidatorTest {
     private static LedgerPostingCommand tx(List<AccountingEntryDraft> entries) {
         return new LedgerPostingCommand("tx_1", entries,
                 TransactionType.INTERNAL, null, null,
-                LocalDate.of(2026, 1, 1), Mode.LIVE, null, null);
+                LocalDate.of(2026, 1, 1), Mode.TEST, null, null);
     }
 
     @Test

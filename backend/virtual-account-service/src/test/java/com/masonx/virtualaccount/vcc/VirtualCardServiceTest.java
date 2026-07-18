@@ -169,7 +169,7 @@ class VirtualCardServiceTest {
     private static LedgerAccount vccAccount(BigDecimal balance) {
         return new LedgerAccount(
                 VCC_ACCOUNT_ID,
-                Mode.LIVE,
+                Mode.TEST,
                 LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
@@ -186,7 +186,7 @@ class VirtualCardServiceTest {
     private static LedgerAccount holdAccount(BigDecimal balance) {
         return new LedgerAccount(
                 HOLD_ACCOUNT_ID,
-                Mode.LIVE,
+                Mode.TEST,
                 LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
@@ -203,7 +203,7 @@ class VirtualCardServiceTest {
     private static LedgerAccount ownerAccount() {
         return new LedgerAccount(
                 OWNER_ACCOUNT_ID,
-                Mode.LIVE,
+                Mode.TEST,
                 LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
