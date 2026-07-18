@@ -1,6 +1,8 @@
 # Accounting-Grade Double-Entry — Refactor Plan
 
-Status: **Implementation in review on branch `refactor/accounting-grade-double-entry`. Code changed locally; not pushed.**
+Status: **Implemented and superseded by the follow-up ledger-accounting-layer refactor.**
+
+Current-state note: this document preserves the original findings and implementation history. The current branch has since renamed the Java/domain layer from `VaAccount` to `LedgerAccount`, renamed the DB table from `va_account` to `ledger_account`, renamed `va_ledger_entry.account_id` to `ledger_account_id`, and folded `frozen_balance` removal into the rewritten clean Flyway history instead of keeping the old `V10__drop_frozen_balance.sql` path. For current naming and posting-rule architecture, read `docs/refactor/ledger-accounting-layer-refactor.md`.
 
 `virtual-account-service`'s posting engine (`LedgerPostingService`, `NetZeroValidator`, `AssetConsistencyValidator`, `InsufficientBalanceValidator`, HMAC hash-chained `va_ledger_entry`) is a genuine double-entry system for everything that goes through it. This plan closes the gaps found by manual review + a second independent pass (codex): call sites that reach around the engine and mutate `va_account.balance` / `va_account.frozen_balance` directly, plus a couple of missing invariant checks inside the engine itself.
 

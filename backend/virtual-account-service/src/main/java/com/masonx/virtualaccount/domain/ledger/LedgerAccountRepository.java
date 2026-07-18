@@ -2,7 +2,7 @@ package com.masonx.virtualaccount.domain.ledger;
 
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -12,11 +12,11 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public class AccountRepository {
+public class LedgerAccountRepository {
 
     private final JdbcTemplate jdbc;
 
-    public AccountRepository(JdbcTemplate jdbc) {
+    public LedgerAccountRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -24,39 +24,39 @@ public class AccountRepository {
      * Fetches the account row and acquires a row-level lock for the remainder
      * of the current transaction. Must be called within @Transactional.
      */
-    public Optional<VaAccount> findByIdForUpdate(String accountId) {
+    public Optional<LedgerAccount> findByIdForUpdate(String ledgerAccountId) {
         var rows = jdbc.query(
-                "SELECT * FROM va_account WHERE account_id = ? FOR UPDATE",
-                ROW_MAPPER, accountId);
+                "SELECT * FROM ledger_account WHERE ledger_account_id = ? FOR UPDATE",
+                ROW_MAPPER, ledgerAccountId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    public Optional<VaAccount> findById(String accountId) {
+    public Optional<LedgerAccount> findById(String ledgerAccountId) {
         var rows = jdbc.query(
-                "SELECT * FROM va_account WHERE account_id = ?",
-                ROW_MAPPER, accountId);
+                "SELECT * FROM ledger_account WHERE ledger_account_id = ?",
+                ROW_MAPPER, ledgerAccountId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    public void save(VaAccount account) {
+    public void save(LedgerAccount account) {
         jdbc.update("""
-                INSERT INTO va_account (
-                    account_id, mode, account_role, org_id, merchant_id, provider_id,
-                    account_type, asset, asset_class, scale, normal_balance,
+                INSERT INTO ledger_account (
+                    ledger_account_id, mode, ledger_account_role, org_id, merchant_id, provider_id,
+                    ledger_account_type, asset, asset_class, scale, normal_balance,
                     balance, status
                 ) VALUES (
-                    ?, ?::va_mode, ?::va_account_role, ?, ?, ?,
-                    ?::va_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
-                    ?, ?::va_account_status
+                    ?, ?::va_mode, ?::ledger_account_role, ?, ?, ?,
+                    ?::ledger_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
+                    ?, ?::ledger_account_status
                 )
                 """,
-                account.accountId(),
+                account.ledgerAccountId(),
                 account.mode().name(),
-                account.accountRole().name(),
+                account.ledgerAccountRole().name(),
                 account.orgId(),
                 account.merchantId(),
                 account.providerId(),
-                account.accountType().name(),
+                account.ledgerAccountType().name(),
                 account.asset(),
                 account.assetClass().name(),
                 account.scale(),
@@ -65,48 +65,48 @@ public class AccountRepository {
                 account.status().name());
     }
 
-    public Optional<VaAccount> findTenantAccount(String merchantId, Mode mode,
-                                                  String asset, AccountType type) {
+    public Optional<LedgerAccount> findTenantAccount(String merchantId, Mode mode,
+                                                  String asset, LedgerAccountType type) {
         var rows = jdbc.query("""
-                SELECT * FROM va_account
-                WHERE account_role = 'TENANT'
+                SELECT * FROM ledger_account
+                WHERE ledger_account_role = 'TENANT'
                   AND merchant_id = ?
                   AND mode = ?::va_mode
                   AND asset = ?
-                  AND account_type = ?::va_account_type
+                  AND ledger_account_type = ?::ledger_account_type
                 LIMIT 1
                 """, ROW_MAPPER, merchantId, mode.name(), asset, type.name());
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    public Optional<VaAccount> findExternalAccount(String providerId, String asset, AccountType type) {
+    public Optional<LedgerAccount> findExternalAccount(String providerId, String asset, LedgerAccountType type) {
         var rows = jdbc.query("""
-                SELECT * FROM va_account
-                WHERE account_role = 'EXTERNAL'
+                SELECT * FROM ledger_account
+                WHERE ledger_account_role = 'EXTERNAL'
                   AND provider_id = ?
                   AND asset = ?
-                  AND account_type = ?::va_account_type
+                  AND ledger_account_type = ?::ledger_account_type
                 LIMIT 1
                 """, ROW_MAPPER, providerId, asset, type.name());
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    public Optional<VaAccount> findPlatformAccount(String asset, AccountType type) {
+    public Optional<LedgerAccount> findPlatformAccount(String asset, LedgerAccountType type) {
         var rows = jdbc.query("""
-                SELECT * FROM va_account
-                WHERE account_role = 'PLATFORM'
+                SELECT * FROM ledger_account
+                WHERE ledger_account_role = 'PLATFORM'
                   AND asset = ?
-                  AND account_type = ?::va_account_type
+                  AND ledger_account_type = ?::ledger_account_type
                 LIMIT 1
                 """, ROW_MAPPER, asset, type.name());
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
     /** Returns all TENANT accounts for a merchant, ordered by created_at desc, paginated. */
-    public List<VaAccount> findTenantAccountsByMerchant(String merchantId, int page, int size) {
+    public List<LedgerAccount> findTenantAccountsByMerchant(String merchantId, int page, int size) {
         return jdbc.query("""
-                SELECT * FROM va_account
-                WHERE account_role = 'TENANT'
+                SELECT * FROM ledger_account
+                WHERE ledger_account_role = 'TENANT'
                   AND merchant_id = ?
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
@@ -115,8 +115,8 @@ public class AccountRepository {
 
     public long countTenantAccountsByMerchant(String merchantId) {
         Long n = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM va_account
-                WHERE account_role = 'TENANT' AND merchant_id = ?
+                SELECT COUNT(*) FROM ledger_account
+                WHERE ledger_account_role = 'TENANT' AND merchant_id = ?
                 """, Long.class, merchantId);
         return n != null ? n : 0L;
     }
@@ -126,40 +126,40 @@ public class AccountRepository {
      * Intended for trial balance report only. When account count grows, add
      * pagination or a nightly-materialized snapshot (see docs/planning/ledger-completeness-plan.md).
      */
-    public List<VaAccount> findAllByModeAndAsset(Mode mode, String asset) {
+    public List<LedgerAccount> findAllByModeAndAsset(Mode mode, String asset) {
         return jdbc.query("""
-                SELECT * FROM va_account
+                SELECT * FROM ledger_account
                 WHERE mode = ?::va_mode AND asset = ?
-                ORDER BY account_role, account_type, account_id
+                ORDER BY ledger_account_role, ledger_account_type, ledger_account_id
                 """, ROW_MAPPER, mode.name(), asset);
     }
 
     /** Updates posted balance atomically — ledger engine only. */
-    void updateLedgerBalance(String accountId, BigDecimal balance) {
+    void updateLedgerBalance(String ledgerAccountId, BigDecimal balance) {
         jdbc.update(
-                "UPDATE va_account SET balance = ?, updated_at = now() WHERE account_id = ?",
-                balance, accountId);
+                "UPDATE ledger_account SET balance = ?, updated_at = now() WHERE ledger_account_id = ?",
+                balance, ledgerAccountId);
     }
 
-    public void updateStatus(String accountId, AccountStatus status) {
+    public void updateStatus(String ledgerAccountId, LedgerAccountStatus status) {
         jdbc.update(
-                "UPDATE va_account SET status = ?::va_account_status, updated_at = now() WHERE account_id = ?",
-                status.name(), accountId);
+                "UPDATE ledger_account SET status = ?::ledger_account_status, updated_at = now() WHERE ledger_account_id = ?",
+                status.name(), ledgerAccountId);
     }
 
-    private static final RowMapper<VaAccount> ROW_MAPPER = (rs, __) -> new VaAccount(
-            rs.getString("account_id"),
+    private static final RowMapper<LedgerAccount> ROW_MAPPER = (rs, __) -> new LedgerAccount(
+            rs.getString("ledger_account_id"),
             Mode.valueOf(rs.getString("mode")),
-            AccountRole.valueOf(rs.getString("account_role")),
+            LedgerAccountRole.valueOf(rs.getString("ledger_account_role")),
             rs.getString("org_id"),
             rs.getString("merchant_id"),
             rs.getString("provider_id"),
-            AccountType.valueOf(rs.getString("account_type")),
+            LedgerAccountType.valueOf(rs.getString("ledger_account_type")),
             rs.getString("asset"),
             AssetClass.valueOf(rs.getString("asset_class")),
             rs.getInt("scale"),
             NormalBalance.valueOf(rs.getString("normal_balance")),
             rs.getBigDecimal("balance"),
-            AccountStatus.valueOf(rs.getString("status"))
+            LedgerAccountStatus.valueOf(rs.getString("status"))
     );
 }

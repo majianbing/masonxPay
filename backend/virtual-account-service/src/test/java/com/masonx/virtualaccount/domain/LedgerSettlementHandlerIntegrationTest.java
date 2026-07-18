@@ -6,8 +6,8 @@ import com.masonx.common.tenant.Mode;
 import com.masonx.common.tenant.TenantRef;
 import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,14 +41,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LedgerSettlementHandlerIntegrationTest {
 
     @Autowired LedgerSettlementHandler handler;
-    @Autowired AccountRepository       accountRepo;
+    @Autowired LedgerAccountRepository       accountRepo;
     @Autowired JdbcTemplate            jdbc;
 
     private UUID      merchantUuid;
     private String    merchantId;
-    private VaAccount tenantCash;
-    private VaAccount externalClearing;
-    private VaAccount platformFee;
+    private LedgerAccount tenantCash;
+    private LedgerAccount externalClearing;
+    private LedgerAccount platformFee;
 
     @BeforeEach
     void setUp() {
@@ -57,23 +57,23 @@ class LedgerSettlementHandlerIntegrationTest {
         merchantUuid = UUID.randomUUID();
         merchantId   = merchantUuid.toString();
 
-        tenantCash = new VaAccount(
-                "ac_test_cash_1", Mode.LIVE, AccountRole.TENANT,
+        tenantCash = new LedgerAccount(
+                "ac_test_cash_1", Mode.LIVE, LedgerAccountRole.TENANT,
                 "org_1", merchantId, null,
-                AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
-        externalClearing = new VaAccount(
-                "ac_test_ext_1", Mode.LIVE, AccountRole.EXTERNAL,
+        externalClearing = new LedgerAccount(
+                "ac_test_ext_1", Mode.LIVE, LedgerAccountRole.EXTERNAL,
                 null, null, "stripe",
-                AccountType.CLEARING, "USD", AssetClass.FIAT, 2,
-                NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                LedgerAccountType.CLEARING, "USD", AssetClass.FIAT, 2,
+                NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
-        platformFee = new VaAccount(
-                "ac_test_fee_1", Mode.LIVE, AccountRole.PLATFORM,
+        platformFee = new LedgerAccount(
+                "ac_test_fee_1", Mode.LIVE, LedgerAccountRole.PLATFORM,
                 null, null, null,
-                AccountType.FEE_INCOME, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                LedgerAccountType.FEE_INCOME, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
         accountRepo.save(tenantCash);
         accountRepo.save(externalClearing);
@@ -89,7 +89,7 @@ class LedgerSettlementHandlerIntegrationTest {
     private void cleanDb() {
         for (int i = 0; i < 64; i++) jdbc.execute("DELETE FROM va_ledger_entry_" + i);
         for (int i = 0; i < 8;  i++) jdbc.execute("DELETE FROM va_inbox_event_" + i);
-        jdbc.execute("DELETE FROM va_account");
+        jdbc.execute("DELETE FROM ledger_account");
     }
 
     // --- helpers ---
@@ -106,14 +106,14 @@ class LedgerSettlementHandlerIntegrationTest {
                 amount, feeAmount, net, "USD", AssetClass.FIAT, 2, dir);
     }
 
-    private BigDecimal balanceOf(String accountId) {
-        return accountRepo.findById(accountId).orElseThrow().balance();
+    private BigDecimal balanceOf(String ledgerAccountId) {
+        return accountRepo.findById(ledgerAccountId).orElseThrow().balance();
     }
 
-    private int ledgerEntryCount(String accountId) {
+    private int ledgerEntryCount(String ledgerAccountId) {
         return jdbc.queryForObject(
-                "SELECT COUNT(*) FROM va_ledger_entry WHERE account_id = ?",
-                Integer.class, accountId);
+                "SELECT COUNT(*) FROM va_ledger_entry WHERE ledger_account_id = ?",
+                Integer.class, ledgerAccountId);
     }
 
     // --- tests ---
@@ -122,10 +122,10 @@ class LedgerSettlementHandlerIntegrationTest {
     void two_entry_net_settlement_increases_tenant_balance() {
         handler.handle(settlement("evt_001", new BigDecimal("100.00"), BigDecimal.ZERO, Direction.CREDIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("100.00");
-        assertThat(balanceOf(externalClearing.accountId())).isEqualByComparingTo("100.00");
-        assertThat(ledgerEntryCount(tenantCash.accountId())).isEqualTo(1);
-        assertThat(ledgerEntryCount(externalClearing.accountId())).isEqualTo(1);
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("100.00");
+        assertThat(balanceOf(externalClearing.ledgerAccountId())).isEqualByComparingTo("100.00");
+        assertThat(ledgerEntryCount(tenantCash.ledgerAccountId())).isEqualTo(1);
+        assertThat(ledgerEntryCount(externalClearing.ledgerAccountId())).isEqualTo(1);
     }
 
     @Test
@@ -134,21 +134,21 @@ class LedgerSettlementHandlerIntegrationTest {
 
         handler.handle(settlement("evt_002", new BigDecimal("100.00"), new BigDecimal("5.00"), Direction.CREDIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("95.00");
-        assertThat(balanceOf(platformFee.accountId())).isEqualByComparingTo("5.00");
-        assertThat(balanceOf(externalClearing.accountId())).isEqualByComparingTo("100.00");
-        assertThat(ledgerEntryCount(tenantCash.accountId())).isEqualTo(1);
-        assertThat(ledgerEntryCount(platformFee.accountId())).isEqualTo(1);
-        assertThat(ledgerEntryCount(externalClearing.accountId())).isEqualTo(1);
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("95.00");
+        assertThat(balanceOf(platformFee.ledgerAccountId())).isEqualByComparingTo("5.00");
+        assertThat(balanceOf(externalClearing.ledgerAccountId())).isEqualByComparingTo("100.00");
+        assertThat(ledgerEntryCount(tenantCash.ledgerAccountId())).isEqualTo(1);
+        assertThat(ledgerEntryCount(platformFee.ledgerAccountId())).isEqualTo(1);
+        assertThat(ledgerEntryCount(externalClearing.ledgerAccountId())).isEqualTo(1);
     }
 
     @Test
     void fee_without_platform_account_falls_back_to_net_two_entry() {
         handler.handle(settlement("evt_003", new BigDecimal("100.00"), new BigDecimal("5.00"), Direction.CREDIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("95.00");
-        assertThat(balanceOf(externalClearing.accountId())).isEqualByComparingTo("95.00");
-        assertThat(ledgerEntryCount(tenantCash.accountId())).isEqualTo(1);
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("95.00");
+        assertThat(balanceOf(externalClearing.ledgerAccountId())).isEqualByComparingTo("95.00");
+        assertThat(ledgerEntryCount(tenantCash.ledgerAccountId())).isEqualTo(1);
     }
 
     @Test
@@ -156,16 +156,16 @@ class LedgerSettlementHandlerIntegrationTest {
         handler.handle(settlement("evt_fund",   new BigDecimal("200.00"), BigDecimal.ZERO, Direction.CREDIT));
         handler.handle(settlement("evt_refund", new BigDecimal("80.00"),  BigDecimal.ZERO, Direction.DEBIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("120.00");
-        assertThat(balanceOf(externalClearing.accountId())).isEqualByComparingTo("120.00");
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("120.00");
+        assertThat(balanceOf(externalClearing.ledgerAccountId())).isEqualByComparingTo("120.00");
     }
 
     @Test
     void zero_amount_is_skipped() {
         handler.handle(settlement("evt_zero", BigDecimal.ZERO, BigDecimal.ZERO, Direction.CREDIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("0.00");
-        assertThat(ledgerEntryCount(tenantCash.accountId())).isEqualTo(0);
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("0.00");
+        assertThat(ledgerEntryCount(tenantCash.ledgerAccountId())).isEqualTo(0);
     }
 
     @Test
@@ -199,7 +199,7 @@ class LedgerSettlementHandlerIntegrationTest {
         handler.handle(settlement("evt_s1", new BigDecimal("100.00"), BigDecimal.ZERO, Direction.CREDIT));
         handler.handle(settlement("evt_s2", new BigDecimal("50.00"),  BigDecimal.ZERO, Direction.CREDIT));
 
-        assertThat(balanceOf(tenantCash.accountId())).isEqualByComparingTo("150.00");
-        assertThat(ledgerEntryCount(tenantCash.accountId())).isEqualTo(2);
+        assertThat(balanceOf(tenantCash.ledgerAccountId())).isEqualByComparingTo("150.00");
+        assertThat(ledgerEntryCount(tenantCash.ledgerAccountId())).isEqualTo(2);
     }
 }

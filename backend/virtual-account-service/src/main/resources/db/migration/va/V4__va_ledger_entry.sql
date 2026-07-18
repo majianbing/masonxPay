@@ -1,8 +1,8 @@
 -- va_ledger_entry: append-only, immutable double-entry ledger.
 --
--- Partitioned: HASH(account_id), 64 buckets.
+-- Partitioned: HASH(ledger_account_id), 64 buckets.
 -- All performance-critical queries (balance, history, reconciliation) are
--- scoped by account_id — entries stay co-located in one bucket per account.
+-- scoped by ledger_account_id — entries stay co-located in one bucket per account.
 --
 -- NEVER UPDATE or DELETE rows. Corrections are new compensating entries.
 -- Design: docs/engineering/virtual-account-guide.md
@@ -13,7 +13,7 @@ CREATE TYPE va_entry_status    AS ENUM ('POSTED', 'REVERSED');
 CREATE TABLE va_ledger_entry (
     entry_id          VARCHAR(32)         NOT NULL,  -- snowflake: le_{id}
     transaction_id    VARCHAR(32)         NOT NULL,  -- snowflake: tx_{id}; groups balanced entry set
-    account_id        VARCHAR(32)         NOT NULL,
+    ledger_account_id        VARCHAR(32)         NOT NULL,
     direction         va_entry_direction  NOT NULL,
     amount            NUMERIC(38, 8)      NOT NULL CHECK (amount > 0),
     asset             VARCHAR(20)         NOT NULL,
@@ -26,19 +26,19 @@ CREATE TABLE va_ledger_entry (
     balance_after     NUMERIC(38, 8)      NOT NULL,
 
     -- HMAC-SHA256 tamper-evident chain.
-    -- Inputs: account_id || entry_seq || amount || direction || balance_after
-    --         || frozen_balance || transaction_id || prev_signature
+    -- Inputs: ledger_account_id || entry_seq || amount || direction || balance_after
+    --         || transaction_id || prev_signature
     balance_signature VARCHAR(64)         NOT NULL,
 
     -- Traceability back to the upstream event.
     -- Dedup is enforced by va_inbox_event (first line) and
-    -- UNIQUE(account_id, source_event_id) below (DB-level safety net).
+    -- UNIQUE(ledger_account_id, source_event_id) below (DB-level safety net).
     source_event_id   VARCHAR(64)         NOT NULL,
 
     status            va_entry_status     NOT NULL DEFAULT 'POSTED',
     created_at        TIMESTAMPTZ         NOT NULL DEFAULT now()
 
-) PARTITION BY HASH (account_id);
+) PARTITION BY HASH (ledger_account_id);
 
 -- 64 child partitions
 CREATE TABLE va_ledger_entry_0  PARTITION OF va_ledger_entry FOR VALUES WITH (MODULUS 64, REMAINDER 0);
@@ -107,23 +107,23 @@ CREATE TABLE va_ledger_entry_62 PARTITION OF va_ledger_entry FOR VALUES WITH (MO
 CREATE TABLE va_ledger_entry_63 PARTITION OF va_ledger_entry FOR VALUES WITH (MODULUS 64, REMAINDER 63);
 
 -- PK and dedup constraint on each child partition.
--- UNIQUE(account_id, source_event_id) includes the partition key — valid on hash-partitioned table.
+-- UNIQUE(ledger_account_id, source_event_id) includes the partition key — valid on hash-partitioned table.
 -- Prevents the same upstream event from posting twice to the same account.
 DO $$
 DECLARE i INT;
 BEGIN
     FOR i IN 0..63 LOOP
         EXECUTE format(
-            'ALTER TABLE va_ledger_entry_%s ADD PRIMARY KEY (account_id, entry_id)',
+            'ALTER TABLE va_ledger_entry_%s ADD PRIMARY KEY (ledger_account_id, entry_id)',
             i
         );
         EXECUTE format(
-            'CREATE UNIQUE INDEX ON va_ledger_entry_%s (account_id, source_event_id)',
+            'CREATE UNIQUE INDEX ON va_ledger_entry_%s (ledger_account_id, source_event_id)',
             i
         );
         -- Chain lookup: fetch last entry for an account ordered by entry_seq
         EXECUTE format(
-            'CREATE INDEX ON va_ledger_entry_%s (account_id, entry_seq DESC)',
+            'CREATE INDEX ON va_ledger_entry_%s (ledger_account_id, entry_seq DESC)',
             i
         );
     END LOOP;

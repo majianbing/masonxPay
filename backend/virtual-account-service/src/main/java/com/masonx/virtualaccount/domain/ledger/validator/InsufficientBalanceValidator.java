@@ -1,8 +1,8 @@
 package com.masonx.virtualaccount.domain.ledger.validator;
 
 import com.masonx.common.error.BusinessException;
-import com.masonx.virtualaccount.domain.po.VaAccount;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
 import com.masonx.virtualaccount.domain.ledger.validator.api.EntryValidator;
 import org.springframework.stereotype.Component;
 
@@ -19,11 +19,11 @@ import java.math.BigDecimal;
 public class InsufficientBalanceValidator implements EntryValidator {
 
     @Override
-    public void validate(EntryDraft draft, VaAccount account, BigDecimal newBalance) {
+    public void validate(AccountingEntryDraft draft, LedgerAccount account, BigDecimal newBalance) {
         if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException(
                     "VA_INSUFFICIENT_BALANCE",
-                    "Posting would make balance negative for account: " + account.accountId());
+                    "Posting would make balance negative for account: " + account.ledgerAccountId());
         }
     }
 }

@@ -1,6 +1,6 @@
 package com.masonx.virtualaccount.domain.constant;
 
-public enum AccountType {
+public enum LedgerAccountType {
     // TENANT asset accounts
     CASH,
     WALLET,

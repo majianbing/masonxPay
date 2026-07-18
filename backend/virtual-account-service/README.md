@@ -1,38 +1,40 @@
 # virtual-account-service
 
-Double-entry ledger service for MasonXPay virtual accounts and card issuing. Optional and independently deployable — the main payment gateway works without it.
+Double-entry ledger service for MasonXPay ledger accounts and card issuing. Optional and independently deployable — the main payment gateway works without it.
 
-Own database: `msx_virtual_account_test` (Postgres, separate from the gateway DB).  
-Design doc: [`docs/engineering/virtual-account-guide.md`](../../docs/engineering/virtual-account-guide.md)  
+Own database: `msx_virtual_account_test` (Postgres, separate from the gateway DB).
+Design doc: [`docs/engineering/virtual-account-guide.md`](../../docs/engineering/virtual-account-guide.md)
 Build progress: [`docs/changelog/virtual-account-service/roadmap.md`](../../docs/changelog/virtual-account-service/roadmap.md)
 
 ## Phase MR additions
 
 Phase MR extended this service with card issuing and rail settlement capabilities:
 
-**New AccountTypes**
+**New LedgerAccountTypes**
 
 | Type | Role | Description |
 |---|---|---|
 | `PREPAID_CARD` | TENANT | Ring-fenced wallet bound to a VirtualCard lifecycle |
+| `PREPAID_CARD_HOLD` | TENANT | Authorized-but-unsettled prepaid card funds |
 | `CARD_NETWORK_RECEIVABLE` | EXTERNAL | Amounts owed by card network between sale and settlement |
 | `BANK_RAIL_RECEIVABLE` | EXTERNAL | Amounts owed from bank rail between pain.001 and pacs.002 ACSC |
 | `SUSPENSE_UNKNOWN_TXN` | PLATFORM | Card transactions timed out — outcome unknown, reversal pending |
 
-**VirtualCard entity**  
-`virtual_card` table links `masked_pan` → `vcc_account_id` (PREPAID_CARD) and `owner_account_id` (WALLET). Lifecycle: ACTIVE → FROZEN / EXPIRED / CLOSED.
+**VirtualCard entity**
+`virtual_card` table links `masked_pan` → `vcc_account_id` (PREPAID_CARD), `hold_account_id` (PREPAID_CARD_HOLD), and `owner_account_id` (WALLET). Lifecycle: ACTIVE → FROZEN / EXPIRED / CLOSED.
 
-**Card issuer endpoint**  
-`POST /internal/issuer/authorize` — called by `rail-simulator`'s card-network-sim for BIN 999999. Checks available balance on the PREPAID_CARD account, freezes the auth amount, returns approve/decline.
+**Card issuer endpoint**
+`POST /internal/issuer/authorize` — called by `rail-simulator`'s card-network-sim for BIN 999999. Checks available balance on the PREPAID_CARD account and posts `DR PREPAID_CARD_HOLD / CR PREPAID_CARD` on approval.
 
-**VA Account Management APIs** (all require `X-Internal-Token`)  
-- `POST /internal/va/accounts` — create a TENANT account (WALLET, CASH, etc.) for a merchant  
-- `GET /v1/va/accounts/{accountId}?merchantId=` — account balance and status; validates merchantId ownership  
+**Ledger Account Management APIs** (all require `X-Internal-Token`)
+- `POST /internal/va/accounts` — create a TENANT account (WALLET, CASH, etc.) for a merchant
+- `GET /v1/va/accounts/{ledgerAccountId}?merchantId=` — account balance and status; validates merchantId ownership
 - `GET /v1/va/accounts?merchantId=&page=&size=` — paginated account list for a merchant
 
-**Rail settlement consumer**  
-`SettlementEventConsumer` extended to handle `RailSettlementEvent` from Kafka topic `rail.payment.settled`:
-- Card sale: DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD, release freeze
+**Rail settlement consumer**
+`SettlementEventConsumer` extended to handle `RailSettlementEvent` from Kafka topic `rail.settlement.events`:
+- Card sale: DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD_HOLD
+- Card reversal: DR PREPAID_CARD / CR PREPAID_CARD_HOLD
 - Bank settle: DR BANK_RAIL_RECEIVABLE / CR target account
 - Bank return: reverse the settlement journal
 - All journals idempotent on `source_event_id`
@@ -86,9 +88,9 @@ After the service starts, Flyway creates all tables including partitions:
 
 ```sql
 \dt va_*                  -- all VA tables
-\d  va_ledger_entry       -- partitioned by HASH(account_id), 64 buckets
+\d  va_ledger_entry       -- partitioned by HASH(ledger_account_id), 64 buckets
 \d  va_inbox_event        -- partitioned by HASH(event_id), 8 buckets
-SELECT * FROM va_account; -- account rows
+SELECT * FROM ledger_account; -- account rows
 SELECT * FROM va_ledger_entry LIMIT 20;
 ```
 
@@ -111,9 +113,9 @@ Covers: `SnowflakeIdGeneratorTest`, `BalanceSignatureServiceTest`, `LedgerPostin
    - Or add to VM options: `-Dspring.profiles.active=test`
 4. Run the test or any individual method
 
-Data is **left in the DB after each test** — connect to `localhost:5442` and inspect `va_account` and `va_ledger_entry` while the test is fresh.
+Data is **left in the DB after each test** — connect to `localhost:5442` and inspect `ledger_account` and `va_ledger_entry` while the test is fresh.
 
-**Tip — set the profile once for all tests:**  
+**Tip — set the profile once for all tests:**
 Run → Edit Configurations → Templates → JUnit → VM options: `-Dspring.profiles.active=test`
 
 ### Integration tests from command line

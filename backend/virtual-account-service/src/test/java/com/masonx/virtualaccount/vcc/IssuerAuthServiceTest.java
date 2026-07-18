@@ -4,17 +4,18 @@ import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
-import com.masonx.virtualaccount.domain.constant.AccountRole;
-import com.masonx.virtualaccount.domain.constant.AccountStatus;
-import com.masonx.virtualaccount.domain.constant.AccountType;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountRole;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
 import com.masonx.virtualaccount.domain.constant.AssetClass;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
+import com.masonx.virtualaccount.domain.ledger.posting.CardAuthHoldPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,7 +47,7 @@ class IssuerAuthServiceTest {
     private static final String HOLD_ACCOUNT_ID = "ac_hold";
 
     @Mock VirtualCardRepository virtualCardRepo;
-    @Mock AccountRepository accountRepo;
+    @Mock LedgerAccountRepository accountRepo;
     @Mock LedgerFacade ledger;
     @Mock SnowflakeIdGenerator idGen;
 
@@ -53,7 +55,8 @@ class IssuerAuthServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new IssuerAuthService(virtualCardRepo, accountRepo, ledger, idGen);
+        service = new IssuerAuthService(virtualCardRepo, accountRepo, ledger,
+                new CardAuthHoldPostingRule(idGen));
     }
 
     @Test
@@ -62,25 +65,27 @@ class IssuerAuthServiceTest {
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID)).thenReturn(Optional.of(cardAccount(new BigDecimal("100.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
         when(idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix())).thenReturn("tx_rail_1");
-        when(ledger.postIfNew(any(), any(), eq("vcc-card-auth"))).thenReturn(true);
+        when(ledger.postAllIfNew(any(), any(), eq("vcc-card-auth"))).thenReturn(true);
 
         var response = service.authorize(request());
 
         assertThat(response.decision()).isEqualTo("APPROVED");
-        ArgumentCaptor<PostTransaction> txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<String> eventCaptor = ArgumentCaptor.forClass(String.class);
-        verify(ledger).postIfNew(txCaptor.capture(), eventCaptor.capture(), eq("vcc-card-auth"));
+        verify(ledger).postAllIfNew(txCaptor.capture(), eventCaptor.capture(), eq("vcc-card-auth"));
 
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
         assertThat(eventCaptor.getValue()).startsWith("vcc_auth_");
-        assertThat(txCaptor.getValue().entries()).hasSize(2);
-        assertThat(txCaptor.getValue().entries())
+        assertThat(tx.entries()).hasSize(2);
+        assertThat(tx.entries())
                 .anySatisfy(entry -> {
-                    assertThat(entry.accountId()).isEqualTo(HOLD_ACCOUNT_ID);
+                    assertThat(entry.ledgerAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
                     assertThat(entry.direction()).isEqualTo(Direction.DEBIT);
                     assertThat(entry.sourceEventId()).isEqualTo(eventCaptor.getValue());
                 })
                 .anySatisfy(entry -> {
-                    assertThat(entry.accountId()).isEqualTo(CARD_ACCOUNT_ID);
+                    assertThat(entry.ledgerAccountId()).isEqualTo(CARD_ACCOUNT_ID);
                     assertThat(entry.direction()).isEqualTo(Direction.CREDIT);
                     assertThat(entry.sourceEventId()).isEqualTo(eventCaptor.getValue());
                 });
@@ -96,7 +101,7 @@ class IssuerAuthServiceTest {
 
         assertThat(response.decision()).isEqualTo("DECLINED");
         assertThat(response.responseCode()).isEqualTo("51");
-        verify(ledger, never()).postIfNew(any(), any(), any());
+        verify(ledger, never()).postAllIfNew(any(), any(), any());
     }
 
     private static IssuerAuthRequest request() {
@@ -119,37 +124,37 @@ class IssuerAuthServiceTest {
                 Instant.now());
     }
 
-    private static VaAccount cardAccount(BigDecimal balance) {
-        return new VaAccount(
+    private static LedgerAccount cardAccount(BigDecimal balance) {
+        return new LedgerAccount(
                 CARD_ACCOUNT_ID,
                 Mode.TEST,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 "org_1",
                 "mer_1",
                 null,
-                AccountType.PREPAID_CARD,
+                LedgerAccountType.PREPAID_CARD,
                 "USD",
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
     }
 
-    private static VaAccount holdAccount() {
-        return new VaAccount(
+    private static LedgerAccount holdAccount() {
+        return new LedgerAccount(
                 HOLD_ACCOUNT_ID,
                 Mode.TEST,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 "org_1",
                 "mer_1",
                 null,
-                AccountType.PREPAID_CARD_HOLD,
+                LedgerAccountType.PREPAID_CARD_HOLD,
                 "USD",
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 BigDecimal.ZERO,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
     }
 }

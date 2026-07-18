@@ -14,9 +14,9 @@ public record TrialBalanceResponse(
         List<TrialBalanceRow> rows
 ) {
     public record TrialBalanceRow(
-            String accountId,
-            String accountType,
-            String accountRole,
+            String ledgerAccountId,
+            String ledgerAccountType,
+            String ledgerAccountRole,
             String merchantId,   // null for PLATFORM/EXTERNAL
             String normalBalance,
             BigDecimal balance

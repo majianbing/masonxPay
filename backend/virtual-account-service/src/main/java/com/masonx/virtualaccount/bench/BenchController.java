@@ -7,7 +7,7 @@ import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.*;
 
 import java.time.LocalDate;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -19,23 +19,23 @@ import java.util.*;
  * Internal bench endpoints — active ONLY when va.bench.enabled=true.
  * Never set this flag in a production deployment.
  *
- * POST /internal/bench/setup              → create N (tenant+external) account pairs
+ * POST /internal/bench/setup              → create N (tenant+external) ledger account pairs
  * POST /internal/bench/post              → one 2-entry balanced posting (DEBIT cash / CREDIT ext)
  * POST /internal/bench/verify-duplicate  → proves inbox idempotency with one duplicate event
- * GET  /internal/bench/verify/{accountId} → balance + seq + HMAC + LC journal checks
+ * GET  /internal/bench/verify/{ledgerAccountId} → balance + seq + HMAC + LC journal checks
  */
 @RestController
 @RequestMapping("/internal/bench")
 @ConditionalOnProperty("va.bench.enabled")
 public class BenchController {
 
-    private final AccountRepository       accountRepo;
+    private final LedgerAccountRepository       accountRepo;
     private final LedgerFacade            ledger;
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator    idGenerator;
     private final JdbcTemplate            jdbc;
 
-    public BenchController(AccountRepository accountRepo,
+    public BenchController(LedgerAccountRepository accountRepo,
                            LedgerFacade ledger,
                            BalanceSignatureService signatureService,
                            SnowflakeIdGenerator idGenerator,
@@ -62,15 +62,15 @@ public class BenchController {
             String mId    = "m_" + runId + "_" + i;
             String pId    = "p_" + runId + "_" + i;
 
-            accountRepo.save(new VaAccount(cashId, Mode.LIVE, AccountRole.TENANT,
-                    "org_bench", mId, null, AccountType.CASH,
+            accountRepo.save(new LedgerAccount(cashId, Mode.LIVE, LedgerAccountRole.TENANT,
+                    "org_bench", mId, null, LedgerAccountType.CASH,
                     "USD", AssetClass.FIAT, 2,
-                    NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE));
+                    NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE));
 
-            accountRepo.save(new VaAccount(extId, Mode.LIVE, AccountRole.EXTERNAL,
-                    null, null, pId, AccountType.CLEARING,
+            accountRepo.save(new LedgerAccount(extId, Mode.LIVE, LedgerAccountRole.EXTERNAL,
+                    null, null, pId, LedgerAccountType.CLEARING,
                     "USD", AssetClass.FIAT, 2,
-                    NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE));
+                    NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE));
 
             pairs.add(new PairInfo(i, cashId, extId));
         }
@@ -82,12 +82,13 @@ public class BenchController {
     @PostMapping("/post")
     public PostResponse post(@RequestBody PostRequest req) {
         String txId = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
-        VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
-                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
-        ledger.postDirect(new PostTransaction(txId, List.of(
-                new EntryDraft(req.tenantAccountId(), Direction.DEBIT,
+        LedgerAccount tenantAccount = accountRepo.findById(req.tenantLedgerAccountId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Ledger account not found: " + req.tenantLedgerAccountId()));
+        ledger.postDirect(new LedgerPostingCommand(txId, List.of(
+                new AccountingEntryDraft(req.tenantLedgerAccountId(), Direction.DEBIT,
                         req.amount(), "USD", "bench_" + txId),
-                new EntryDraft(req.externalAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(req.externalLedgerAccountId(), Direction.CREDIT,
                         req.amount(), "USD", "bench_" + txId)
         ), TransactionType.INTERNAL, "VA bench posting", null, LocalDate.now(),
                 tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId()));
@@ -99,11 +100,12 @@ public class BenchController {
         String eventId = "bench_dup_" + idGenerator.generate("");
         String txId1 = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
         String txId2 = idGenerator.generate(MasonXIdPrefix.LEDGER_TRANSACTION.prefix());
-        VaAccount tenantAccount = accountRepo.findById(req.tenantAccountId())
-                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.tenantAccountId()));
+        LedgerAccount tenantAccount = accountRepo.findById(req.tenantLedgerAccountId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Ledger account not found: " + req.tenantLedgerAccountId()));
 
-        PostTransaction first = duplicateCheckTransaction(req, tenantAccount, txId1, eventId);
-        PostTransaction duplicate = duplicateCheckTransaction(req, tenantAccount, txId2, eventId);
+        LedgerPostingCommand first = duplicateCheckTransaction(req, tenantAccount, txId1, eventId);
+        LedgerPostingCommand duplicate = duplicateCheckTransaction(req, tenantAccount, txId2, eventId);
 
         boolean firstPosted = ledger.postIfNew(first, eventId, "BENCH_DUPLICATE_CHECK");
         boolean duplicatePosted = ledger.postIfNew(duplicate, eventId, "BENCH_DUPLICATE_CHECK");
@@ -125,10 +127,10 @@ public class BenchController {
 
     // ── Verify ────────────────────────────────────────────────────────────────
 
-    @GetMapping("/verify/{accountId}")
-    public VerifyResponse verify(@PathVariable String accountId) {
-        VaAccount account = accountRepo.findById(accountId)
-                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+    @GetMapping("/verify/{ledgerAccountId}")
+    public VerifyResponse verify(@PathVariable String ledgerAccountId) {
+        LedgerAccount account = accountRepo.findById(ledgerAccountId)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + ledgerAccountId));
 
         record EntryRow(long entrySeq, BigDecimal amount, Direction direction,
                         BigDecimal balanceAfter,
@@ -138,7 +140,7 @@ public class BenchController {
                 SELECT entry_seq, amount, direction, balance_after,
                        prev_signature, balance_signature, transaction_id
                 FROM va_ledger_entry
-                WHERE account_id = ?
+                WHERE ledger_account_id = ?
                 ORDER BY entry_seq ASC
                 """,
                 (rs, __) -> new EntryRow(
@@ -149,7 +151,7 @@ public class BenchController {
                         rs.getString("prev_signature"),
                         rs.getString("balance_signature"),
                         rs.getString("transaction_id")),
-                accountId);
+                ledgerAccountId);
 
         int entryCount = entries.size();
         BigDecimal accountBalance = account.balance();
@@ -162,8 +164,8 @@ public class BenchController {
         BigDecimal debitNet = jdbc.queryForObject("""
                 SELECT COALESCE(SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END), 0)
                 FROM va_ledger_entry
-                WHERE account_id = ?
-                """, BigDecimal.class, accountId);
+                WHERE ledger_account_id = ?
+                """, BigDecimal.class, ledgerAccountId);
         BigDecimal expectedBalance = account.normalBalance() == NormalBalance.DEBIT
                 ? debitNet
                 : debitNet.negate();
@@ -186,7 +188,7 @@ public class BenchController {
         Long firstBrokenChainAtSeq = null;
         for (EntryRow e : entries) {
             String expected = signatureService.compute(new SignatureInput(
-                    accountId, e.entrySeq(), e.amount(), e.direction(),
+                    ledgerAccountId, e.entrySeq(), e.amount(), e.direction(),
                     e.balanceAfter(), e.transactionId(), e.prevSignature()));
             if (!expected.equals(e.balanceSignature())) {
                 chainOk = false;
@@ -199,19 +201,19 @@ public class BenchController {
                 WITH account_tx AS (
                     SELECT DISTINCT transaction_id
                     FROM va_ledger_entry
-                    WHERE account_id = ?
+                    WHERE ledger_account_id = ?
                 )
                 SELECT COUNT(*)
                 FROM account_tx atx
                 LEFT JOIN va_transaction tx ON tx.transaction_id = atx.transaction_id
                 WHERE tx.transaction_id IS NULL
-                """, Integer.class, accountId);
+                """, Integer.class, ledgerAccountId);
 
         Integer unbalancedTransactionCount = jdbc.queryForObject("""
                 WITH account_tx AS (
                     SELECT DISTINCT transaction_id
                     FROM va_ledger_entry
-                    WHERE account_id = ?
+                    WHERE ledger_account_id = ?
                 )
                 SELECT COUNT(*)
                 FROM (
@@ -221,15 +223,15 @@ public class BenchController {
                     GROUP BY le.transaction_id
                     HAVING COALESCE(SUM(CASE WHEN le.direction = 'DEBIT' THEN le.amount ELSE -le.amount END), 0) <> 0
                 ) broken
-                """, Integer.class, accountId);
+                """, Integer.class, ledgerAccountId);
 
         int headerScopeMismatchCount = 0;
-        if (account.accountRole() == AccountRole.TENANT) {
+        if (account.ledgerAccountRole() == LedgerAccountRole.TENANT) {
             Integer n = jdbc.queryForObject("""
                     WITH account_tx AS (
                         SELECT DISTINCT transaction_id
                         FROM va_ledger_entry
-                        WHERE account_id = ?
+                        WHERE ledger_account_id = ?
                     )
                     SELECT COUNT(*)
                     FROM va_transaction tx
@@ -238,7 +240,7 @@ public class BenchController {
                        OR tx.merchant_id IS DISTINCT FROM ?
                        OR tx.org_id IS DISTINCT FROM ?
                     """, Integer.class,
-                    accountId, account.mode().name(), account.merchantId(), account.orgId());
+                    ledgerAccountId, account.mode().name(), account.merchantId(), account.orgId());
             headerScopeMismatchCount = n == null ? 0 : n;
         }
 
@@ -249,11 +251,11 @@ public class BenchController {
         Boolean trialBalanceOk = jdbc.queryForObject("""
                 SELECT COALESCE(SUM(CASE WHEN normal_balance = 'DEBIT' THEN balance ELSE 0 END), 0)
                      = COALESCE(SUM(CASE WHEN normal_balance = 'CREDIT' THEN balance ELSE 0 END), 0)
-                FROM va_account
+                FROM ledger_account
                 WHERE mode = ?::va_mode AND asset = ?
                 """, Boolean.class, account.mode().name(), account.asset());
 
-        return new VerifyResponse(accountId, entryCount, accountBalance,
+        return new VerifyResponse(ledgerAccountId, entryCount, accountBalance,
                 balanceOk, balanceSumOk, seqOk, chainOk, journalOk,
                 missingHeaderCount == null ? 0 : missingHeaderCount,
                 unbalancedTransactionCount == null ? 0 : unbalancedTransactionCount,
@@ -262,12 +264,12 @@ public class BenchController {
                 firstGapAtSeq, firstBrokenChainAtSeq);
     }
 
-    private PostTransaction duplicateCheckTransaction(PostRequest req, VaAccount tenantAccount,
+    private LedgerPostingCommand duplicateCheckTransaction(PostRequest req, LedgerAccount tenantAccount,
                                                       String txId, String eventId) {
-        return new PostTransaction(txId, List.of(
-                new EntryDraft(req.tenantAccountId(), Direction.DEBIT,
+        return new LedgerPostingCommand(txId, List.of(
+                new AccountingEntryDraft(req.tenantLedgerAccountId(), Direction.DEBIT,
                         req.amount(), "USD", eventId),
-                new EntryDraft(req.externalAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(req.externalLedgerAccountId(), Direction.CREDIT,
                         req.amount(), "USD", eventId)
         ), TransactionType.INTERNAL, "VA bench duplicate check", null,
                 LocalDate.now(), tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId());
@@ -277,8 +279,8 @@ public class BenchController {
 
     public record SetupRequest(int pairCount) {}
     public record SetupResponse(String runId, List<PairInfo> pairs) {}
-    public record PairInfo(int index, String tenantAccountId, String externalAccountId) {}
-    public record PostRequest(String tenantAccountId, String externalAccountId, BigDecimal amount) {}
+    public record PairInfo(int index, String tenantLedgerAccountId, String externalLedgerAccountId) {}
+    public record PostRequest(String tenantLedgerAccountId, String externalLedgerAccountId, BigDecimal amount) {}
     public record PostResponse(boolean ok) {}
     public record DuplicateVerifyResponse(
             boolean ok,
@@ -287,7 +289,7 @@ public class BenchController {
             int entryCount,
             int headerCount) {}
     public record VerifyResponse(
-            String accountId,
+            String ledgerAccountId,
             int entryCount,
             BigDecimal accountBalance,
             boolean balanceOk,

@@ -15,26 +15,26 @@ import java.math.BigDecimal;
  * split: authorization holds are modeled as real ledger entries against a
  * paired hold account (e.g. PREPAID_CARD_HOLD) where that concept applies.
  */
-public record VaAccount(
-        String accountId,
+public record LedgerAccount(
+        String ledgerAccountId,
         Mode mode,
-        AccountRole accountRole,
+        LedgerAccountRole ledgerAccountRole,
         String orgId,          // non-null for TENANT
         String merchantId,     // non-null for TENANT
         String providerId,     // non-null for EXTERNAL
-        AccountType accountType,
+        LedgerAccountType ledgerAccountType,
         String asset,
         AssetClass assetClass,
         int scale,
         NormalBalance normalBalance,
         BigDecimal balance,
-        AccountStatus status
+        LedgerAccountStatus status
 ) {
     /** Returns a copy with an updated balance — used by LedgerPostingService to track
      *  in-memory state when multiple entries for the same account exist in one transaction. */
-    public VaAccount withBalance(BigDecimal newBalance) {
-        return new VaAccount(accountId, mode, accountRole, orgId, merchantId, providerId,
-                accountType, asset, assetClass, scale, normalBalance,
+    public LedgerAccount withBalance(BigDecimal newBalance) {
+        return new LedgerAccount(ledgerAccountId, mode, ledgerAccountRole, orgId, merchantId, providerId,
+                ledgerAccountType, asset, assetClass, scale, normalBalance,
                 newBalance, status);
     }
 }

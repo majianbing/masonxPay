@@ -13,7 +13,7 @@ import java.util.HexFormat;
 /**
  * Computes and verifies the HMAC-SHA256 tamper-evident chain on ledger entries.
  *
- * Each entry's signature covers: account_id, entry_seq, amount, direction,
+ * Each entry's signature covers: ledger_account_id, entry_seq, amount, direction,
  * balance_after, transaction_id, and the previous entry's signature. Any
  * direct DB edit to balance breaks the chain at the next posting.
  *

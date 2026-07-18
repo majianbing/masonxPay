@@ -3,16 +3,18 @@ package com.masonx.virtualaccount.vcc;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
-import com.masonx.virtualaccount.domain.constant.AccountRole;
-import com.masonx.virtualaccount.domain.constant.AccountStatus;
-import com.masonx.virtualaccount.domain.constant.AccountType;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountRole;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
 import com.masonx.virtualaccount.domain.constant.AssetClass;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
+import com.masonx.virtualaccount.domain.ledger.posting.VccCloseSweepPostingRule;
+import com.masonx.virtualaccount.domain.ledger.posting.VccFundingPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.CreateVccRequest;
 import com.masonx.virtualaccount.vcc.dto.FundVccRequest;
@@ -26,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,7 +50,7 @@ class VirtualCardServiceTest {
     private static final String MERCHANT_ID = "mer_1";
 
     @Mock VirtualCardRepository virtualCardRepo;
-    @Mock AccountRepository accountRepo;
+    @Mock LedgerAccountRepository accountRepo;
     @Mock LedgerFacade ledger;
     @Mock SnowflakeIdGenerator idGen;
 
@@ -55,7 +58,8 @@ class VirtualCardServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new VirtualCardService(virtualCardRepo, accountRepo, ledger, idGen);
+        service = new VirtualCardService(virtualCardRepo, accountRepo, ledger, idGen,
+                new VccFundingPostingRule(idGen), new VccCloseSweepPostingRule(idGen));
     }
 
     @Test
@@ -72,7 +76,7 @@ class VirtualCardServiceTest {
                 .hasMessageContaining("open authorization hold");
 
         verify(virtualCardRepo, never()).updateStatus(CARD_ID, VirtualCardStatus.CLOSED);
-        verify(accountRepo, never()).updateStatus(VCC_ACCOUNT_ID, AccountStatus.CLOSED);
+        verify(accountRepo, never()).updateStatus(VCC_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
     }
 
     @Test
@@ -87,8 +91,8 @@ class VirtualCardServiceTest {
         service.closeCard(CARD_ID, MERCHANT_ID);
 
         verify(virtualCardRepo).updateStatus(CARD_ID, VirtualCardStatus.CLOSED);
-        verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, AccountStatus.CLOSED);
-        verify(accountRepo).updateStatus(HOLD_ACCOUNT_ID, AccountStatus.CLOSED);
+        verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
+        verify(accountRepo).updateStatus(HOLD_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
         verify(ledger, never()).postDirect(any());
     }
 
@@ -101,23 +105,24 @@ class VirtualCardServiceTest {
         when(accountRepo.findById(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount(BigDecimal.ZERO)));
         when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix()))
                 .thenReturn("tx_fund_1", "tx_fund_2");
-        when(ledger.postIfNew(any(), any(), eq("vcc-card-fund"))).thenReturn(true, false);
+        when(ledger.postAllIfNew(any(), any(), eq("vcc-card-fund"))).thenReturn(true, false);
 
         FundVccRequest req = new FundVccRequest(MERCHANT_ID, "client-request-1", new BigDecimal("25.00"));
 
         service.fundCard(CARD_ID, req);
         service.fundCard(CARD_ID, req);
 
-        ArgumentCaptor<PostTransaction> txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<String> eventCaptor = ArgumentCaptor.forClass(String.class);
-        verify(ledger, times(2)).postIfNew(txCaptor.capture(), eventCaptor.capture(), eq("vcc-card-fund"));
+        verify(ledger, times(2)).postAllIfNew(txCaptor.capture(), eventCaptor.capture(), eq("vcc-card-fund"));
         verify(ledger, never()).postDirect(any());
 
         assertThat(eventCaptor.getAllValues()).hasSize(2);
         assertThat(eventCaptor.getAllValues().get(0)).isEqualTo(eventCaptor.getAllValues().get(1));
         assertThat(eventCaptor.getAllValues().get(0)).startsWith("vcc_fund_");
         assertThat(txCaptor.getAllValues())
-                .allSatisfy(tx -> assertThat(tx.entries())
+                .allSatisfy(commands -> assertThat(commands.get(0).entries())
                         .allSatisfy(entry -> assertThat(entry.sourceEventId())
                                 .isEqualTo(eventCaptor.getAllValues().get(0))));
     }
@@ -133,11 +138,11 @@ class VirtualCardServiceTest {
         service.createCard(new CreateVccRequest(
                 MERCHANT_ID, OWNER_ACCOUNT_ID, "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1)));
 
-        ArgumentCaptor<VaAccount> accountCaptor = ArgumentCaptor.forClass(VaAccount.class);
+        ArgumentCaptor<LedgerAccount> accountCaptor = ArgumentCaptor.forClass(LedgerAccount.class);
         verify(accountRepo, times(2)).save(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
-                .extracting(VaAccount::accountType)
-                .containsExactly(AccountType.PREPAID_CARD, AccountType.PREPAID_CARD_HOLD);
+                .extracting(LedgerAccount::ledgerAccountType)
+                .containsExactly(LedgerAccountType.PREPAID_CARD, LedgerAccountType.PREPAID_CARD_HOLD);
 
         ArgumentCaptor<VirtualCard> cardCaptor = ArgumentCaptor.forClass(VirtualCard.class);
         verify(virtualCardRepo).save(cardCaptor.capture());
@@ -161,54 +166,54 @@ class VirtualCardServiceTest {
                 Instant.now());
     }
 
-    private static VaAccount vccAccount(BigDecimal balance) {
-        return new VaAccount(
+    private static LedgerAccount vccAccount(BigDecimal balance) {
+        return new LedgerAccount(
                 VCC_ACCOUNT_ID,
                 Mode.LIVE,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
                 null,
-                AccountType.PREPAID_CARD,
+                LedgerAccountType.PREPAID_CARD,
                 "USD",
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
     }
 
-    private static VaAccount holdAccount(BigDecimal balance) {
-        return new VaAccount(
+    private static LedgerAccount holdAccount(BigDecimal balance) {
+        return new LedgerAccount(
                 HOLD_ACCOUNT_ID,
                 Mode.LIVE,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
                 null,
-                AccountType.PREPAID_CARD_HOLD,
+                LedgerAccountType.PREPAID_CARD_HOLD,
                 "USD",
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 balance,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
     }
 
-    private static VaAccount ownerAccount() {
-        return new VaAccount(
+    private static LedgerAccount ownerAccount() {
+        return new LedgerAccount(
                 OWNER_ACCOUNT_ID,
                 Mode.LIVE,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,
                 null,
-                AccountType.WALLET,
+                LedgerAccountType.WALLET,
                 "USD",
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 new BigDecimal("100.00"),
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
     }
 }

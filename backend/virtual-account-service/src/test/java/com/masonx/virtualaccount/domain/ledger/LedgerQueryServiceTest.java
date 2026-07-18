@@ -3,7 +3,7 @@ package com.masonx.virtualaccount.domain.ledger;
 import com.masonx.common.error.BusinessException;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.ledger.dto.AccountStatementResponse;
 import com.masonx.virtualaccount.ledger.dto.LedgerEntryResponse;
 import com.masonx.virtualaccount.ledger.dto.TransactionDetailResponse;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class LedgerQueryServiceTest {
 
-    @Mock AccountRepository     accountRepo;
+    @Mock LedgerAccountRepository     accountRepo;
     @Mock LedgerEntryRepository entryRepo;
     @Mock TransactionRepository txRepo;
 
@@ -41,11 +41,11 @@ class LedgerQueryServiceTest {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private VaAccount tenantAccount(String id, String merchantId, Mode mode) {
-        return new VaAccount(id, mode, AccountRole.TENANT,
-                "org_1", merchantId, null, AccountType.CASH,
+    private LedgerAccount tenantAccount(String id, String merchantId, Mode mode) {
+        return new LedgerAccount(id, mode, LedgerAccountRole.TENANT,
+                "org_1", merchantId, null, LedgerAccountType.CASH,
                 "USD", AssetClass.FIAT, 2, NormalBalance.DEBIT,
-                BigDecimal.ZERO, AccountStatus.ACTIVE);
+                BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
     }
 
     private TransactionRecord txRecord(String txId, String merchantId, Mode mode) {
@@ -54,9 +54,9 @@ class LedgerQueryServiceTest {
                 mode, "org_1", merchantId, Instant.now());
     }
 
-    private com.masonx.virtualaccount.domain.po.LedgerEntry entry(String entryId, String accountId, long seq) {
+    private com.masonx.virtualaccount.domain.po.LedgerEntry entry(String entryId, String ledgerAccountId, long seq) {
         return new com.masonx.virtualaccount.domain.po.LedgerEntry(
-                entryId, "tx_1", accountId,
+                entryId, "tx_1", ledgerAccountId,
                 com.masonx.virtualaccount.domain.constant.Direction.DEBIT,
                 new BigDecimal("100.00"), "USD", seq,
                 new BigDecimal("100.00"),
@@ -70,9 +70,9 @@ class LedgerQueryServiceTest {
     void assertOwnership_passes_when_merchantId_and_mode_match() {
         when(accountRepo.findById("ac_1")).thenReturn(Optional.of(tenantAccount("ac_1", "mer_1", Mode.LIVE)));
 
-        VaAccount result = service.assertOwnership("ac_1", "mer_1", Mode.LIVE);
+        LedgerAccount result = service.assertOwnership("ac_1", "mer_1", Mode.LIVE);
 
-        assertThat(result.accountId()).isEqualTo("ac_1");
+        assertThat(result.ledgerAccountId()).isEqualTo("ac_1");
     }
 
     @Test
@@ -194,11 +194,11 @@ class LedgerQueryServiceTest {
 
     // ── getStatement ──────────────────────────────────────────────────────────
 
-    private VaAccount debitNormalAccount(String id, String merchantId) {
-        return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
-                "org_1", merchantId, null, AccountType.CASH,
+    private LedgerAccount debitNormalAccount(String id, String merchantId) {
+        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.TENANT,
+                "org_1", merchantId, null, LedgerAccountType.CASH,
                 "USD", AssetClass.FIAT, 2, NormalBalance.DEBIT,
-                new BigDecimal("300.00"), AccountStatus.ACTIVE);
+                new BigDecimal("300.00"), LedgerAccountStatus.ACTIVE);
     }
 
     private com.masonx.virtualaccount.domain.po.LedgerEntry debitEntry(
@@ -273,19 +273,19 @@ class LedgerQueryServiceTest {
 
     // ── getTrialBalance ───────────────────────────────────────────────────────
 
-    private VaAccount account(String id, AccountRole role, AccountType type,
+    private LedgerAccount account(String id, LedgerAccountRole role, LedgerAccountType type,
                               NormalBalance nb, BigDecimal balance, String merchantId) {
-        return new VaAccount(id, Mode.LIVE, role,
-                "org_1", merchantId, role == AccountRole.EXTERNAL ? "prov_1" : null,
+        return new LedgerAccount(id, Mode.LIVE, role,
+                "org_1", merchantId, role == LedgerAccountRole.EXTERNAL ? "prov_1" : null,
                 type, "USD", AssetClass.FIAT, 2, nb,
-                balance, AccountStatus.ACTIVE);
+                balance, LedgerAccountStatus.ACTIVE);
     }
 
     @Test
     void trial_balance_is_balanced_when_debit_side_equals_credit_side() {
-        VaAccount cash    = account("ac_cash", AccountRole.TENANT,   AccountType.CASH,
+        LedgerAccount cash    = account("ac_cash", LedgerAccountRole.TENANT,   LedgerAccountType.CASH,
                 NormalBalance.DEBIT,  new BigDecimal("1000.00"), "mer_1");
-        VaAccount clearing = account("ac_clr", AccountRole.EXTERNAL, AccountType.CLEARING,
+        LedgerAccount clearing = account("ac_clr", LedgerAccountRole.EXTERNAL, LedgerAccountType.CLEARING,
                 NormalBalance.CREDIT, new BigDecimal("1000.00"), null);
 
         when(accountRepo.findAllByModeAndAsset(Mode.LIVE, "USD"))
@@ -301,9 +301,9 @@ class LedgerQueryServiceTest {
 
     @Test
     void trial_balance_is_not_balanced_when_sides_differ() {
-        VaAccount cash    = account("ac_cash", AccountRole.TENANT,   AccountType.CASH,
+        LedgerAccount cash    = account("ac_cash", LedgerAccountRole.TENANT,   LedgerAccountType.CASH,
                 NormalBalance.DEBIT,  new BigDecimal("1000.00"), "mer_1");
-        VaAccount clearing = account("ac_clr", AccountRole.EXTERNAL, AccountType.CLEARING,
+        LedgerAccount clearing = account("ac_clr", LedgerAccountRole.EXTERNAL, LedgerAccountType.CLEARING,
                 NormalBalance.CREDIT, new BigDecimal("900.00"), null);
 
         when(accountRepo.findAllByModeAndAsset(Mode.LIVE, "USD"))
@@ -328,7 +328,7 @@ class LedgerQueryServiceTest {
 
     @Test
     void trial_balance_rows_include_merchantId_for_tenant_accounts() {
-        VaAccount cash = account("ac_cash", AccountRole.TENANT, AccountType.CASH,
+        LedgerAccount cash = account("ac_cash", LedgerAccountRole.TENANT, LedgerAccountType.CASH,
                 NormalBalance.DEBIT, new BigDecimal("500.00"), "mer_1");
         when(accountRepo.findAllByModeAndAsset(Mode.LIVE, "USD")).thenReturn(List.of(cash));
 
@@ -342,10 +342,10 @@ class LedgerQueryServiceTest {
     void statement_credit_normal_account_sign_is_correct() {
         // CREDIT-normal TENANT account: credits increase balance.
         // Σ CREDIT 150, Σ DEBIT 0 → debitNet = 0 − 150 = −150 → balance = −(−150) = +150
-        VaAccount creditAcct = new VaAccount("ac_crl", Mode.LIVE, AccountRole.TENANT,
-                "org_1", "mer_1", null, AccountType.CREDIT_LINE,
+        LedgerAccount creditAcct = new LedgerAccount("ac_crl", Mode.LIVE, LedgerAccountRole.TENANT,
+                "org_1", "mer_1", null, LedgerAccountType.CREDIT_LINE,
                 "USD", AssetClass.FIAT, 2, NormalBalance.CREDIT,
-                BigDecimal.ZERO, AccountStatus.ACTIVE);
+                BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
         when(accountRepo.findById("ac_crl")).thenReturn(Optional.of(creditAcct));
         when(entryRepo.sumDebitNetBeforeDate("ac_crl", LocalDate.of(2026, 1, 1)))
                 .thenReturn(BigDecimal.ZERO);

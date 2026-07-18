@@ -29,16 +29,16 @@ public class LedgerQueryController {
 
     /**
      * Paginated ledger entry history for an account, newest first.
-     * One partition hit — account_id is the shard key.
+     * One partition hit — ledger_account_id is the shard key.
      */
-    @GetMapping("/v1/ledger/accounts/{accountId}/entries")
+    @GetMapping("/v1/ledger/accounts/{ledgerAccountId}/entries")
     public ResponseEntity<PagedResult<LedgerEntryResponse>> listEntries(
-            @PathVariable String accountId,
+            @PathVariable String ledgerAccountId,
             @RequestParam String merchantId,
             @RequestParam Mode mode,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(service.listEntries(accountId, merchantId, mode, page, size));
+        return ResponseEntity.ok(service.listEntries(ledgerAccountId, merchantId, mode, page, size));
     }
 
     /**
@@ -70,13 +70,13 @@ public class LedgerQueryController {
      * opening = balance strictly before fromDate; closing = balance up to and including toDate.
      * One partition hit for each of the three queries.
      */
-    @GetMapping("/v1/ledger/accounts/{accountId}/statement")
+    @GetMapping("/v1/ledger/accounts/{ledgerAccountId}/statement")
     public ResponseEntity<AccountStatementResponse> getStatement(
-            @PathVariable String accountId,
+            @PathVariable String ledgerAccountId,
             @RequestParam String merchantId,
             @RequestParam Mode mode,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return ResponseEntity.ok(service.getStatement(accountId, merchantId, mode, from, to));
+        return ResponseEntity.ok(service.getStatement(ledgerAccountId, merchantId, mode, from, to));
     }
 }

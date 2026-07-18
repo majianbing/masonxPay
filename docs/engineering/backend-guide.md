@@ -42,11 +42,12 @@ Each module owns one root package (e.g. `com.masonx.paygateway`, `com.masonx.vir
 
 ```
 com.masonx.virtualaccount
-  constant/           ← AccountStatus, Direction, NormalBalance, …
+  constant/           ← LedgerAccountStatus, Direction, NormalBalance, …
   api/                ← SettlementHandler (consumed by inbound adapters)
   dto/                ← RecordSettlementCommand (grows here as more arrive)
-  po/                 ← VaAccount, LedgerEntry
+  po/                 ← LedgerAccount, LedgerEntry
   ledger/             ← bounded context: repos, service, value objects
+    posting/          ← posting rules that translate business events to LedgerPostingCommand
     validator/        ← AssetConsistencyValidator, NetZeroValidator, …
                          TransactionValidator and EntryValidator interfaces live here too
   inbound/

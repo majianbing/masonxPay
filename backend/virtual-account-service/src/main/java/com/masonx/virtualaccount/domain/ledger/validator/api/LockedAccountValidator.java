@@ -1,9 +1,9 @@
 package com.masonx.virtualaccount.domain.ledger.validator.api;
 
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingService;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 
 import java.math.BigDecimal;
 
@@ -13,5 +13,5 @@ import java.math.BigDecimal;
  * transaction context and the locked account state.
  */
 public interface LockedAccountValidator {
-    void validate(PostTransaction tx, EntryDraft draft, VaAccount account, BigDecimal newBalance);
+    void validate(LedgerPostingCommand tx, AccountingEntryDraft draft, LedgerAccount account, BigDecimal newBalance);
 }

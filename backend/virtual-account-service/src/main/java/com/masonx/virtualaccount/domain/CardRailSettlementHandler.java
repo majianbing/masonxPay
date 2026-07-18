@@ -1,28 +1,21 @@
 package com.masonx.virtualaccount.domain;
 
-import com.masonx.common.id.MasonXIdPrefix;
-import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.contracts.rail.MoneyMovementType;
 import com.masonx.contracts.rail.RailSettlementEvent;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
-import com.masonx.virtualaccount.domain.constant.AccountType;
-import com.masonx.virtualaccount.domain.constant.Direction;
-import com.masonx.virtualaccount.domain.constant.TransactionType;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule;
+import com.masonx.virtualaccount.domain.ledger.posting.RailSettlementPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
 
 /**
  * Posts double-entry ledger journals for rail settlement events.
@@ -35,7 +28,7 @@ import java.util.UUID;
  *   <li><b>BANK_RETURN</b> — reverses the settlement: DR merchant WALLET / CR BANK_RAIL_RECEIVABLE.
  * </ul>
  *
- * <p>Idempotency: {@link LedgerFacade#postIfNew} uses the event envelope ID as the
+ * <p>Idempotency: {@link LedgerFacade#postAllIfNew} uses the event envelope ID as the
  * idempotency key. A duplicate Kafka delivery produces no second journal entry.
  *
  * <p>Mode: rail-service operates in TEST mode only (simulator). All account lookups
@@ -48,18 +41,21 @@ public class CardRailSettlementHandler {
     private static final Mode   RAIL_MODE = Mode.TEST;
 
     private final VirtualCardRepository virtualCardRepo;
-    private final AccountRepository     accountRepo;
+    private final LedgerAccountRepository     accountRepo;
     private final LedgerFacade          ledger;
-    private final SnowflakeIdGenerator  idGen;
+    private final CardSettlementPostingRule cardSettlementPostingRule;
+    private final RailSettlementPostingRule railSettlementPostingRule;
 
     public CardRailSettlementHandler(VirtualCardRepository virtualCardRepo,
-                                     AccountRepository accountRepo,
+                                     LedgerAccountRepository accountRepo,
                                      LedgerFacade ledger,
-                                     SnowflakeIdGenerator idGen) {
+                                     CardSettlementPostingRule cardSettlementPostingRule,
+                                     RailSettlementPostingRule railSettlementPostingRule) {
         this.virtualCardRepo = virtualCardRepo;
         this.accountRepo     = accountRepo;
         this.ledger          = ledger;
-        this.idGen           = idGen;
+        this.cardSettlementPostingRule = cardSettlementPostingRule;
+        this.railSettlementPostingRule = railSettlementPostingRule;
     }
 
     @Transactional
@@ -85,24 +81,23 @@ public class CardRailSettlementHandler {
         VirtualCard card = findCardByMaskedPan(event.maskedPan(), eventId);
         if (card == null) return;
 
-        VaAccount cardAccount = accountRepo.findById(card.vccAccountId())
+        LedgerAccount cardAccount = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + card.cardId()));
-        VaAccount holdAccount = accountRepo.findById(card.holdAccountId())
+        LedgerAccount holdAccount = accountRepo.findById(card.holdAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
 
-        VaAccount receivable = findReceivableAccount(
-                event.networkName(), event.asset(), AccountType.CARD_NETWORK_RECEIVABLE, eventId);
+        LedgerAccount receivable = findReceivableAccount(
+                event.networkName(), event.asset(), LedgerAccountType.CARD_NETWORK_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
-        boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
-                new EntryDraft(receivable.accountId(),   Direction.DEBIT,  event.amount(), event.asset(), eventId),
-                new EntryDraft(holdAccount.accountId(),  Direction.CREDIT, event.amount(), event.asset(), eventId)
-        ), TransactionType.CARD_SALE, "Card sale " + event.maskedPan(), event.railPaymentId(),
-                LocalDate.now(), cardAccount.mode(), cardAccount.orgId(), cardAccount.merchantId()),
-                eventId, "rail-card-sale");
+        boolean posted = ledger.postAllIfNew(
+                cardSettlementPostingRule.buildSale(
+                        new CardSettlementPostingRule.SaleEvent(event, eventId, card,
+                                cardAccount, holdAccount, receivable)),
+                eventId,
+                "rail-card-sale");
 
         if (posted) {
             log.info("Card sale journal posted: eventId={} cardId={} amount={}",
@@ -122,20 +117,18 @@ public class CardRailSettlementHandler {
         VirtualCard card = findCardByMaskedPan(event.maskedPan(), eventId);
         if (card == null) return;
 
-        VaAccount cardAccount = accountRepo.findById(card.vccAccountId())
+        LedgerAccount cardAccount = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + card.cardId()));
-        VaAccount holdAccount = accountRepo.findById(card.holdAccountId())
+        LedgerAccount holdAccount = accountRepo.findById(card.holdAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
 
-        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
-        boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
-                new EntryDraft(cardAccount.accountId(), Direction.DEBIT, event.amount(), event.asset(), eventId),
-                new EntryDraft(holdAccount.accountId(), Direction.CREDIT, event.amount(), event.asset(), eventId)
-        ), TransactionType.REVERSAL, "Card auth reversal " + event.maskedPan(), event.railPaymentId(),
-                LocalDate.now(), cardAccount.mode(), cardAccount.orgId(), cardAccount.merchantId()),
-                eventId, "rail-card-reversal");
+        boolean posted = ledger.postAllIfNew(
+                cardSettlementPostingRule.buildReversal(
+                        new CardSettlementPostingRule.ReversalEvent(event, eventId, card, cardAccount, holdAccount)),
+                eventId,
+                "rail-card-reversal");
 
         if (posted) {
             log.info("Card reversal journal posted: eventId={} cardId={} amount={}",
@@ -148,20 +141,18 @@ public class CardRailSettlementHandler {
     // ── Bank transfer settled (pacs.002 ACSC) ────────────────────────────────
 
     private void handleBankTransferSettled(RailSettlementEvent event, String eventId) {
-        VaAccount wallet = findMerchantWallet(event.merchantId(), event.asset(), eventId);
+        LedgerAccount wallet = findMerchantWallet(event.merchantId(), event.asset(), eventId);
         if (wallet == null) return;
 
-        VaAccount receivable = findReceivableAccount(
-                event.networkName(), event.asset(), AccountType.BANK_RAIL_RECEIVABLE, eventId);
+        LedgerAccount receivable = findReceivableAccount(
+                event.networkName(), event.asset(), LedgerAccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
-        boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
-                new EntryDraft(receivable.accountId(), Direction.DEBIT,  event.amount(), event.asset(), eventId),
-                new EntryDraft(wallet.accountId(),     Direction.CREDIT, event.amount(), event.asset(), eventId)
-        ), TransactionType.BANK_TRANSFER, "Bank credit transfer " + event.networkName(),
-                event.railPaymentId(), LocalDate.now(), RAIL_MODE, null, event.merchantId()),
-                eventId, "rail-bank-settle");
+        boolean posted = ledger.postAllIfNew(
+                railSettlementPostingRule.buildBankTransfer(
+                        new RailSettlementPostingRule.BankEvent(event, eventId, wallet, receivable)),
+                eventId,
+                "rail-bank-settle");
 
         if (posted) {
             log.info("Bank transfer journal posted: eventId={} merchant={} amount={}",
@@ -174,20 +165,18 @@ public class CardRailSettlementHandler {
     // ── Bank return (pacs.004) ────────────────────────────────────────────────
 
     private void handleBankReturn(RailSettlementEvent event, String eventId) {
-        VaAccount wallet = findMerchantWallet(event.merchantId(), event.asset(), eventId);
+        LedgerAccount wallet = findMerchantWallet(event.merchantId(), event.asset(), eventId);
         if (wallet == null) return;
 
-        VaAccount receivable = findReceivableAccount(
-                event.networkName(), event.asset(), AccountType.BANK_RAIL_RECEIVABLE, eventId);
+        LedgerAccount receivable = findReceivableAccount(
+                event.networkName(), event.asset(), LedgerAccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
-        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
-        boolean posted = ledger.postIfNew(new PostTransaction(txId, List.of(
-                new EntryDraft(wallet.accountId(),     Direction.DEBIT,  event.amount(), event.asset(), eventId),
-                new EntryDraft(receivable.accountId(), Direction.CREDIT, event.amount(), event.asset(), eventId)
-        ), TransactionType.REVERSAL, "Bank return " + event.networkName(),
-                event.railPaymentId(), LocalDate.now(), RAIL_MODE, null, event.merchantId()),
-                eventId, "rail-bank-return");
+        boolean posted = ledger.postAllIfNew(
+                railSettlementPostingRule.buildBankReturn(
+                        new RailSettlementPostingRule.BankEvent(event, eventId, wallet, receivable)),
+                eventId,
+                "rail-bank-return");
 
         if (posted) {
             log.info("Bank return journal posted: eventId={} merchant={} amount={}",
@@ -210,8 +199,8 @@ public class CardRailSettlementHandler {
         });
     }
 
-    private VaAccount findReceivableAccount(String networkName, String asset,
-                                            AccountType type, String eventId) {
+    private LedgerAccount findReceivableAccount(String networkName, String asset,
+                                            LedgerAccountType type, String eventId) {
         return accountRepo.findExternalAccount(networkName, asset, type).orElseGet(() -> {
             log.error("Receivable account not found: network={} asset={} type={} eventId={}",
                     networkName, asset, type, eventId);
@@ -219,12 +208,12 @@ public class CardRailSettlementHandler {
         });
     }
 
-    private VaAccount findMerchantWallet(String merchantId, String asset, String eventId) {
+    private LedgerAccount findMerchantWallet(String merchantId, String asset, String eventId) {
         if (merchantId == null) {
             log.error("Rail settlement event has no merchantId — cannot post bank journal: eventId={}", eventId);
             return null;
         }
-        return accountRepo.findTenantAccount(merchantId, RAIL_MODE, asset, AccountType.WALLET)
+        return accountRepo.findTenantAccount(merchantId, RAIL_MODE, asset, LedgerAccountType.WALLET)
                 .orElseGet(() -> {
                     log.error("WALLET account not found for merchant={} asset={} eventId={}",
                             merchantId, asset, eventId);

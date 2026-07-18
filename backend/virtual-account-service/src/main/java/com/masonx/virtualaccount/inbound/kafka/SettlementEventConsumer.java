@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Thin inbound adapter — translates Kafka delivery into a domain call.
- * Idempotency is enforced inside LedgerFacade#postIfNew, not here.
+ * Idempotency is enforced inside LedgerFacade#postAllIfNew, not here.
  */
 @Component
 public class SettlementEventConsumer {

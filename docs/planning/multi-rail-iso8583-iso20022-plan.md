@@ -50,7 +50,7 @@ backend/
   common/                  (existing — shared error, ID, tenant)
   contracts/               (existing — add RailSettlementEvent here)
   gateway-service/         (existing — untouched)
-  virtual-account-service/ (existing — add PREPAID_CARD AccountType,
+  virtual-account-service/ (existing — add PREPAID_CARD ledger account types,
                                        VirtualCard entity,
                                        issuer auth endpoint,
                                        card management API,
@@ -102,11 +102,12 @@ Multiple VCCs per merchant are supported. Each VCC is independent.
 ### Account Structure
 
 ```
-VaAccount { AccountType.WALLET }          ← main funding account
+LedgerAccount { LedgerAccountType.WALLET }          ← main funding account
   |
-  └── funds (internal transfer) ──→  VaAccount { AccountType.PREPAID_CARD }
-                                          ← ring-fenced per VirtualCard
-                                          ← lifecycle tied to the card
+  └── funds (internal transfer) ──→  LedgerAccount { LedgerAccountType.PREPAID_CARD }
+                                          ← available balance for one VirtualCard
+                                      LedgerAccount { LedgerAccountType.PREPAID_CARD_HOLD }
+                                          ← held authorizations for the same VirtualCard
 ```
 
 ### VirtualCard Entity (virtual-account-service)
@@ -116,8 +117,9 @@ virtual_card {
   card_id            VARCHAR PK
   masked_pan         VARCHAR          -- last 4 + BIN prefix only, never raw PAN
   bin                VARCHAR          -- 999999 for VA-issued cards
-  vcc_account_id     → va_account     -- the PREPAID_CARD account
-  owner_account_id   → va_account     -- the main WALLET account that funded it
+  vcc_account_id     → ledger_account -- the PREPAID_CARD account
+  hold_account_id    → ledger_account -- the PREPAID_CARD_HOLD account
+  owner_account_id   → ledger_account -- the main WALLET account that funded it
   status             ENUM(ACTIVE, FROZEN, EXPIRED, CLOSED)
   spending_limit     DECIMAL          -- optional cap below loaded balance
   currency           VARCHAR
@@ -135,21 +137,22 @@ DR  PREPAID_CARD (vcc_account)   $200
 CR  WALLET (main_account)        $200
 ```
 
-**Auth (0100/0110) — no ledger entry, only freeze:**
+**Auth (0100/0110) — move available funds to hold:**
 ```
-frozenBalance += $50 on vcc_account
+DR  PREPAID_CARD_HOLD          $50
+CR  PREPAID_CARD (vcc_account) $50
 ```
 
 **Settlement — card network pays, issuer books the spend:**
 ```
-DR  CARD_NETWORK_RECEIVABLE      $50   ← close in-flight receivable
-CR  PREPAID_CARD (vcc_account)   $50   ← balance consumed
-(frozenBalance -= $50)
+DR  CARD_NETWORK_RECEIVABLE      $50
+CR  PREPAID_CARD_HOLD            $50   ← held balance consumed
 ```
 
-**Reversal (0400/0410) — unfreeze, no ledger:**
+**Reversal (0400/0410) — release hold:**
 ```
-frozenBalance -= $50 on vcc_account
+DR  PREPAID_CARD (vcc_account)   $50
+CR  PREPAID_CARD_HOLD            $50
 ```
 
 **Close VCC — remaining balance sweeps back:**
@@ -310,24 +313,25 @@ Bank return (pacs.004) is not the same as a card reversal (0400). A return is a 
 
 ## Ledger Account Model Changes
 
-### New AccountType Values
+### New LedgerAccountType Values
 
 ```java
-// Add to AccountType enum in virtual-account-service
+// Add to LedgerAccountType enum in virtual-account-service
 
 // VCC product
 PREPAID_CARD,              // ring-fenced wallet bound to a VirtualCard lifecycle
-                           // NormalBalance.DEBIT, AccountRole.TENANT
+PREPAID_CARD_HOLD,         // authorized-but-unsettled held funds
+                           // NormalBalance.DEBIT, LedgerAccountRole.TENANT
 
 // Rail in-flight tracking (platform books)
 CARD_NETWORK_RECEIVABLE,   // amounts owed by card network between sale and settlement
-                           // NormalBalance.DEBIT, AccountRole.EXTERNAL (providerId = network name)
+                           // NormalBalance.DEBIT, LedgerAccountRole.EXTERNAL (providerId = network name)
 
 BANK_RAIL_RECEIVABLE,      // amounts owed from bank rail between pain.001 and pacs.002 ACSC
-                           // NormalBalance.DEBIT, AccountRole.EXTERNAL (providerId = rail name)
+                           // NormalBalance.DEBIT, LedgerAccountRole.EXTERNAL (providerId = rail name)
 
 SUSPENSE_UNKNOWN_TXN,      // card transactions timed out — outcome unknown, reversal pending
-                           // NormalBalance.DEBIT, AccountRole.PLATFORM
+                           // NormalBalance.DEBIT, LedgerAccountRole.PLATFORM
 ```
 
 ### Rail Settlement Event (contracts module)
@@ -371,7 +375,7 @@ Deliverables:
 - `CanonicalPaymentCommand`, `PaymentRail`, `MoneyMovementType`, `RailResponse`, `PaymentRailAdapter` interface
 - `RailRouter` (stub — reads rail from command, logs routing decision)
 - Flyway migrations: `rail_payment`, `rail_routing_decision`, `rail_iso8583_log`, `rail_iso20022_log`, `rail_network_correlation`, `rail_reversal_task`, `rail_bank_return_task`
-- `AccountType` enum extended: `PREPAID_CARD`, `CARD_NETWORK_RECEIVABLE`, `BANK_RAIL_RECEIVABLE`, `SUSPENSE_UNKNOWN_TXN`
+- `LedgerAccountType` enum extended: `PREPAID_CARD`, `PREPAID_CARD_HOLD`, `CARD_NETWORK_RECEIVABLE`, `BANK_RAIL_RECEIVABLE`, `SUSPENSE_UNKNOWN_TXN`
 - `VirtualCard` entity + `VirtualCardRepository` (skeleton) in `virtual-account-service`
 - `RailSettlementEvent` record added to `contracts` module
 - Docker Compose: `rail-service` (8081), `rail-simulator` (9090 HTTP + 9091 TCP)
@@ -396,7 +400,7 @@ Deliverables:
 - **rail-simulator**: Netty TCP server (port 9091), `CardNetworkSimHandler`, BIN-based routing (4xxx → Visa logic, 5xxx → MC logic, 999999 → VA issuer), PAN-suffix behavior table
 - **rail-simulator**: VA issuer HTTP client — calls `virtual-account-service` `/internal/issuer/authorize` for BIN 999999
 - **virtual-account-service**: `VirtualCard` management API (create, fund, get, list per merchant), card management controller
-- **virtual-account-service**: `/internal/issuer/authorize` endpoint — looks up VirtualCard, checks PREPAID_CARD available balance, freezes amount, returns approve/decline
+- **virtual-account-service**: `/internal/issuer/authorize` endpoint — looks up VirtualCard, checks PREPAID_CARD available balance, posts hold journal to PREPAID_CARD_HOLD, returns approve/decline
 - Masked ISO8583 log on every send/receive (DE2 masked)
 - Unit tests: packager round-trip, adapter field mapping, BIN routing
 - Integration test: full auth flow via Netty against local simulator
@@ -407,7 +411,7 @@ Acceptance criteria:
 - PAN starting with 999999 routes to VA issuer via card-network-sim
 - PAN suffix 0000 → approved
 - PAN suffix 0001 → declined insufficient funds
-- VA VCC with sufficient balance → approved, frozenBalance updated
+- VA VCC with sufficient balance → approved, hold ledger account updated
 - VA VCC with insufficient balance → declined
 - DE2 never appears unmasked in logs
 
@@ -501,10 +505,10 @@ Status: [x]
 #### MR5-A — VA Account Management APIs
 
 **Deliverables — virtual-account-service:**
-- `POST /internal/va/accounts` — admin token required (`X-Internal-Token`). Creates a TENANT account (WALLET, CASH, CREDIT_LINE, etc.) for a merchant. Derives `accountRole=TENANT`, `balance=0`, `frozenBalance=0`, `status=ACTIVE`. Derives `normalBalance` and `assetClass` from `accountType`.
-- `GET /v1/va/accounts/{accountId}` — merchant-facing. Returns `accountId`, `accountType`, `mode`, `asset`, `balance`, `frozenBalance`, `availableBalance`, `status`.
+- `POST /internal/va/accounts` — admin token required (`X-Internal-Token`). Creates a TENANT ledger account (WALLET, CASH, CREDIT_LINE, etc.) for a merchant. Derives `ledgerAccountRole=TENANT`, `balance=0`, `status=ACTIVE`. Derives `normalBalance` and `assetClass` from `ledgerAccountType`.
+- `GET /v1/va/accounts/{ledgerAccountId}` — merchant-facing. Returns `ledgerAccountId`, `ledgerAccountType`, `mode`, `asset`, `balance`, `status`.
 - `GET /v1/va/accounts?merchantId=...&page=0&size=20` — merchant-facing, paginated list of all TENANT accounts for a merchant.
-- Add `findByMerchantId(merchantId, page, size)` + `countByMerchantId(merchantId)` to `AccountRepository`.
+- Add `findByMerchantId(merchantId, page, size)` + `countByMerchantId(merchantId)` to `LedgerAccountRepository`.
 
 Security: `/internal/**` already requires `ROLE_INTERNAL` via `InternalTokenFilter`. No new security config changes.
 

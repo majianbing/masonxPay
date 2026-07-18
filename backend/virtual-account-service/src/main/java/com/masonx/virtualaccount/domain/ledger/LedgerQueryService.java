@@ -5,7 +5,7 @@ import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.ledger.dto.AccountStatementResponse;
 import com.masonx.virtualaccount.ledger.dto.LedgerEntryResponse;
 import com.masonx.virtualaccount.ledger.dto.TransactionDetailResponse;
@@ -22,11 +22,11 @@ import java.util.List;
 @Service
 public class LedgerQueryService {
 
-    private final AccountRepository    accountRepo;
+    private final LedgerAccountRepository    accountRepo;
     private final LedgerEntryRepository entryRepo;
     private final TransactionRepository txRepo;
 
-    public LedgerQueryService(AccountRepository accountRepo,
+    public LedgerQueryService(LedgerAccountRepository accountRepo,
                               LedgerEntryRepository entryRepo,
                               TransactionRepository txRepo) {
         this.accountRepo = accountRepo;
@@ -35,12 +35,12 @@ public class LedgerQueryService {
     }
 
     public PagedResult<LedgerEntryResponse> listEntries(
-            String accountId, String merchantId, Mode mode, int page, int size) {
-        assertOwnership(accountId, merchantId, mode);
+            String ledgerAccountId, String merchantId, Mode mode, int page, int size) {
+        assertOwnership(ledgerAccountId, merchantId, mode);
         int cap = Math.min(size, 100);
-        List<LedgerEntryResponse> content = entryRepo.findByAccountId(accountId, page, cap)
+        List<LedgerEntryResponse> content = entryRepo.findByAccountId(ledgerAccountId, page, cap)
                 .stream().map(LedgerEntryResponse::from).toList();
-        long total = entryRepo.countByAccountId(accountId);
+        long total = entryRepo.countByAccountId(ledgerAccountId);
         int totalPages = total == 0 ? 1 : (int) Math.ceil((double) total / cap);
         return new PagedResult<>(content, page, cap, total, totalPages);
     }
@@ -75,16 +75,16 @@ public class LedgerQueryService {
     }
 
     public AccountStatementResponse getStatement(
-            String accountId, String merchantId, Mode mode, LocalDate from, LocalDate to) {
-        VaAccount account = assertOwnership(accountId, merchantId, mode);
+            String ledgerAccountId, String merchantId, Mode mode, LocalDate from, LocalDate to) {
+        LedgerAccount account = assertOwnership(ledgerAccountId, merchantId, mode);
 
-        BigDecimal openDebitNet  = entryRepo.sumDebitNetBeforeDate(accountId, from);
-        BigDecimal closeDebitNet = entryRepo.sumDebitNetUpToDate(accountId, to);
+        BigDecimal openDebitNet  = entryRepo.sumDebitNetBeforeDate(ledgerAccountId, from);
+        BigDecimal closeDebitNet = entryRepo.sumDebitNetUpToDate(ledgerAccountId, to);
         BigDecimal opening = toBalance(openDebitNet, account.normalBalance());
         BigDecimal closing = toBalance(closeDebitNet, account.normalBalance());
 
         List<LedgerEntry> periodEntries = entryRepo.findByAccountIdAndEffectiveDateRange(
-                accountId, from, to);
+                ledgerAccountId, from, to);
         BigDecimal totalDebits  = periodEntries.stream()
                 .filter(e -> e.direction() == Direction.DEBIT)
                 .map(LedgerEntry::amount)
@@ -98,7 +98,7 @@ public class LedgerQueryService {
                 .map(LedgerEntryResponse::from).toList();
 
         return new AccountStatementResponse(
-                accountId,
+                ledgerAccountId,
                 account.asset(),
                 account.normalBalance().name(),
                 from, to,
@@ -109,22 +109,22 @@ public class LedgerQueryService {
     }
 
     public TrialBalanceResponse getTrialBalance(Mode mode, String asset) {
-        List<VaAccount> accounts = accountRepo.findAllByModeAndAsset(mode, asset);
+        List<LedgerAccount> accounts = accountRepo.findAllByModeAndAsset(mode, asset);
 
         BigDecimal debitSide  = BigDecimal.ZERO;
         BigDecimal creditSide = BigDecimal.ZERO;
 
         List<TrialBalanceRow> rows = accounts.stream().map(a -> {
             return new TrialBalanceRow(
-                    a.accountId(),
-                    a.accountType().name(),
-                    a.accountRole().name(),
+                    a.ledgerAccountId(),
+                    a.ledgerAccountType().name(),
+                    a.ledgerAccountRole().name(),
                     a.merchantId(),
                     a.normalBalance().name(),
                     a.balance());
         }).toList();
 
-        for (VaAccount a : accounts) {
+        for (LedgerAccount a : accounts) {
             if (a.normalBalance() == NormalBalance.DEBIT) {
                 debitSide  = debitSide.add(a.balance());
             } else {
@@ -152,13 +152,13 @@ public class LedgerQueryService {
      * Validates that the account belongs to the given merchant AND is in the given mode.
      * Prevents TEST/LIVE data leakage and cross-merchant access.
      */
-    VaAccount assertOwnership(String accountId, String merchantId, Mode mode) {
-        VaAccount account = accountRepo.findById(accountId)
+    LedgerAccount assertOwnership(String ledgerAccountId, String merchantId, Mode mode) {
+        LedgerAccount account = accountRepo.findById(ledgerAccountId)
                 .orElseThrow(() -> new BusinessException(
-                        "VA_NOT_FOUND", "Account not found: " + accountId));
+                        "VA_NOT_FOUND", "Account not found: " + ledgerAccountId));
         if (!merchantId.equals(account.merchantId()) || mode != account.mode()) {
             throw new BusinessException("VA_ACCESS_DENIED",
-                    "Account " + accountId + " not accessible for merchant=" + merchantId
+                    "Account " + ledgerAccountId + " not accessible for merchant=" + merchantId
                     + " mode=" + mode);
         }
         return account;

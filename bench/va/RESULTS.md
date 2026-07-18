@@ -4,8 +4,8 @@
 
 | Component           | CPUs | Memory | Note                          |
 |---------------------|------|--------|-------------------------------|
-| virtual-account-service | 2  | 512 MB | Single node; bench endpoints active |
-| va-bench-postgres   | 4    | 1 GB   | `max_connections=200`, `shared_buffers=256MB` |
+| virtual-account-service | 2  | 2 GB  | Single node; bench endpoints active |
+| va-bench-postgres   | 4    | 4 GB   | `max_connections=200`, `shared_buffers=256MB` |
 
 ## Why VA is different from the gateway bench
 
@@ -27,7 +27,7 @@ Little's law comparison:
 After every run except warmup, teardown verifies both accounts in the hotspot pair
 or both accounts in the first 5 pairs:
 
-1. **Balance OK** — `va_account.balance` == last entry's `balance_after`
+1. **Balance OK** — `ledger_account.balance` == last entry's `balance_after`
 2. **Balance Sum OK** — account balance equals the signed sum of all posted entries,
    using the account's normal balance
 3. **Seq OK** — `entry_seq` is gapless: 1, 2, 3, … N with no duplicates
@@ -116,10 +116,10 @@ scale-sensitive. Two mismatches:
 
 1. `amount` at posting comes from the request body as `BigDecimal("10.00")` (scale 2 → `"10.00"`);
    at verify it is read from `NUMERIC(38,8)` → `BigDecimal("10.00000000")` (scale 8 → `"10.00000000"`).
-2. `frozenBalance` at posting comes from the DB → scale 8 (`"0.00000000"`);
-   verify hardcoded `BigDecimal.ZERO` → scale 0 (`"0"`).
+2. The old canonical input also included `frozenBalance`; that field has since been retired
+   and hold balances are represented by separate ledger accounts.
 
-Both diverge in the canonical string, so every single entry's HMAC differs between post and
+The scale mismatch diverged in the canonical string, so every single entry's HMAC differed between post and
 verify — chain fails at the first entry (seq=1) on every account.
 
 **Fix:** `SignatureInput.canonical()` now calls `.stripTrailingZeros().toPlainString()` on all

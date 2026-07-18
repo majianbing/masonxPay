@@ -74,7 +74,7 @@ public class VirtualCardRepository {
     public long countByMerchantId(String merchantId) {
         Long count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM virtual_card vc
-                JOIN va_account a ON vc.owner_account_id = a.account_id
+                JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
                 """, Long.class, merchantId);
         return count != null ? count : 0L;
@@ -84,7 +84,7 @@ public class VirtualCardRepository {
     public List<VirtualCard> findByMerchantId(String merchantId, int page, int size) {
         return jdbc.query("""
                 SELECT vc.* FROM virtual_card vc
-                JOIN va_account a ON vc.owner_account_id = a.account_id
+                JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
                 ORDER BY vc.created_at DESC
                 LIMIT ? OFFSET ?

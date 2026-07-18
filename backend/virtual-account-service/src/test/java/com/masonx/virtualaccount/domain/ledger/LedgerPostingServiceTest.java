@@ -9,7 +9,7 @@ import com.masonx.virtualaccount.domain.ledger.validator.AccountScopeValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.InsufficientBalanceValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.NetZeroValidator;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,7 +31,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class LedgerPostingServiceTest {
 
-    @Mock AccountRepository       accountRepo;
+    @Mock LedgerAccountRepository       accountRepo;
     @Mock LedgerEntryRepository   entryRepo;
     @Mock TransactionRepository   txRepo;
     @Mock BalanceSignatureService  signatureService;
@@ -48,35 +48,35 @@ class LedgerPostingServiceTest {
                 List.of(new InsufficientBalanceValidator()));
     }
 
-    private PostTransaction tx(List<EntryDraft> entries) {
-        return new PostTransaction("tx_1", entries,
+    private LedgerPostingCommand tx(List<AccountingEntryDraft> entries) {
+        return new LedgerPostingCommand("tx_1", entries,
                 TransactionType.INTERNAL, null, null,
                 LocalDate.of(2026, 1, 1), Mode.LIVE, "org_1", "mer_1");
     }
 
     // --- helpers ---
 
-    private VaAccount cashAccount(String id, BigDecimal balance) {
-        return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
+    private LedgerAccount cashAccount(String id, BigDecimal balance) {
+        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.TENANT,
                 "org_1", "mer_1", null,
-                AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
+                LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
-    private VaAccount externalAccount(String id) {
-        return new VaAccount(id, Mode.LIVE, AccountRole.EXTERNAL,
+    private LedgerAccount externalAccount(String id) {
+        return new LedgerAccount(id, Mode.LIVE, LedgerAccountRole.EXTERNAL,
                 null, null, "provider_stripe",
-                AccountType.CLEARING, "USD", AssetClass.FIAT, 2,
-                NormalBalance.CREDIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                LedgerAccountType.CLEARING, "USD", AssetClass.FIAT, 2,
+                NormalBalance.CREDIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
     }
 
-    private EntryDraft credit(String accountId, String amount) {
-        return new EntryDraft(accountId, Direction.CREDIT,
+    private AccountingEntryDraft credit(String ledgerAccountId, String amount) {
+        return new AccountingEntryDraft(ledgerAccountId, Direction.CREDIT,
                 new BigDecimal(amount), "USD", "evt_1");
     }
 
-    private EntryDraft debit(String accountId, String amount) {
-        return new EntryDraft(accountId, Direction.DEBIT,
+    private AccountingEntryDraft debit(String ledgerAccountId, String amount) {
+        return new AccountingEntryDraft(ledgerAccountId, Direction.DEBIT,
                 new BigDecimal(amount), "USD", "evt_1");
     }
 
@@ -103,8 +103,8 @@ class LedgerPostingServiceTest {
     @Test
     void rejects_mixed_asset_transaction() {
         var tx = tx(List.of(
-                new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
-                new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "BTC", "evt_1")));
+                new AccountingEntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
+                new AccountingEntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "BTC", "evt_1")));
 
         assertThatThrownBy(() -> service.post(tx))
                 .isInstanceOf(BusinessException.class)
@@ -113,9 +113,9 @@ class LedgerPostingServiceTest {
 
     @Test
     void rejects_frozen_account() {
-        var frozen = new VaAccount("ac_1", Mode.LIVE, AccountRole.TENANT,
-                "org_1", "mer_1", null, AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, new BigDecimal("200"), AccountStatus.FROZEN);
+        var frozen = new LedgerAccount("ac_1", Mode.LIVE, LedgerAccountRole.TENANT,
+                "org_1", "mer_1", null, LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, new BigDecimal("200"), LedgerAccountStatus.FROZEN);
 
         // "ac_1" sorts before "ac_ext" — it's locked first and throws before ac_ext is touched
         when(accountRepo.findByIdForUpdate("ac_1")).thenReturn(Optional.of(frozen));
@@ -232,7 +232,7 @@ class LedgerPostingServiceTest {
 
     @Test
     void rejects_posting_when_va_account_balance_tampered() {
-        // Simulate: attacker ran UPDATE va_account SET balance = 0 but left va_ledger_entry intact.
+        // Simulate: attacker ran UPDATE ledger_account SET balance = 0 but left va_ledger_entry intact.
         // account.balance() = 0, but last entry balance_after = 100 → mismatch caught before HMAC check.
         ChainHead head = new ChainHead(1L, new BigDecimal("100.00"), Direction.DEBIT,
                 new BigDecimal("100.00"), "tx_prev",

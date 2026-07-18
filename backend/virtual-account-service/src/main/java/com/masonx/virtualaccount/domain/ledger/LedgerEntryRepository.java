@@ -24,7 +24,7 @@ public class LedgerEntryRepository {
     public void insert(LedgerEntry entry) {
         jdbc.update("""
                 INSERT INTO va_ledger_entry (
-                    entry_id, transaction_id, account_id, direction, amount, asset,
+                    entry_id, transaction_id, ledger_account_id, direction, amount, asset,
                     entry_seq, balance_after, prev_signature,
                     balance_signature, source_event_id, status, effective_date
                 ) VALUES (
@@ -35,7 +35,7 @@ public class LedgerEntryRepository {
                 """,
                 entry.entryId(),
                 entry.transactionId(),
-                entry.accountId(),
+                entry.ledgerAccountId(),
                 entry.direction().name(),
                 entry.amount(),
                 entry.asset(),
@@ -50,54 +50,54 @@ public class LedgerEntryRepository {
 
     /**
      * Σ(DEBIT amounts) − Σ(CREDIT amounts) for POSTED entries with effective_date < beforeDate.
-     * One partition hit (account_id shard key). Caller applies normalBalance sign:
+     * One partition hit (ledger_account_id shard key). Caller applies normalBalance sign:
      *   balance = DEBIT-normal ? debitNet : −debitNet
      */
-    public BigDecimal sumDebitNetBeforeDate(String accountId, LocalDate beforeDate) {
+    public BigDecimal sumDebitNetBeforeDate(String ledgerAccountId, LocalDate beforeDate) {
         BigDecimal result = jdbc.queryForObject("""
                 SELECT COALESCE(
                     SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END), 0
                 ) FROM va_ledger_entry
-                WHERE account_id = ? AND status = 'POSTED' AND effective_date < ?
-                """, BigDecimal.class, accountId, beforeDate);
+                WHERE ledger_account_id = ? AND status = 'POSTED' AND effective_date < ?
+                """, BigDecimal.class, ledgerAccountId, beforeDate);
         return result != null ? result : BigDecimal.ZERO;
     }
 
     /** Same for effective_date <= toDate. */
-    public BigDecimal sumDebitNetUpToDate(String accountId, LocalDate toDate) {
+    public BigDecimal sumDebitNetUpToDate(String ledgerAccountId, LocalDate toDate) {
         BigDecimal result = jdbc.queryForObject("""
                 SELECT COALESCE(
                     SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END), 0
                 ) FROM va_ledger_entry
-                WHERE account_id = ? AND status = 'POSTED' AND effective_date <= ?
-                """, BigDecimal.class, accountId, toDate);
+                WHERE ledger_account_id = ? AND status = 'POSTED' AND effective_date <= ?
+                """, BigDecimal.class, ledgerAccountId, toDate);
         return result != null ? result : BigDecimal.ZERO;
     }
 
     /** Period entries [fromDate, toDate] ordered entry_seq ASC. One partition hit. */
     public List<LedgerEntry> findByAccountIdAndEffectiveDateRange(
-            String accountId, LocalDate fromDate, LocalDate toDate) {
+            String ledgerAccountId, LocalDate fromDate, LocalDate toDate) {
         return jdbc.query("""
                 SELECT * FROM va_ledger_entry
-                WHERE account_id = ? AND effective_date BETWEEN ? AND ?
+                WHERE ledger_account_id = ? AND effective_date BETWEEN ? AND ?
                 ORDER BY entry_seq ASC
-                """, ENTRY_ROW_MAPPER, accountId, fromDate, toDate);
+                """, ENTRY_ROW_MAPPER, ledgerAccountId, fromDate, toDate);
     }
 
     /** Paginated entry list for an account, newest first. One partition hit. */
-    public List<LedgerEntry> findByAccountId(String accountId, int page, int size) {
+    public List<LedgerEntry> findByAccountId(String ledgerAccountId, int page, int size) {
         return jdbc.query("""
                 SELECT * FROM va_ledger_entry
-                WHERE account_id = ?
+                WHERE ledger_account_id = ?
                 ORDER BY entry_seq DESC
                 LIMIT ? OFFSET ?
-                """, ENTRY_ROW_MAPPER, accountId, size, (long) page * size);
+                """, ENTRY_ROW_MAPPER, ledgerAccountId, size, (long) page * size);
     }
 
-    public long countByAccountId(String accountId) {
+    public long countByAccountId(String ledgerAccountId) {
         Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM va_ledger_entry WHERE account_id = ?",
-                Long.class, accountId);
+                "SELECT COUNT(*) FROM va_ledger_entry WHERE ledger_account_id = ?",
+                Long.class, ledgerAccountId);
         return n != null ? n : 0L;
     }
 
@@ -117,7 +117,7 @@ public class LedgerEntryRepository {
     private static final RowMapper<LedgerEntry> ENTRY_ROW_MAPPER = (rs, __) -> new LedgerEntry(
             rs.getString("entry_id"),
             rs.getString("transaction_id"),
-            rs.getString("account_id"),
+            rs.getString("ledger_account_id"),
             Direction.valueOf(rs.getString("direction")),
             rs.getBigDecimal("amount"),
             rs.getString("asset"),
@@ -133,16 +133,16 @@ public class LedgerEntryRepository {
     /**
      * Fetches the last entry for an account with all fields needed to verify its
      * own signature and derive the anchor for the next entry.
-     * Hits exactly one hash partition (account_id is the shard key).
+     * Hits exactly one hash partition (ledger_account_id is the shard key).
      * Must be called inside the posting transaction after SELECT FOR UPDATE.
      */
-    public Optional<ChainHead> findLastChainHead(String accountId) {
+    public Optional<ChainHead> findLastChainHead(String ledgerAccountId) {
         var rows = jdbc.query(
                 """
                 SELECT entry_seq, amount, direction, balance_after,
                        transaction_id, prev_signature, balance_signature
                 FROM va_ledger_entry
-                WHERE account_id = ?
+                WHERE ledger_account_id = ?
                 ORDER BY entry_seq DESC
                 LIMIT 1
                 """,
@@ -154,7 +154,7 @@ public class LedgerEntryRepository {
                         rs.getString("transaction_id"),
                         rs.getString("prev_signature"),
                         rs.getString("balance_signature")),
-                accountId);
+                ledgerAccountId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 }

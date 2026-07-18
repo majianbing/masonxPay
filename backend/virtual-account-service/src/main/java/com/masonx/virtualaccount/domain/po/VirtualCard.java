@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * A funded virtual card issued against a PREPAID_CARD VaAccount.
+ * A funded virtual card issued against a PREPAID_CARD LedgerAccount.
  *
  * <p>maskedPan stores only the masked form (e.g. {@code 4111****1234}).
  * The simulator test PAN used to build ISO 8583 DE2 is never persisted here —
