@@ -3,7 +3,7 @@ package com.masonx.virtualaccount.domain.ledger;
 import com.masonx.common.error.BusinessException;
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
-import com.masonx.virtualaccount.domain.constant.AccountStatus;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.EntryStatus;
 import com.masonx.virtualaccount.domain.constant.NormalBalance;
@@ -11,7 +11,7 @@ import com.masonx.virtualaccount.domain.ledger.validator.api.EntryValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.api.LockedAccountValidator;
 import com.masonx.virtualaccount.domain.ledger.validator.api.TransactionValidator;
 import com.masonx.virtualaccount.domain.po.LedgerEntry;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,16 +23,16 @@ import java.util.Map;
 
 /**
  * Core double-entry posting engine. Atomically inserts a balanced set of ledger
- * entries and updates va_account.balance for each affected account.
+ * entries and updates ledger_account.balance for each affected account.
  * <p>
  * Validation is structured as two ordered chains:
- * - TransactionValidator: stateless pre-lock checks on the full PostTransaction
+ * - TransactionValidator: stateless pre-lock checks on the full LedgerPostingCommand
  * - EntryValidator: per-entry checks with locked account context and computed balance
  * <p>
  * Adding a new check = new @Component implementing one of those interfaces; no
  * changes to this class required.
  * <p>
- * Lock ordering: accounts are locked by account_id (alphabetical) to prevent
+ * Lock ordering: accounts are locked by ledger_account_id (alphabetical) to prevent
  * deadlocks when concurrent transactions share overlapping accounts.
  * <p>
  * The HMAC chain guarantees tamper-evidence: entry_seq and balance_after are
@@ -41,7 +41,7 @@ import java.util.Map;
 @Service
 public class LedgerPostingService {
 
-    private final AccountRepository accountRepo;
+    private final LedgerAccountRepository accountRepo;
     private final LedgerEntryRepository entryRepo;
     private final TransactionRepository txRepo;
     private final BalanceSignatureService signatureService;
@@ -50,7 +50,7 @@ public class LedgerPostingService {
     private final List<LockedAccountValidator> lockedAccountValidators;
     private final List<EntryValidator> entryValidators;
 
-    public LedgerPostingService(AccountRepository accountRepo,
+    public LedgerPostingService(LedgerAccountRepository accountRepo,
                                 LedgerEntryRepository entryRepo,
                                 TransactionRepository txRepo,
                                 BalanceSignatureService signatureService,
@@ -69,7 +69,7 @@ public class LedgerPostingService {
     }
 
     @Transactional
-    void post(PostTransaction tx) {
+    void post(LedgerPostingCommand tx) {
         // Persist journal entry header first — same DB transaction as all entry inserts.
         txRepo.insert(tx);
 
@@ -80,28 +80,28 @@ public class LedgerPostingService {
 
         // Lock accounts in sorted order — prevents deadlocks across concurrent transactions.
         List<String> sortedAccountIds = tx.entries().stream()
-                .map(EntryDraft::accountId)
+                .map(AccountingEntryDraft::ledgerAccountId)
                 .distinct()
                 .sorted()
                 .toList();
 
-        Map<String, VaAccount> accounts = new HashMap<>();
-        for (String accountId : sortedAccountIds) {
-            VaAccount account = accountRepo.findByIdForUpdate(accountId)
+        Map<String, LedgerAccount> accounts = new HashMap<>();
+        for (String ledgerAccountId : sortedAccountIds) {
+            LedgerAccount account = accountRepo.findByIdForUpdate(ledgerAccountId)
                     .orElseThrow(() -> new BusinessException(
-                            "VA_ACCOUNT_NOT_FOUND", "Account not found: " + accountId));
+                            "VA_ACCOUNT_NOT_FOUND", "Account not found: " + ledgerAccountId));
             // Status is checked here, not in the entry chain, so ALL accounts are validated
             // before any entry is written — a frozen account is caught before any DB mutation.
-            if (account.status() != AccountStatus.ACTIVE) {
+            if (account.status() != LedgerAccountStatus.ACTIVE) {
                 throw new BusinessException(
-                        "VA_ACCOUNT_NOT_ACTIVE", "Account is not active: " + accountId);
+                        "VA_ACCOUNT_NOT_ACTIVE", "Account is not active: " + ledgerAccountId);
             }
-            accounts.put(accountId, account);
+            accounts.put(ledgerAccountId, account);
         }
 
         // Phase 2: per-entry validation chain + posting.
-        for (EntryDraft draft : tx.entries()) {
-            VaAccount account = accounts.get(draft.accountId());
+        for (AccountingEntryDraft draft : tx.entries()) {
+            LedgerAccount account = accounts.get(draft.ledgerAccountId());
             BigDecimal newBalance = computeNewBalance(account, draft);
 
             for (LockedAccountValidator v : lockedAccountValidators) {
@@ -113,12 +113,12 @@ public class LedgerPostingService {
             }
 
             // Insert entry: verify chain head (DB read), then persist.
-            ChainAnchor anchor = resolveAndVerifyHead(draft.accountId(), account);
+            ChainAnchor anchor = resolveAndVerifyHead(draft.ledgerAccountId(), account);
 
             long entrySeq = anchor.entrySeq() + 1;
 
             String signature = signatureService.compute(new SignatureInput(
-                    draft.accountId(),
+                    draft.ledgerAccountId(),
                     entrySeq,
                     draft.amount(),
                     draft.direction(),
@@ -129,7 +129,7 @@ public class LedgerPostingService {
             LedgerEntry entry = new LedgerEntry(
                     idGenerator.generate(MasonXIdPrefix.LEDGER_ENTRY.prefix()),
                     tx.transactionId(),
-                    draft.accountId(),
+                    draft.ledgerAccountId(),
                     draft.direction(),
                     draft.amount(),
                     draft.asset(),
@@ -143,10 +143,10 @@ public class LedgerPostingService {
                     Instant.now());
 
             entryRepo.insert(entry);
-            accountRepo.updateLedgerBalance(draft.accountId(), newBalance);
+            accountRepo.updateLedgerBalance(draft.ledgerAccountId(), newBalance);
 
             // Reflect new balance in local map for any subsequent entries on this account.
-            accounts.put(draft.accountId(), account.withBalance(newBalance));
+            accounts.put(draft.ledgerAccountId(), account.withBalance(newBalance));
         }
     }
 
@@ -155,8 +155,8 @@ public class LedgerPostingService {
      * returns the anchor (seq + signature) to chain the new entry onto.
      * <p>
      * Check 1 — balance cross-check:
-     * va_account.balance must equal the last entry's balance_after.
-     * Catches a direct UPDATE on va_account that didn't touch va_ledger_entry.
+     * ledger_account.balance must equal the last entry's balance_after.
+     * Catches a direct UPDATE on ledger_account that didn't touch va_ledger_entry.
      * Safe because the account row is already held under SELECT FOR UPDATE.
      * <p>
      * Check 2 — HMAC chain integrity:
@@ -166,22 +166,22 @@ public class LedgerPostingService {
      * <p>
      * Both checks must pass before any new entry is chained onto this account.
      */
-    private ChainAnchor resolveAndVerifyHead(String accountId, VaAccount account) {
-        return entryRepo.findLastChainHead(accountId)
+    private ChainAnchor resolveAndVerifyHead(String ledgerAccountId, LedgerAccount account) {
+        return entryRepo.findLastChainHead(ledgerAccountId)
                 .map(head -> {
                     // Check 1: account balance must match the last posted entry.
                     if (head.balanceAfter().compareTo(account.balance()) != 0) {
                         throw new BusinessException("VA_BALANCE_MISMATCH",
                                 "Account balance " + account.balance()
                                         + " does not match last entry balance_after " + head.balanceAfter()
-                                        + " for account " + accountId + " at seq=" + head.entrySeq()
-                                        + ". Direct va_account modification suspected.");
+                                        + " for account " + ledgerAccountId + " at seq=" + head.entrySeq()
+                                        + ". Direct ledger_account modification suspected.");
                     }
 
                     // Check 2: HMAC chain integrity on the last ledger entry.
                     boolean valid = signatureService.verify(
                             new SignatureInput(
-                                    accountId,
+                                    ledgerAccountId,
                                     head.entrySeq(),
                                     head.amount(),
                                     head.direction(),
@@ -191,7 +191,7 @@ public class LedgerPostingService {
                             head.signature());
                     if (!valid) {
                         throw new BusinessException("VA_CHAIN_TAMPERED",
-                                "Ledger chain integrity check failed for account " + accountId
+                                "Ledger chain integrity check failed for account " + ledgerAccountId
                                         + " at seq=" + head.entrySeq()
                                         + ". Direct va_ledger_entry modification suspected.");
                     }
@@ -202,9 +202,9 @@ public class LedgerPostingService {
                     // No entries yet — account balance must be zero.
                     if (account.balance().compareTo(BigDecimal.ZERO) != 0) {
                         throw new BusinessException("VA_BALANCE_MISMATCH",
-                                "Account " + accountId
+                                "Account " + ledgerAccountId
                                         + " has no ledger entries but balance is " + account.balance()
-                                        + ". Direct va_account modification suspected.");
+                                        + ". Direct ledger_account modification suspected.");
                     }
                     return new ChainAnchor(0L, ChainAnchor.GENESIS_SIGNATURE);
                 });
@@ -213,7 +213,7 @@ public class LedgerPostingService {
     /**
      * Pure arithmetic — applies direction against normal balance and returns the result.
      */
-    private BigDecimal computeNewBalance(VaAccount account, EntryDraft draft) {
+    private BigDecimal computeNewBalance(LedgerAccount account, AccountingEntryDraft draft) {
         boolean increases = account.normalBalance() == NormalBalance.DEBIT
                 ? draft.direction() == Direction.DEBIT
                 : draft.direction() == Direction.CREDIT;

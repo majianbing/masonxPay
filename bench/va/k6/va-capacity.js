@@ -158,8 +158,8 @@ export function setup() {
     if (LC_CHECKS && data.pairs.length > 0) {
         const dup = http.post(`${BASE_URL}/internal/bench/verify-duplicate`,
             JSON.stringify({
-                tenantAccountId: data.pairs[0].tenantAccountId,
-                externalAccountId: data.pairs[0].externalAccountId,
+                tenantLedgerAccountId: data.pairs[0].tenantLedgerAccountId,
+                externalLedgerAccountId: data.pairs[0].externalLedgerAccountId,
                 amount: AMOUNT,
             }),
             {headers: JSON_HEADERS});
@@ -186,8 +186,8 @@ export function post(data) {
 
     const res = http.post(`${BASE_URL}/internal/bench/post`,
         JSON.stringify({
-            tenantAccountId: pair.tenantAccountId,
-            externalAccountId: pair.externalAccountId,
+            tenantLedgerAccountId: pair.tenantLedgerAccountId,
+            externalLedgerAccountId: pair.externalLedgerAccountId,
             amount: AMOUNT,
         }),
         {
@@ -212,8 +212,8 @@ export function teardown(data) {
 
     const accountsToVerify = [];
     for (const pair of pairsToVerify) {
-        accountsToVerify.push(pair.tenantAccountId);
-        accountsToVerify.push(pair.externalAccountId);
+        accountsToVerify.push(pair.tenantLedgerAccountId);
+        accountsToVerify.push(pair.externalLedgerAccountId);
     }
 
     console.log(`\nteardown: verifying ${accountsToVerify.length} account(s) across ` +

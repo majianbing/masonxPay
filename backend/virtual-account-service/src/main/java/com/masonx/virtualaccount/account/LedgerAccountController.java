@@ -1,7 +1,7 @@
 package com.masonx.virtualaccount.account;
 
-import com.masonx.virtualaccount.account.dto.AccountResponse;
-import com.masonx.virtualaccount.account.dto.CreateAccountRequest;
+import com.masonx.virtualaccount.account.dto.LedgerAccountResponse;
+import com.masonx.virtualaccount.account.dto.CreateLedgerAccountRequest;
 import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -17,30 +17,30 @@ import org.springframework.web.bind.annotation.*;
  * </ul>
  */
 @RestController
-public class VaAccountController {
+public class LedgerAccountController {
 
-    private final VaAccountManagementService service;
+    private final LedgerAccountManagementService service;
 
-    public VaAccountController(VaAccountManagementService service) {
+    public LedgerAccountController(LedgerAccountManagementService service) {
         this.service = service;
     }
 
     /** Creates a TENANT account (WALLET, CASH, etc.) for a merchant. Admin-only. */
     @PostMapping("/internal/va/accounts")
-    public ResponseEntity<AccountResponse> create(@Valid @RequestBody CreateAccountRequest req) {
+    public ResponseEntity<LedgerAccountResponse> create(@Valid @RequestBody CreateLedgerAccountRequest req) {
         return ResponseEntity.ok(service.createAccount(req));
     }
 
     /** Returns a single account by ID with live balance. */
-    @GetMapping("/v1/va/accounts/{accountId}")
-    public ResponseEntity<AccountResponse> get(@PathVariable String accountId,
+    @GetMapping("/v1/va/accounts/{ledgerAccountId}")
+    public ResponseEntity<LedgerAccountResponse> get(@PathVariable String ledgerAccountId,
                                                @RequestParam String merchantId) {
-        return ResponseEntity.ok(service.getAccount(accountId, merchantId));
+        return ResponseEntity.ok(service.getAccount(ledgerAccountId, merchantId));
     }
 
     /** Lists all TENANT accounts for a merchant, paginated. */
     @GetMapping("/v1/va/accounts")
-    public ResponseEntity<PagedResult<AccountResponse>> list(
+    public ResponseEntity<PagedResult<LedgerAccountResponse>> list(
             @RequestParam String merchantId,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {

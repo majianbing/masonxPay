@@ -20,7 +20,7 @@ import java.time.LocalDate;
 public record LedgerEntry(
         String entryId,
         String transactionId,
-        String accountId,
+        String ledgerAccountId,
         Direction direction,
         BigDecimal amount,
         String asset,

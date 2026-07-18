@@ -11,9 +11,9 @@ import java.util.List;
  * LedgerPostingService validates net-zero and asset consistency before inserting.
  * All fields except description and paymentReferenceId are required.
  */
-public record PostTransaction(
+public record LedgerPostingCommand(
         String transactionId,
-        List<EntryDraft> entries,
+        List<AccountingEntryDraft> entries,
         TransactionType entryType,
         String description,         // nullable
         String paymentReferenceId,  // nullable; gateway payment_intent_id

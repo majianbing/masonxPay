@@ -3,8 +3,8 @@ package com.masonx.virtualaccount.domain.ledger.validator;
 import com.masonx.common.error.BusinessException;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -16,15 +16,15 @@ class InsufficientBalanceValidatorTest {
 
     private final InsufficientBalanceValidator validator = new InsufficientBalanceValidator();
 
-    private VaAccount account(String id) {
-        return new VaAccount(id, Mode.LIVE, AccountRole.TENANT,
+    private LedgerAccount account(String id) {
+        return new LedgerAccount(id, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", "mer_1", null,
-                AccountType.CASH, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                LedgerAccountType.CASH, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
     }
 
-    private EntryDraft debit(String amount) {
-        return new EntryDraft("ac_1", Direction.DEBIT, new BigDecimal(amount), "USD", "evt_1");
+    private AccountingEntryDraft debit(String amount) {
+        return new AccountingEntryDraft("ac_1", Direction.DEBIT, new BigDecimal(amount), "USD", "evt_1");
     }
 
     @Test

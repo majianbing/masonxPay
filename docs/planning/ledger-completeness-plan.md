@@ -4,7 +4,7 @@
 
 Phase LC completes the `virtual-account-service` double-entry ledger with three standard accounting primitives that are missing from the current implementation:
 
-1. **Journal Entry header** (`va_transaction`) — a persisted, first-class record of every posting group: what it was, why it happened, which payment originated it, and which accounting period it belongs to. Today `PostTransaction` is an in-memory command that is never stored.
+1. **Journal Entry header** (`va_transaction`) — a persisted, first-class record of every posting group: what it was, why it happened, which payment originated it, and which accounting period it belongs to. `LedgerPostingCommand` is the in-memory command; `va_transaction` is the stored journal header.
 
 2. **General Ledger (GL) query API** — endpoints to read account entry history, paginated and ordered by `entry_seq`.
 
@@ -24,7 +24,7 @@ The design follows the **two-layer ledger architecture** used by Stripe, Adyen, 
 | Shard key? | `HASH(transaction_id)` | Primary writes and reads are by `transaction_id` |
 | Does `va_ledger_entry` gain new columns? | One only: `effective_date DATE` | Required for accounting-grade period statements without cross-partition joins |
 | How are statement opening/closing balances computed? | **Signed entry sums by effective_date, not `balance_after` snapshots** | `balance_after` is ordered by `entry_seq` (posting order), not effective date. A backdated entry's `balance_after` includes later-period activity. Sums from entries filtered by effective_date are correct by definition regardless of posting order. |
-| Transaction detail cross-partition cost? | Documented as audit-only 64-partition fan-out | Acceptable; future escape hatch is `va_transaction_entry(transaction_id, account_id)` mapping table |
+| Transaction detail cross-partition cost? | Documented as audit-only 64-partition fan-out | Acceptable; future escape hatch is `va_transaction_entry(transaction_id, ledger_account_id)` mapping table |
 | VOIDED status? | Deferred from Phase LC | Requires `reversal_of_transaction_id` link; POSTED-only in this phase |
 | Trial balance bound? | Unbounded in Phase LC | Admin-only, low account count; future: pagination or nightly `va_trial_balance_snapshot` |
 | Platform/EXTERNAL legs in transaction detail response? | Included when merchant owns a TENANT leg | Acceptable for internal use; document exposure intentionally. Future merchant-facing API must redact platform/external account IDs |
@@ -78,7 +78,7 @@ UPDATE va_ledger_entry SET effective_date = created_at::date WHERE effective_dat
 ALTER TABLE va_ledger_entry ALTER COLUMN effective_date SET NOT NULL;
 ```
 
-Runtime inserts always supply `effective_date` explicitly from `PostTransaction.effectiveDate()`.
+Runtime inserts always supply `effective_date` explicitly from `LedgerPostingCommand.effectiveDate()`.
 
 **Per-partition indexes on `va_ledger_entry`** (DO block, two indexes per partition):
 
@@ -88,23 +88,23 @@ CREATE INDEX idx_va_ledger_entry_N_txn ON va_ledger_entry_N (transaction_id);
 
 -- Statement path: account-scoped date-range scans and signed-sum aggregations
 -- Covers: sumDebitNetBeforeDate, sumDebitNetUpToDate, findByAccountIdAndEffectiveDateRange
-CREATE INDEX idx_va_ledger_entry_N_eff ON va_ledger_entry_N (account_id, effective_date, entry_seq);
+CREATE INDEX idx_va_ledger_entry_N_eff ON va_ledger_entry_N (ledger_account_id, effective_date, entry_seq);
 ```
 
 The `transaction_id` index: `WHERE transaction_id = ?` still fans out across all 64 partitions — **audit-only path**, not the posting hot path.
 
-The `(account_id, effective_date, entry_seq)` compound index: all statement queries are account-scoped and filter by `effective_date`, so this index supports both range scans and aggregate sums without touching entries outside the date window.
+The `(ledger_account_id, effective_date, entry_seq)` compound index: all statement queries are account-scoped and filter by `effective_date`, so this index supports both range scans and aggregate sums without touching entries outside the date window.
 
 #### Domain changes
 
 New `TransactionType` enum (`domain/constant/TransactionType.java`):
 `SETTLEMENT, REFUND, FEE, REVERSAL, CORRECTION, CARD_SALE, CARD_REVERSAL, BANK_TRANSFER, INTERNAL`
 
-`PostTransaction` record gains: `entryType`, `description` (nullable), `paymentReferenceId` (nullable), `effectiveDate`, `mode`, `orgId` (nullable), `merchantId` (nullable).
+`LedgerPostingCommand` carries: `entryType`, `description` (nullable), `paymentReferenceId` (nullable), `effectiveDate`, `mode`, `orgId` (nullable), `merchantId` (nullable).
 
 New `TransactionRecord` read DTO (`domain/ledger/TransactionRecord.java`).
 
-New `TransactionRepository` (`domain/ledger/TransactionRepository.java`): `insert(PostTransaction)` + `findById(String)`.
+New `TransactionRepository` (`domain/ledger/TransactionRepository.java`): `insert(LedgerPostingCommand)` + `findById(String)`.
 
 `LedgerEntry` record gains `effectiveDate` field. `LedgerEntryRepository.insert()` SQL updated to include `effective_date`.
 
@@ -114,7 +114,7 @@ Inject `TransactionRepository`. At top of `post()`, before account locking: `txR
 
 #### Call-site updates
 
-Every `PostTransaction` construction supplies the new fields:
+Every `LedgerPostingCommand` construction supplies the journal header fields:
 
 | Handler | `entryType` | `merchantId` | `orgId` | `mode` |
 |---|---|---|---|---|
@@ -123,7 +123,7 @@ Every `PostTransaction` construction supplies the new fields:
 | `CardRailSettlementHandler` — CARD_SALE | `CARD_SALE` | `cardAccount.merchantId()` | `cardAccount.orgId()` | `cardAccount.mode()` |
 | `CardRailSettlementHandler` — BANK_CREDIT_TRANSFER | `BANK_TRANSFER` | `event.merchantId()` | null | `RAIL_MODE` |
 | `CardRailSettlementHandler` — BANK_RETURN | `REVERSAL` | `event.merchantId()` | null | `RAIL_MODE` |
-| `BenchController.post()` | `INTERNAL` | null | null | `Mode.LIVE` |
+| `BenchController.post()` | `INTERNAL` | tenant account merchant | tenant account org | tenant account mode (`TEST` for bench setup) |
 
 > **Note on CARD_SALE**: derive all three (`merchantId`, `orgId`, `mode`) from `cardAccount` (already fetched via `accountRepo.findByIdForUpdate(card.vccAccountId())`). Do not use the handler-level `RAIL_MODE` constant for the transaction header — the account's mode is the authoritative value and ensures the transaction header is consistent with the account it affects.
 
@@ -245,7 +245,7 @@ SQL pattern for the sum queries:
 SELECT COALESCE(
   SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END), 0
 ) FROM va_ledger_entry
-WHERE account_id = ? AND status = 'POSTED' AND effective_date < ?
+WHERE ledger_account_id = ? AND status = 'POSTED' AND effective_date < ?
 ```
 
 #### Service logic (`LedgerQueryService`)
@@ -256,7 +256,7 @@ BigDecimal toBalance(BigDecimal debitNet, NormalBalance normalBalance) {
 }
 
 AccountStatementResponse statement(String accountId, String merchantId, String mode, LocalDate from, LocalDate to) {
-    VaAccount account = assertOwnership(accountId, merchantId, mode);  // validates both merchantId AND mode
+    LedgerAccount account = assertOwnership(accountId, merchantId, mode);  // validates both merchantId AND mode
     BigDecimal openDebitNet  = entryRepo.sumDebitNetBeforeDate(accountId, from);
     BigDecimal closeDebitNet = entryRepo.sumDebitNetUpToDate(accountId, to);
     BigDecimal opening = toBalance(openDebitNet,  account.normalBalance());
@@ -294,10 +294,10 @@ entries: List<LedgerEntryResponse>   (ordered by entry_seq ASC)
 
 **Status**: `[x]` complete (2026-06-30) — 62/62 unit tests passing; 66/66 integration tests passing
 
-#### Repository addition (`AccountRepository`)
+#### Repository addition (`LedgerAccountRepository`)
 
 ```java
-List<VaAccount> findAllByModeAndAsset(Mode mode, String asset)  // no LIMIT — admin report
+List<LedgerAccount> findAllByModeAndAsset(Mode mode, String asset)  // no LIMIT — admin report
 ```
 
 #### Controller endpoint (added to `LedgerQueryController`)
@@ -315,7 +315,7 @@ totalDebitSideBalance,    // Σ(balance on DEBIT-normal accounts)
 totalCreditSideBalance,   // Σ(balance on CREDIT-normal accounts)
 balanced (boolean),       // totalDebitSide.compareTo(totalCreditSide) == 0
 rows: List<TrialBalanceRow>
-    each: accountId, accountType, accountRole, merchantId, normalBalance, balance, frozenBalance
+    each: ledgerAccountId, ledgerAccountType, ledgerAccountRole, merchantId, normalBalance, balance
 ```
 
 `balanced = false` signals tampering not caught by the per-account HMAC chain, a posting engine bug, or manually-loaded seed data with unbalanced starting balances.
@@ -330,13 +330,13 @@ rows: List<TrialBalanceRow>
 |---|---|
 | `db/migration/va/V8__va_transaction.sql` | Create — `va_transaction` 64 partitions + PKs/indexes; 3-step `effective_date` ADD to `va_ledger_entry`; `transaction_id` index per `va_ledger_entry_N` |
 | `domain/constant/TransactionType.java` | Create |
-| `domain/ledger/PostTransaction.java` | Add 7 fields |
+| `domain/ledger/LedgerPostingCommand.java` | Carries journal header fields |
 | `domain/po/LedgerEntry.java` | Add `effectiveDate` |
 | `domain/ledger/TransactionRecord.java` | Create |
 | `domain/ledger/TransactionRepository.java` | Create |
 | `domain/ledger/LedgerPostingService.java` | Inject `TransactionRepository`; insert tx header; populate `effective_date` on entries |
 | `domain/ledger/LedgerEntryRepository.java` | Update insert SQL; add 5 query methods |
-| `domain/ledger/AccountRepository.java` | Add `findAllByModeAndAsset` |
+| `domain/ledger/LedgerAccountRepository.java` | Add `findAllByModeAndAsset` |
 | `domain/ledger/LedgerQueryService.java` | Create (signed-sum balance logic, ownership checks) |
 | `ledger/LedgerQueryController.java` | Create (5 endpoints) |
 | `ledger/dto/LedgerEntryResponse.java` | Create |
@@ -344,9 +344,9 @@ rows: List<TrialBalanceRow>
 | `ledger/dto/AccountStatementResponse.java` | Create (includes `normalBalance` field) |
 | `ledger/dto/TrialBalanceResponse.java` | Create |
 | `config/VaSecurityConfig.java` | Add `/v1/ledger/**` to INTERNAL role |
-| `domain/LedgerSettlementHandler.java` | Supply new `PostTransaction` fields |
+| `domain/LedgerSettlementHandler.java` | Supply new `LedgerPostingCommand` fields |
 | `domain/CardRailSettlementHandler.java` | Supply new fields; derive `merchantId` from `cardAccount.merchantId()` for CARD_SALE |
-| `bench/BenchController.java` | Supply new `PostTransaction` fields |
+| `bench/BenchController.java` | Supply new `LedgerPostingCommand` fields |
 | `docs/engineering/virtual-account-guide.md` | Add 5 new sections |
 | `docs/changelog/virtual-account-service/roadmap.md` | Add LC1–LC4 items |
 
@@ -393,7 +393,7 @@ cd backend && mvn test -Pintegration -pl virtual-account-service -am
 | CARD_SALE `merchantId = null` | **Fixed**: derive `merchantId`, `orgId`, and `mode` all from `cardAccount` (already fetched) |
 | Platform/EXTERNAL legs in transaction detail | **Documented**: intentional for internal use; future merchant-facing API must redact |
 | `/v1/ledger/**` missing mode scope | **Fixed**: all endpoints require `?mode=` param; service validates `account.mode()` AND `tx.mode()` alongside `merchantId` |
-| Statement queries missing effective_date index | **Fixed**: V8 migration adds `(account_id, effective_date, entry_seq)` index per `va_ledger_entry_N` partition (in same DO block as transaction_id index) |
+| Statement queries missing effective_date index | **Fixed**: V8 migration adds `(ledger_account_id, effective_date, entry_seq)` index per `va_ledger_entry_N` partition (in same DO block as transaction_id index) |
 | Backfill sentinel `'2026-01-01'` corrupts history | **Fixed**: backfill uses `created_at::date` — historically accurate for all rows |
 | CARD_SALE `orgId` and `mode` not addressed | **Fixed**: derive all three from `cardAccount`; CARD_SALE no longer uses handler-level `RAIL_MODE` constant |
 | **Integration: `InternalTokenFilter` not granting ROLE_INTERNAL for `/v1/ledger/**`** | **Fixed**: `InternalTokenFilter.java:57` now includes `uri.startsWith("/v1/ledger/")` in the path check that grants `ROLE_INTERNAL`. Tests added in `InternalTokenFilterTest.java`. |

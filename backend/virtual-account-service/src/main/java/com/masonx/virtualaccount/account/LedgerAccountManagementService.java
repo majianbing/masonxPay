@@ -3,11 +3,11 @@ package com.masonx.virtualaccount.account;
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
-import com.masonx.virtualaccount.account.dto.AccountResponse;
-import com.masonx.virtualaccount.account.dto.CreateAccountRequest;
+import com.masonx.virtualaccount.account.dto.LedgerAccountResponse;
+import com.masonx.virtualaccount.account.dto.CreateLedgerAccountRequest;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -17,41 +17,41 @@ import java.math.BigDecimal;
 import java.util.List;
 
 @Service
-public class VaAccountManagementService {
+public class LedgerAccountManagementService {
 
-    private final AccountRepository    accountRepo;
+    private final LedgerAccountRepository    accountRepo;
     private final SnowflakeIdGenerator idGen;
 
-    public VaAccountManagementService(AccountRepository accountRepo, SnowflakeIdGenerator idGen) {
+    public LedgerAccountManagementService(LedgerAccountRepository accountRepo, SnowflakeIdGenerator idGen) {
         this.accountRepo = accountRepo;
         this.idGen       = idGen;
     }
 
-    public AccountResponse createAccount(CreateAccountRequest req) {
+    public LedgerAccountResponse createAccount(CreateLedgerAccountRequest req) {
         Mode mode = req.mode() != null ? req.mode() : Mode.TEST;
 
-        VaAccount account = new VaAccount(
+        LedgerAccount account = new LedgerAccount(
                 idGen.generate(MasonXIdPrefix.VA_ACCOUNT.prefix()),
                 mode,
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 req.orgId(),
                 req.merchantId(),
                 null,
-                req.accountType(),
+                req.ledgerAccountType(),
                 req.asset().toUpperCase(),
                 deriveAssetClass(req.asset()),
                 deriveScale(req.asset()),
-                deriveNormalBalance(req.accountType()),
+                deriveNormalBalance(req.ledgerAccountType()),
                 BigDecimal.ZERO,
-                AccountStatus.ACTIVE
+                LedgerAccountStatus.ACTIVE
         );
 
         accountRepo.save(account);
         return toResponse(account);
     }
 
-    public AccountResponse getAccount(String accountId, String merchantId) {
-        VaAccount account = accountRepo.findById(accountId)
+    public LedgerAccountResponse getAccount(String ledgerAccountId, String merchantId) {
+        LedgerAccount account = accountRepo.findById(ledgerAccountId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
         if (!account.merchantId().equals(merchantId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
@@ -59,9 +59,9 @@ public class VaAccountManagementService {
         return toResponse(account);
     }
 
-    public PagedResult<AccountResponse> listAccounts(String merchantId, int page, int size) {
+    public PagedResult<LedgerAccountResponse> listAccounts(String merchantId, int page, int size) {
         long total = accountRepo.countTenantAccountsByMerchant(merchantId);
-        List<AccountResponse> content = accountRepo
+        List<LedgerAccountResponse> content = accountRepo
                 .findTenantAccountsByMerchant(merchantId, page, size)
                 .stream().map(this::toResponse).toList();
         int totalPages = size > 0 ? (int) Math.ceil((double) total / size) : 0;
@@ -70,7 +70,7 @@ public class VaAccountManagementService {
 
     // ── Derivation helpers ────────────────────────────────────────────────────
 
-    private NormalBalance deriveNormalBalance(AccountType type) {
+    private NormalBalance deriveNormalBalance(LedgerAccountType type) {
         return switch (type) {
             case CREDIT_LINE, FEE_INCOME, CLEARING, SUSPENSE, BAD_DEBT -> NormalBalance.CREDIT;
             default -> NormalBalance.DEBIT;
@@ -89,11 +89,11 @@ public class VaAccountManagementService {
         };
     }
 
-    private AccountResponse toResponse(VaAccount a) {
-        return new AccountResponse(
-                a.accountId(),
+    private LedgerAccountResponse toResponse(LedgerAccount a) {
+        return new LedgerAccountResponse(
+                a.ledgerAccountId(),
                 a.mode().name(),
-                a.accountType().name(),
+                a.ledgerAccountType().name(),
                 a.merchantId(),
                 a.asset(),
                 a.balance(),

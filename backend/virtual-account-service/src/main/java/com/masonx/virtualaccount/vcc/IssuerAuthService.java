@@ -1,16 +1,11 @@
 package com.masonx.virtualaccount.vcc;
 
-import com.masonx.common.id.MasonXIdPrefix;
-import com.masonx.common.id.SnowflakeIdGenerator;
-import com.masonx.virtualaccount.domain.constant.Direction;
-import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.posting.CardAuthHoldPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthRequest;
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthResponse;
@@ -23,9 +18,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -48,18 +41,18 @@ public class IssuerAuthService {
     private static final Logger log = LoggerFactory.getLogger(IssuerAuthService.class);
 
     private final VirtualCardRepository virtualCardRepo;
-    private final AccountRepository     accountRepo;
+    private final LedgerAccountRepository     accountRepo;
     private final LedgerFacade          ledger;
-    private final SnowflakeIdGenerator  idGen;
+    private final CardAuthHoldPostingRule authHoldPostingRule;
 
     public IssuerAuthService(VirtualCardRepository virtualCardRepo,
-                              AccountRepository accountRepo,
+                              LedgerAccountRepository accountRepo,
                               LedgerFacade ledger,
-                              SnowflakeIdGenerator idGen) {
+                              CardAuthHoldPostingRule authHoldPostingRule) {
         this.virtualCardRepo = virtualCardRepo;
         this.accountRepo     = accountRepo;
         this.ledger          = ledger;
-        this.idGen           = idGen;
+        this.authHoldPostingRule = authHoldPostingRule;
     }
 
     @Transactional
@@ -77,10 +70,10 @@ public class IssuerAuthService {
             return new IssuerAuthResponse("DECLINED", "14", null, "Card not active");
         }
 
-        VaAccount account = accountRepo.findByIdForUpdate(card.vccAccountId())
+        LedgerAccount account = accountRepo.findByIdForUpdate(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + card.cardId()));
-        VaAccount holdAccount = accountRepo.findByIdForUpdate(card.holdAccountId())
+        LedgerAccount holdAccount = accountRepo.findByIdForUpdate(card.holdAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
 
@@ -98,18 +91,15 @@ public class IssuerAuthService {
         }
 
         String eventId = authEventId(req);
-        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
-        // TODO: on a duplicate eventId (retried auth with the same RRN/STAN), postIfNew
+        // TODO: on a duplicate eventId (retried auth with the same RRN/STAN), postAllIfNew
         // skips the second hold correctly, but we still mint and return a fresh random
         // authCode below instead of replaying the original one from the first attempt.
-        ledger.postIfNew(new PostTransaction(txId, List.of(
-                new EntryDraft(holdAccount.accountId(), Direction.DEBIT,
-                        req.amount(), req.currency(), eventId),
-                new EntryDraft(account.accountId(), Direction.CREDIT,
-                        req.amount(), req.currency(), eventId)
-        ), TransactionType.INTERNAL, "Card auth hold " + card.cardId(), null,
-                LocalDate.now(), account.mode(), account.orgId(), account.merchantId()),
-                eventId, "vcc-card-auth");
+        ledger.postAllIfNew(
+                authHoldPostingRule.build(
+                        new CardAuthHoldPostingRule.AuthHoldEvent(card, account, holdAccount,
+                                req.amount(), req.currency(), eventId)),
+                eventId,
+                "vcc-card-auth");
 
         String authCode = generateAuthCode();
         log.info("Issuer approved cardId={} amount={} authCode={}", card.cardId(), req.amount(), authCode);

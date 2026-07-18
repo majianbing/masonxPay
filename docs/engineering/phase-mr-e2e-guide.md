@@ -206,12 +206,12 @@ curl -s -X POST http://localhost:8086/internal/va/accounts \
   -d '{
     "merchantId":  "mer_test_001",
     "orgId":       "org_test",
-    "accountType": "WALLET",
+    "ledgerAccountType": "WALLET",
     "asset":       "USD",
     "mode":        "TEST"
   }' | jq .
 
-# Save the returned accountId:
+# Save the returned ledgerAccountId:
 WALLET_ACCOUNT_ID="ac_<id from response>"
 ```
 
@@ -219,15 +219,13 @@ WALLET_ACCOUNT_ID="ac_<id from response>"
 
 ```json
 {
-  "accountId":        "ac_<snowflake>",
-  "mode":             "TEST",
-  "accountType":      "WALLET",
-  "merchantId":       "mer_test_001",
-  "asset":            "USD",
-  "balance":          0,
-  "frozenBalance":    0,
-  "availableBalance": 0,
-  "status":           "ACTIVE"
+  "ledgerAccountId":   "ac_<snowflake>",
+  "mode":              "TEST",
+  "ledgerAccountType": "WALLET",
+  "merchantId":        "mer_test_001",
+  "asset":             "USD",
+  "balance":           0,
+  "status":            "ACTIVE"
 }
 ```
 
@@ -275,38 +273,37 @@ TEST_PAN="999999XXXXXX1234"
 
 ### B3. Fund the card
 
-Transfers from the WALLET (bal: 1000) to the PREPAID_CARD account.
+Transfers from the WALLET to the PREPAID_CARD ledger account.
 
 ```bash
 curl -s -X POST "http://localhost:8086/v1/vcc/cards/${CARD_ID}/fund" \
   -H "Content-Type: application/json" \
   -d '{
-    "merchantId": "mer_test_001",
-    "amount":     200.00
+    "merchantId":     "mer_test_001",
+    "idempotencyKey": "fund_vcc_b3",
+    "amount":         200.00
   }' | jq .
 ```
 
 **Verify balances:**
 
 ```sql
--- WALLET balance: 800.00, frozen_balance: 0.00
--- PREPAID_CARD balance: 200.00, frozen_balance: 0.00
-SELECT account_id, account_type, balance, frozen_balance
-FROM va_account
+SELECT ledger_account_id, ledger_account_type, balance
+FROM ledger_account
 WHERE merchant_id = 'mer_test_001'
-ORDER BY account_type;
+ORDER BY ledger_account_type;
 ```
 
 **Verify ledger entries (double-entry):**
 
 ```sql
-SELECT e.account_id, e.direction, e.amount, e.balance_after
+SELECT e.ledger_account_id, e.direction, e.amount, e.balance_after
 FROM va_ledger_entry e
-JOIN va_account a ON a.account_id = e.account_id
+JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id
 WHERE a.merchant_id = 'mer_test_001'
 ORDER BY e.created_at;
--- DR WALLET 200 → balance_after = 800
--- CR PREPAID_CARD 200 → balance_after = 200
+-- DR PREPAID_CARD 200
+-- CR WALLET 200
 ```
 
 ### B4. Authorize using the VCC — approved
@@ -328,14 +325,15 @@ The card-network-sim detects BIN `999999` and calls `POST :8086/internal/issuer/
 
 **Expected response:** `"status": "APPROVED"`.
 
-**Verify frozen balance was set on authorization:**
+**Verify the hold ledger account was funded on authorization:**
 
 ```sql
--- frozen_balance on the PREPAID_CARD account should be 80.00 now
-SELECT account_id, balance, frozen_balance
-FROM va_account WHERE account_type = 'PREPAID_CARD';
--- balance: 200.00, frozen_balance: 80.00
--- available = 120.00
+SELECT ledger_account_id, ledger_account_type, balance
+FROM ledger_account
+WHERE ledger_account_type IN ('PREPAID_CARD', 'PREPAID_CARD_HOLD')
+ORDER BY ledger_account_type;
+-- PREPAID_CARD:      balance decreased by 80.00
+-- PREPAID_CARD_HOLD: balance increased by 80.00
 ```
 
 **Save the `railPaymentId`:**
@@ -346,27 +344,30 @@ RAIL_PAYMENT_ID="rp_<from response>"
 
 ### B5. Settlement — Kafka event → VA ledger journal
 
-When the card sale is approved on the ISO 8583 path (MR1), rail-service publishes a `RailSettlementEvent` to Kafka topic `rail.settlement.events`. The VA Kafka consumer posts the ledger journal and releases the frozen balance.
+When the card sale is approved on the ISO 8583 path (MR1), rail-service publishes a `RailSettlementEvent` to Kafka topic `rail.settlement.events`. The VA Kafka consumer posts the ledger journal that moves held funds to the card-network receivable account.
 
 **Wait ~2 seconds for the Kafka consumer to process, then verify:**
 
 ```sql
 -- Ledger journal for the card sale
--- DR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) / CR PREPAID_CARD account
-SELECT e.account_id, e.direction, e.amount, e.balance_after, e.source_event_id
+-- DR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) / CR PREPAID_CARD_HOLD account
+SELECT e.ledger_account_id, e.direction, e.amount, e.balance_after, e.source_event_id
 FROM va_ledger_entry e
-JOIN va_account a ON a.account_id = e.account_id
-WHERE a.account_type IN ('CARD_NETWORK_RECEIVABLE', 'PREPAID_CARD')
+JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id
+WHERE a.ledger_account_type IN ('CARD_NETWORK_RECEIVABLE', 'PREPAID_CARD_HOLD')
 ORDER BY e.created_at DESC
 LIMIT 4;
 ```
 
-**Verify frozen balance was released:**
+**Verify the hold balance was released to receivable:**
 
 ```sql
-SELECT account_id, balance, frozen_balance
-FROM va_account WHERE account_type = 'PREPAID_CARD';
--- balance: 280.00 (credit of 80 posted), frozen_balance: 0.00
+SELECT ledger_account_id, ledger_account_type, balance
+FROM ledger_account
+WHERE ledger_account_type IN ('PREPAID_CARD', 'PREPAID_CARD_HOLD', 'CARD_NETWORK_RECEIVABLE')
+ORDER BY ledger_account_type;
+-- PREPAID_CARD_HOLD: balance decreased by 80.00
+-- CARD_NETWORK_RECEIVABLE: balance increased by 80.00
 ```
 
 ### B6. VCC decline — insufficient funds
@@ -389,7 +390,7 @@ curl -s -X POST http://localhost:8081/v1/rail/authorize \
 
 **Expected:** `"status": "DECLINED"`, `"responseCode": "51"`.
 
-**Verify frozen balance unchanged** (no freeze on decline).
+**Verify hold balance unchanged** (no hold journal on decline).
 
 ### B7. List cards — pagination
 
@@ -409,12 +410,12 @@ curl -s -X DELETE "http://localhost:8086/v1/vcc/cards/${CARD_ID}?merchantId=mer_
 **Verify balance swept back to WALLET:**
 
 ```sql
-SELECT account_id, account_type, balance
-FROM va_account
+SELECT ledger_account_id, ledger_account_type, balance, status
+FROM ledger_account
 WHERE merchant_id = 'mer_test_001'
-  AND account_type IN ('WALLET', 'PREPAID_CARD');
+  AND ledger_account_type IN ('WALLET', 'PREPAID_CARD', 'PREPAID_CARD_HOLD');
 -- WALLET: increased by remaining PREPAID_CARD balance
--- PREPAID_CARD: balance = 0.00, status = CLOSED (check virtual_card table)
+-- PREPAID_CARD and PREPAID_CARD_HOLD: status = CLOSED
 ```
 
 ---
@@ -433,7 +434,7 @@ curl -s -X POST http://localhost:8086/internal/va/accounts \
   -d '{
     "merchantId":  "mer_test_001",
     "orgId":       "org_test",
-    "accountType": "WALLET",
+    "ledgerAccountType": "WALLET",
     "asset":       "USD",
     "mode":        "TEST"
   }' | jq .
@@ -510,9 +511,9 @@ The Kafka settlement event should trigger a `BANK_CREDIT_TRANSFER` journal in th
 
 ```sql
 -- DR BANK_RAIL_RECEIVABLE (va_rail_sepa_rcv) / CR merchant WALLET
-SELECT e.account_id, e.direction, e.amount, e.balance_after
+SELECT e.ledger_account_id, e.direction, e.amount, e.balance_after
 FROM va_ledger_entry e
-WHERE e.account_id IN ('va_rail_sepa_rcv', 'ac_wallet_mer001')
+WHERE e.ledger_account_id IN ('va_rail_sepa_rcv', 'ac_wallet_mer001')
 ORDER BY e.created_at DESC
 LIMIT 4;
 ```
@@ -520,7 +521,7 @@ LIMIT 4;
 **Verify WALLET balance increased:**
 
 ```sql
-SELECT balance FROM va_account WHERE account_id = 'ac_wallet_mer001';
+SELECT balance FROM ledger_account WHERE ledger_account_id = 'ac_wallet_mer001';
 -- 300.00
 ```
 
@@ -616,13 +617,13 @@ After completing Flows A–D, verify the VA ledger is balanced:
 -- All DEBIT-normal accounts: sum of balance should equal sum of CREDIT-normal balances
 -- (simplified check — real check would be sum of all entries)
 SELECT
-    a.account_type,
+    a.ledger_account_type,
     a.normal_balance,
     SUM(a.balance) AS total_balance
-FROM va_account a
+FROM ledger_account a
 WHERE a.mode = 'TEST'
-GROUP BY a.account_type, a.normal_balance
-ORDER BY a.account_type;
+GROUP BY a.ledger_account_type, a.normal_balance
+ORDER BY a.ledger_account_type;
 ```
 
 Every journal the `CardRailSettlementHandler` posts is validated by `NetZeroValidator` — if any call succeeded, the books are balanced by construction.
@@ -756,7 +757,7 @@ docker compose exec postgres psql -U pay_app_user -d msx_rail \
 
 # VA DB — reset only merchant-specific accounts and ledger (keep seed accounts)
 docker compose exec postgres psql -U pay_app_user -d msx_virtual_account \
-  -c "DELETE FROM va_account WHERE account_role = 'TENANT' AND merchant_id IS NOT NULL;
+  -c "DELETE FROM ledger_account WHERE ledger_account_role = 'TENANT' AND merchant_id IS NOT NULL;
       TRUNCATE va_inbox_event RESTART IDENTITY CASCADE;"
 # va_ledger_entry is partitioned (64 shards); truncate each:
 for i in $(seq 0 63); do

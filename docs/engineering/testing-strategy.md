@@ -29,6 +29,12 @@ Cover behavior crossing module boundaries:
 - simulator-backed provider flows
 - Kafka/Redis/projection behavior when relevant
 
+## Test Mode Discipline
+
+Default benchmark data and ordinary automated test fixtures to `TEST` mode. Use `LIVE` only when the test is explicitly proving TEST/LIVE isolation, rejection, or mode-specific behavior.
+
+This applies especially to `virtual-account-service` ledger and VCC tests: bench setup must create `TEST` ledger accounts, and posting commands should derive mode from those accounts instead of hardcoding `LIVE`.
+
 ## E2E And Smoke Tests
 
 Keep E2E tests limited to critical merchant/customer workflows:

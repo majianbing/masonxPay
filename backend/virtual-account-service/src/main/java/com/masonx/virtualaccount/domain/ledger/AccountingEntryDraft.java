@@ -8,8 +8,8 @@ import java.math.BigDecimal;
  * One leg of a double-entry transaction before seq/signature are computed.
  * LedgerPostingService resolves drafts into immutable LedgerEntry rows.
  */
-public record EntryDraft(
-        String accountId,
+public record AccountingEntryDraft(
+        String ledgerAccountId,
         Direction direction,
         BigDecimal amount,
         String asset,

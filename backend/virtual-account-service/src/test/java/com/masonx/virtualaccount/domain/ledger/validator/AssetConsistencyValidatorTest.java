@@ -4,8 +4,8 @@ import com.masonx.common.error.BusinessException;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.TransactionType;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -19,17 +19,17 @@ class AssetConsistencyValidatorTest {
 
     private final AssetConsistencyValidator validator = new AssetConsistencyValidator();
 
-    private static PostTransaction tx(List<EntryDraft> entries) {
-        return new PostTransaction("tx_1", entries,
+    private static LedgerPostingCommand tx(List<AccountingEntryDraft> entries) {
+        return new LedgerPostingCommand("tx_1", entries,
                 TransactionType.INTERNAL, null, null,
-                LocalDate.of(2026, 1, 1), Mode.LIVE, null, null);
+                LocalDate.of(2026, 1, 1), Mode.TEST, null, null);
     }
 
     @Test
     void passes_when_all_entries_share_same_asset() {
         var tx = tx(List.of(
-                new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
-                new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "USD", "evt_1")));
+                new AccountingEntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
+                new AccountingEntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "USD", "evt_1")));
 
         assertThatNoException().isThrownBy(() -> validator.validate(tx));
     }
@@ -37,7 +37,7 @@ class AssetConsistencyValidatorTest {
     @Test
     void passes_for_single_entry() {
         var tx = tx(List.of(
-                new EntryDraft("ac_1", Direction.DEBIT, new BigDecimal("50"), "EUR", "evt_1")));
+                new AccountingEntryDraft("ac_1", Direction.DEBIT, new BigDecimal("50"), "EUR", "evt_1")));
 
         assertThatNoException().isThrownBy(() -> validator.validate(tx));
     }
@@ -45,8 +45,8 @@ class AssetConsistencyValidatorTest {
     @Test
     void rejects_entries_with_mixed_assets() {
         var tx = tx(List.of(
-                new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
-                new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "BTC", "evt_1")));
+                new AccountingEntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("100"), "USD", "evt_1"),
+                new AccountingEntryDraft("ac_2", Direction.CREDIT, new BigDecimal("100"), "BTC", "evt_1")));
 
         assertThatThrownBy(() -> validator.validate(tx))
                 .isInstanceOf(BusinessException.class)
@@ -59,9 +59,9 @@ class AssetConsistencyValidatorTest {
     @Test
     void rejects_three_way_split_with_mixed_assets() {
         var tx = tx(List.of(
-                new EntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("50"), "USD", "evt_1"),
-                new EntryDraft("ac_2", Direction.CREDIT, new BigDecimal("30"), "USD", "evt_1"),
-                new EntryDraft("ac_3", Direction.CREDIT, new BigDecimal("20"), "EUR", "evt_1")));
+                new AccountingEntryDraft("ac_1", Direction.DEBIT,  new BigDecimal("50"), "USD", "evt_1"),
+                new AccountingEntryDraft("ac_2", Direction.CREDIT, new BigDecimal("30"), "USD", "evt_1"),
+                new AccountingEntryDraft("ac_3", Direction.CREDIT, new BigDecimal("20"), "EUR", "evt_1")));
 
         assertThatThrownBy(() -> validator.validate(tx))
                 .isInstanceOf(BusinessException.class);

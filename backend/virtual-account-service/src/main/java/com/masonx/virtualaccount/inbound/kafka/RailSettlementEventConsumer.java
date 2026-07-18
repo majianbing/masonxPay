@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 /**
  * Thin inbound adapter — translates rail settlement Kafka delivery into a domain call.
  * Idempotency is enforced inside {@link CardRailSettlementHandler} via
- * {@code LedgerFacade#postIfNew}.
+ * {@code LedgerFacade#postAllIfNew}.
  */
 @Component
 public class RailSettlementEventConsumer {

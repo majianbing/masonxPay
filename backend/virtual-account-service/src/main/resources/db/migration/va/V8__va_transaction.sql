@@ -1,7 +1,7 @@
--- va_transaction: journal entry header — one row per PostTransaction.
+-- va_transaction: journal entry header — one row per LedgerPostingCommand.
 --
 -- Two-layer ledger design:
---   System layer (va_ledger_entry): throughput path, HMAC chain, 64-shard HASH(account_id).
+--   System layer (va_ledger_entry): throughput path, HMAC chain, 64-shard HASH(ledger_account_id).
 --   Financial layer (va_transaction): business context, regulatory metadata, audit trail.
 --
 -- Partitioned: HASH(transaction_id), 64 buckets — matches va_ledger_entry shard count.
@@ -139,9 +139,9 @@ BEGIN
             i
         );
         -- Statement queries: account-scoped date-range sums and entry list.
-        -- account_id is the shard key so this always hits exactly one partition.
+        -- ledger_account_id is the shard key so this always hits exactly one partition.
         EXECUTE format(
-            'CREATE INDEX ON va_ledger_entry_%s (account_id, effective_date, entry_seq)',
+            'CREATE INDEX ON va_ledger_entry_%s (ledger_account_id, effective_date, entry_seq)',
             i
         );
     END LOOP;

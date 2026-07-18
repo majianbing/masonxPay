@@ -5,11 +5,11 @@ import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.posting.VccCloseSweepPostingRule;
+import com.masonx.virtualaccount.domain.ledger.posting.VccFundingPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.CreateVccRequest;
 import com.masonx.virtualaccount.vcc.dto.CreateVccResponse;
@@ -36,18 +36,24 @@ public class VirtualCardService {
     private static final String VA_BIN = "999999";
 
     private final VirtualCardRepository virtualCardRepo;
-    private final AccountRepository     accountRepo;
+    private final LedgerAccountRepository     accountRepo;
     private final LedgerFacade          ledger;
     private final SnowflakeIdGenerator  idGen;
+    private final VccFundingPostingRule fundingPostingRule;
+    private final VccCloseSweepPostingRule closeSweepPostingRule;
 
     public VirtualCardService(VirtualCardRepository virtualCardRepo,
-                               AccountRepository accountRepo,
+                               LedgerAccountRepository accountRepo,
                                LedgerFacade ledger,
-                               SnowflakeIdGenerator idGen) {
+                               SnowflakeIdGenerator idGen,
+                               VccFundingPostingRule fundingPostingRule,
+                               VccCloseSweepPostingRule closeSweepPostingRule) {
         this.virtualCardRepo = virtualCardRepo;
         this.accountRepo     = accountRepo;
         this.ledger          = ledger;
         this.idGen           = idGen;
+        this.fundingPostingRule = fundingPostingRule;
+        this.closeSweepPostingRule = closeSweepPostingRule;
     }
 
     /**
@@ -57,45 +63,45 @@ public class VirtualCardService {
     @Transactional
     public CreateVccResponse createCard(CreateVccRequest req) {
         // Verify the owner wallet account exists and belongs to this merchant.
-        VaAccount ownerAccount = accountRepo.findById(req.ownerAccountId())
+        LedgerAccount ownerAccount = accountRepo.findById(req.ownerAccountId())
                 .filter(a -> req.merchantId().equals(a.merchantId()))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WALLET account not found or does not belong to merchant: " + req.ownerAccountId()));
 
         // Create the ring-fenced PREPAID_CARD account for available funds.
         String vccAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
-        VaAccount vccAccount = new VaAccount(
+        LedgerAccount vccAccount = new LedgerAccount(
                 vccAccountId,
                 ownerAccount.mode(),
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 ownerAccount.orgId(),
                 req.merchantId(),
                 null,
-                AccountType.PREPAID_CARD,
+                LedgerAccountType.PREPAID_CARD,
                 req.currency(),
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 BigDecimal.ZERO,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
         accountRepo.save(vccAccount);
 
         // Create the paired hold account for authorized-but-unsettled funds.
         String holdAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
-        VaAccount holdAccount = new VaAccount(
+        LedgerAccount holdAccount = new LedgerAccount(
                 holdAccountId,
                 ownerAccount.mode(),
-                AccountRole.TENANT,
+                LedgerAccountRole.TENANT,
                 ownerAccount.orgId(),
                 req.merchantId(),
                 null,
-                AccountType.PREPAID_CARD_HOLD,
+                LedgerAccountType.PREPAID_CARD_HOLD,
                 req.currency(),
                 AssetClass.FIAT,
                 2,
                 NormalBalance.DEBIT,
                 BigDecimal.ZERO,
-                AccountStatus.ACTIVE);
+                LedgerAccountStatus.ACTIVE);
         accountRepo.save(holdAccount);
 
         // Generate simulator test PAN: BIN 999999 + 10 random digits.
@@ -133,7 +139,7 @@ public class VirtualCardService {
         VirtualCard card = virtualCardRepo.findById(cardId)
                 .filter(c -> req.merchantId().equals(
                         accountRepo.findById(c.ownerAccountId())
-                                .map(VaAccount::merchantId).orElse(null)))
+                                .map(LedgerAccount::merchantId).orElse(null)))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card not found or not owned by merchant: " + cardId));
 
@@ -141,19 +147,15 @@ public class VirtualCardService {
             throw new IllegalStateException("Cannot fund card in status: " + card.status());
         }
 
-        VaAccount ownerAcct = accountRepo.findById(card.ownerAccountId())
+        LedgerAccount ownerAcct = accountRepo.findById(card.ownerAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "Owner account not found for card: " + cardId));
-        String txId = idGen.generate(MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix());
         String eventId = fundEventId(cardId, req.idempotencyKey());
-        PostTransaction tx = new PostTransaction(txId, List.of(
-                new EntryDraft(card.vccAccountId(), Direction.DEBIT,
-                        req.amount(), card.currency(), eventId),
-                new EntryDraft(card.ownerAccountId(), Direction.CREDIT,
-                        req.amount(), card.currency(), eventId)
-        ), TransactionType.INTERNAL, "Fund card " + cardId, null,
-                LocalDate.now(), ownerAcct.mode(), ownerAcct.orgId(), ownerAcct.merchantId());
-        ledger.postIfNew(tx, eventId, "vcc-card-fund");
+        ledger.postAllIfNew(
+                fundingPostingRule.build(
+                        new VccFundingPostingRule.FundingEvent(card, ownerAcct, req.amount(), eventId)),
+                eventId,
+                "vcc-card-fund");
 
         return getCard(cardId);
     }
@@ -161,10 +163,10 @@ public class VirtualCardService {
     public VccResponse getCard(String cardId) {
         VirtualCard card = virtualCardRepo.findById(cardId)
                 .orElseThrow(() -> new IllegalArgumentException("Card not found: " + cardId));
-        VaAccount account = accountRepo.findById(card.vccAccountId())
+        LedgerAccount account = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + cardId));
-        VaAccount holdAccount = findHoldAccount(card);
+        LedgerAccount holdAccount = findHoldAccount(card);
         return toResponse(card, account, holdAccount);
     }
 
@@ -172,8 +174,8 @@ public class VirtualCardService {
         long total = virtualCardRepo.countByMerchantId(merchantId);
         List<VccResponse> content = virtualCardRepo.findByMerchantId(merchantId, page, size).stream()
                 .map(card -> {
-                    VaAccount acct = accountRepo.findById(card.vccAccountId()).orElse(null);
-                    VaAccount holdAcct = findHoldAccount(card);
+                    LedgerAccount acct = accountRepo.findById(card.vccAccountId()).orElse(null);
+                    LedgerAccount holdAcct = findHoldAccount(card);
                     return toResponse(card, acct, holdAcct);
                 })
                 .toList();
@@ -190,13 +192,13 @@ public class VirtualCardService {
         VirtualCard card = virtualCardRepo.findById(cardId)
                 .orElseThrow(() -> new IllegalArgumentException("Card not found: " + cardId));
 
-        VaAccount vccAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
+        LedgerAccount vccAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + cardId));
-        VaAccount holdAccount = findHoldAccountForUpdate(card);
+        LedgerAccount holdAccount = findHoldAccountForUpdate(card);
 
         // Validate ownership via the owner account's merchantId.
-        VaAccount ownerAccount = accountRepo.findById(card.ownerAccountId())
+        LedgerAccount ownerAccount = accountRepo.findById(card.ownerAccountId())
                 .filter(a -> merchantId.equals(a.merchantId()))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card does not belong to merchant: " + merchantId));
@@ -207,33 +209,29 @@ public class VirtualCardService {
 
         BigDecimal remaining = vccAccount.balance();
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            String txId = idGen.generate(MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix());
-            ledger.postDirect(new PostTransaction(txId, List.of(
-                    new EntryDraft(ownerAccount.accountId(), Direction.DEBIT,
-                            remaining, card.currency(), txId),
-                    new EntryDraft(card.vccAccountId(), Direction.CREDIT,
-                            remaining, card.currency(), txId)
-            ), TransactionType.INTERNAL, "Close card sweep " + cardId, null,
-                    LocalDate.now(), ownerAccount.mode(), ownerAccount.orgId(), ownerAccount.merchantId()));
+            for (var command : closeSweepPostingRule.build(
+                    new VccCloseSweepPostingRule.CloseSweepEvent(card, ownerAccount, remaining))) {
+                ledger.postDirect(command);
+            }
         }
 
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.CLOSED);
-        accountRepo.updateStatus(vccAccount.accountId(), AccountStatus.CLOSED);
+        accountRepo.updateStatus(vccAccount.ledgerAccountId(), LedgerAccountStatus.CLOSED);
         if (holdAccount != null) {
-            accountRepo.updateStatus(holdAccount.accountId(), AccountStatus.CLOSED);
+            accountRepo.updateStatus(holdAccount.ledgerAccountId(), LedgerAccountStatus.CLOSED);
         }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private VaAccount findHoldAccount(VirtualCard card) {
+    private LedgerAccount findHoldAccount(VirtualCard card) {
         if (card.holdAccountId() == null) {
             return null;
         }
         return accountRepo.findById(card.holdAccountId()).orElse(null);
     }
 
-    private VaAccount findHoldAccountForUpdate(VirtualCard card) {
+    private LedgerAccount findHoldAccountForUpdate(VirtualCard card) {
         if (card.holdAccountId() == null) {
             return null;
         }
@@ -242,7 +240,7 @@ public class VirtualCardService {
                         "PREPAID_CARD_HOLD account not found for card: " + card.cardId()));
     }
 
-    private static VccResponse toResponse(VirtualCard card, VaAccount account, VaAccount holdAccount) {
+    private static VccResponse toResponse(VirtualCard card, LedgerAccount account, LedgerAccount holdAccount) {
         BigDecimal balance  = account != null ? account.balance()         : BigDecimal.ZERO;
         BigDecimal frozen   = holdAccount != null ? holdAccount.balance() : BigDecimal.ZERO;
         BigDecimal avail    = balance;

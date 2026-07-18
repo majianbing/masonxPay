@@ -1,12 +1,12 @@
 # Virtual Account — Design and Implementation Guide
 
 # Red Lines
-- Correctness and idempotency. Two layers: `va_inbox_event` (PK on `event_id`) is the first line of defense, enforced inside `LedgerFacade#postIfNew` — callers do not call the inbox directly. `UNIQUE(account_id, source_event_id)` on `va_ledger_entry` is the DB-level safety net — it prevents the same event from posting twice to the same account even if the facade is bypassed via `postDirect`. Both layers are required. Note: `UNIQUE(account_id, source_event_id)` includes the partition key so it is valid on the HASH-partitioned table; one event legitimately creates entries on multiple accounts with the same `source_event_id` — the constraint is per-account, not global.
+- Correctness and idempotency. Two layers: `va_inbox_event` (PK on `event_id`) is the first line of defense, enforced inside `LedgerFacade#postIfNew` / `LedgerFacade#postAllIfNew` — callers do not call the inbox directly. `UNIQUE(ledger_account_id, source_event_id)` on `va_ledger_entry` is the DB-level safety net — it prevents the same event from posting twice to the same ledger account even if the facade is bypassed via `postDirect`. Both layers are required. Note: `UNIQUE(ledger_account_id, source_event_id)` includes the partition key so it is valid on the HASH-partitioned table; one event legitimately creates entries on multiple accounts with the same `source_event_id` — the constraint is per-account, not global.
 - Precision: the foundational layer supports high-precision decimals (up to 8 places, e.g. `0.00000000`) for future crypto support. Keep precision requirements separate from the business layer — e.g. card payments use `0.00` (2 decimals), crypto uses `0.00000000` (8 decimals).
 - Defend against manual data changes at the DB layer: protect balance updates with a balance signature, and allow balances to be modified only through the VA APIs.
 - The Postgres database is the single source of truth.
 - Use `SELECT ... FOR UPDATE` for stable, serialized concurrent updates.
-- ID utils for new business code, DO NOT use UUID anymore, use snowflake ID with business prefix, for example `ac_{snowflakeId}`
+- ID utils for new business code, DO NOT use UUID anymore, use snowflake ID with business prefix, for example `ac_{snowflakeId}`.
 
 # Boundary
 - Apply an anti-corruption layer (ACL) at the Kafka consumer edge: the inbound adapter maps `contracts` events to VA-native commands; domain/ledger code never imports `contracts`. Cross-service seam decisions live in `docs/refactor/modularize-backend.md`.
@@ -56,72 +56,79 @@ Use `asset` (USD, BTC, USDC…) + `asset_class` (FIAT|CRYPTO) + `scale`, not ISO
 
 The customer is an **external identity**, modeled as a relationship — not a scope level:
 
-- `va_account` — the ledger account (core).
+- `ledger_account` — the ledger account (core).
 - `va_customer` — a **thin** local reference to an external identity (`external_customer_id` + minimal display ref). PII lives outside VA.
-- `va_account_customer` — the link `(account_id, customer_id, role: PRIMARY|AUTHORIZED)`; many-to-many.
+- Future customer-account links should reference `ledger_account_id`; PII and customer ownership semantics live above the ledger.
 
 ## Schema sketch
 
 ```
-va_account                 -- generic ledger account; ONLY universal columns
-  account_id    VARCHAR(32) pk                     -- snowflake ID, e.g. ac_{snowflakeId}
+ledger_account             -- generic ledger account; ONLY universal columns
+  ledger_account_id VARCHAR(32) pk                  -- snowflake ID, e.g. ac_{snowflakeId}
   mode          TEST|LIVE
-  account_role  TENANT|PLATFORM|EXTERNAL
+  ledger_account_role TENANT|PLATFORM|EXTERNAL
   org_id, merchant_id      (set for TENANT)        provider_id (set for EXTERNAL)
-  account_type  CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|FEE_INCOME|CLEARING|SUSPENSE|BAD_DEBT
+  ledger_account_type CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|PREPAID_CARD|PREPAID_CARD_HOLD|FEE_INCOME|CLEARING|SUSPENSE|BAD_DEBT
   -- RESERVE is TENANT-owned: the merchant's restricted funds, visible on their balance sheet
   asset         USD|BTC|USDC...  + asset_class FIAT|CRYPTO + scale
   normal_balance DEBIT|CREDIT
   balance        NUMERIC(38, scale)                -- materialized; updated atomically with every entry
-  frozen_balance NUMERIC(38, scale) DEFAULT 0      -- funds on hold; see Holds section below
-  -- available_balance = balance - frozen_balance  (derived, never stored)
   status        ACTIVE|FROZEN|CLOSED
 
 va_ledger_entry            -- append-only, immutable, double-entry; NEVER UPDATE or DELETE
-                           -- partitioned: HASH(account_id), 64 buckets
+                           -- partitioned: HASH(ledger_account_id), 64 buckets
   entry_id         VARCHAR(32)        -- snowflake ID, e.g. le_{snowflakeId}
   transaction_id   VARCHAR(32)        -- groups the balanced entry set
-  account_id       VARCHAR(32)
+  ledger_account_id VARCHAR(32)
   direction        DEBIT|CREDIT
   amount           NUMERIC(38, scale)
   asset            VARCHAR(20)
   entry_seq        BIGINT             -- per-account monotonically increasing counter; defines chain order for HMAC and period accounting (not created_at)
   balance_after    NUMERIC(38, scale) -- running balance snapshot after this entry
-  frozen_balance   NUMERIC(38, scale) -- point-in-time snapshot of va_account.frozen_balance when this entry was signed; required to re-verify the HMAC without reading the (now-potentially-different) account row
   prev_signature   VARCHAR(64)        -- balance_signature of the immediately preceding entry (GENESIS for seq=1); makes each entry self-verifiable without fetching a second row
   balance_signature VARCHAR(64)       -- HMAC-SHA256 tamper-evident chain; see Balance Integrity section
-  source_event_id  VARCHAR(64)        -- dedup + traceability; UNIQUE(account_id, source_event_id) enforces DB-level guarantee that the same event cannot post twice to the same account
-  status           POSTED|REVERSED    -- no PENDING: pre-auth / pending amounts are tracked via frozen_balance at the account level, not as ledger entries
+  source_event_id  VARCHAR(64)        -- dedup + traceability; UNIQUE(ledger_account_id, source_event_id) prevents same-event reposts per account
+  status           POSTED|REVERSED    -- no PENDING: pre-auth / pending amounts are represented by hold-account ledger entries
   created_at       TIMESTAMPTZ
 
-credit_line_profile (account_id fk, credit_limit, cycle, ...)   -- type extensions
-wallet_profile      (account_id fk, chain, address, ...)         (class-table inheritance)
-cash_profile        (account_id fk, payout_config, ...)
+credit_line_profile (ledger_account_id fk, credit_limit, cycle, ...) -- type extensions
+wallet_profile      (ledger_account_id fk, chain, address, ...)      (class-table inheritance)
+cash_profile        (ledger_account_id fk, payout_config, ...)
 ```
 
-Type-specific columns live **only** in extension tables — never on `va_account`. Per-type policy (sign, can-go-negative, precision, allowed ops) lives in code, selected by `account_type`.
+Type-specific columns live **only** in extension tables — never on `ledger_account`. Per-type policy (sign, can-go-negative, precision, allowed ops) lives in code, selected by `ledger_account_type`.
 
 ## Holds & available balance
 
-Holds (冻结/解冻) do not move money — they constrain availability. The fundamental layer handles this with a single `frozen_balance` field on `va_account`, updated atomically under `SELECT FOR UPDATE`:
+Holds (冻结/解冻) are real ledger movements. The ledger no longer has a mutable `frozen_balance` column. Availability is modeled by splitting a product balance across ledger accounts:
 
-- **Freeze (冻结):** `frozen_balance += amount`
-- **Release (解冻):** `frozen_balance -= amount`
-- **Available balance (可用余额):** `balance - frozen_balance` — derived on read, never stored
+- **Available account:** for VCCs this is `PREPAID_CARD`.
+- **Hold account:** for VCCs this is the paired `PREPAID_CARD_HOLD`.
+- **Freeze / authorization hold:** `DR PREPAID_CARD_HOLD`, `CR PREPAID_CARD`.
+- **Release / reversal:** `DR PREPAID_CARD`, `CR PREPAID_CARD_HOLD`.
+- **Settlement of held funds:** `DR CARD_NETWORK_RECEIVABLE`, `CR PREPAID_CARD_HOLD`.
 
-Individual hold metadata (reason, expiry, dispute reference) is business-layer concern and lives above the fundamental layer. The fundamental layer only tracks the total frozen amount.
+For debit-normal asset accounts, the user-facing values are:
 
-**Relationship to entry status:** pre-authorization amounts (card auth before settlement) are NOT written as `PENDING` ledger entries — they are tracked entirely via `frozen_balance`. A ledger entry is only written when the movement is confirmed (POSTED). When an authorization settles, a POSTED entry is created and `frozen_balance` is decremented atomically in the same transaction.
+```text
+available = balance(available ledger account)
+held      = balance(hold ledger account)
+total     = available + held
+```
+
+Individual hold metadata (reason, expiry, dispute reference, auth code replay) is business-layer concern and lives above the ledger. The ledger records the amount movement and keeps it auditable through normal journal entries.
+
+**Relationship to entry status:** pre-authorization amounts are not `PENDING` entries. They are normal `POSTED` hold journals that move value from available to held. Reversals and settlement are also `POSTED` compensating journals, usually with `TransactionType.REVERSAL` or the rail settlement type.
 
 ## Financial concepts — ledger mapping
 
 | Concept | Ledger representation |
 |---|---|
-| 余额 (Ledger Balance) | `va_account.balance` |
-| 可用余额 (Available Balance) | `balance − frozen_balance` (derived) |
-| 冻结余额 (Reserved/Held Balance) | `va_account.frozen_balance` |
-| 冻结资金 (Hold) | `frozen_balance += amount` (no ledger entry) |
-| 解冻资金 (Release) | `frozen_balance -= amount` (no ledger entry) |
+| 余额 (Ledger Balance) | `ledger_account.balance` |
+| 可用余额 (Available Balance) | Balance on the available ledger account, e.g. `PREPAID_CARD` |
+| 冻结余额 (Reserved/Held Balance) | Balance on the paired hold ledger account, e.g. `PREPAID_CARD_HOLD` |
+| 冻结资金 (Hold) | `DR hold account / CR available account` |
+| 解冻资金 (Release) | `DR available account / CR hold account` |
 | 挂账 (Receivable/Outstanding) | Balance on a `RECEIVABLE` account |
 | 销账 - 客户补款 (Settlement) | DEBIT `CASH`, CREDIT `RECEIVABLE` |
 | 销账 - 财务核销 (Write-off) | DEBIT `BAD_DEBT` (PLATFORM), CREDIT `RECEIVABLE` |
@@ -186,9 +193,9 @@ va_inbox_event   PARTITION BY HASH(event_id), 8 buckets
   received_at    TIMESTAMPTZ        -- used by retention cleanup only
 ```
 
-## Sharding: why HASH(event_id), not HASH(account_id) or RANGE(received_at)
+## Sharding: why HASH(event_id), not HASH(ledger_account_id) or RANGE(received_at)
 
-**Why event_id as shard key:** dedup lookups query by `event_id`. With `HASH(event_id)`, the lookup hits exactly one partition — fast, no cross-partition scan. One event touches multiple accounts, so `account_id` is not a natural dedup key here.
+**Why event_id as shard key:** dedup lookups query by `event_id`. With `HASH(event_id)`, the lookup hits exactly one partition — fast, no cross-partition scan. One event touches multiple accounts, so `ledger_account_id` is not a natural dedup key here.
 
 **Why NOT RANGE(received_at):** dedup queries don't carry `received_at`. Without the partition key in the query, Postgres cannot prune partitions and must scan all of them — a cross-partition scan that makes dedup *slower* than a single table. RANGE(received_at) only helps data retention, not throughput.
 
@@ -210,9 +217,9 @@ Target child partitions directly (not the parent `va_inbox_event`) — this keep
 
 # Ledger Entry Sharding
 
-`va_ledger_entry` uses **flat `HASH(account_id)` partitioning with 64 buckets** — no time-based partition layer.
+`va_ledger_entry` uses **flat `HASH(ledger_account_id)` partitioning with 64 buckets** — no time-based partition layer.
 
-**Why `account_id`:** all performance-critical queries (balance calculation, account history, reconciliation) are scoped by account. Entries for one transaction naturally span multiple accounts/buckets — that is acceptable because cross-transaction joins across accounts are never needed.
+**Why `ledger_account_id`:** all performance-critical queries (balance calculation, account history, reconciliation) are scoped by ledger account. Entries for one transaction naturally span multiple accounts/buckets — that is acceptable because cross-transaction joins across accounts are never needed.
 
 **Why flat (no time layer):** a two-level `RANGE(created_at) + HASH` was considered but rejected. The time layer only pays off for hot/cold archival, which is deferred.
 
@@ -234,10 +241,10 @@ The design guarantees this through two properties:
 
 ```sql
 SUM(amount FILTER direction = CREDIT) − SUM(amount FILTER direction = DEBIT)
-  = va_account.balance   -- must always hold
+  = ledger_account.balance   -- must always hold
 ```
 
-**Atomic posting.** Every entry insert and the corresponding `va_account.balance` update happen in the same DB transaction — no entry without a balance update, no balance update without an entry.
+**Atomic posting.** Every entry insert and the corresponding `ledger_account.balance` update happen in the same DB transaction — no entry without a balance update, no balance update without an entry.
 
 Because entries are immutable and sequenced, the equation holds for any window. Use `entry_seq` — not `created_at` — as the ordering anchor. `created_at` has millisecond precision and is non-deterministic under concurrency; `entry_seq` is a per-account monotonic counter set atomically on insert.
 
@@ -250,16 +257,14 @@ closing  = opening + credits − debits   ← guaranteed by immutability + entry
 
 ## Balance signature (tamper-evident hash chain)
 
-Direct DB edits to `va_account.balance` or `va_ledger_entry.amount` must be detectable even if Postgres-level controls are bypassed. Each `va_ledger_entry` carries a `balance_signature`:
+Direct DB edits to `ledger_account.balance` or `va_ledger_entry.amount` must be detectable even if Postgres-level controls are bypassed. Each `va_ledger_entry` carries a `balance_signature`:
 
 ```
 balance_signature = HMAC_SHA256(
   app_secret,
-  account_id || entry_seq || amount || direction || balance_after || frozen_balance || txid || prev_signature
+  ledger_account_id || entry_seq || amount || direction || balance_after || txid || prev_signature
 )
 ```
-
-`frozen_balance` is included in the signature inputs because it has no ledger entry audit trail of its own. Any direct DB edit to `frozen_balance` will break the next signature computed at posting time.
 
 `prev_signature` chains every entry to the one before it. Any tampering with a past entry or the account balance breaks every subsequent signature in the chain.
 
@@ -273,43 +278,43 @@ entry_3: sig_3 = HMAC(... || balance_after_3 || sig_2)
 
 ```
 balance_after      NUMERIC(38, scale)   -- running balance snapshot after this entry
-frozen_balance     NUMERIC(38, scale)   -- point-in-time frozen_balance snapshot when signed
 prev_signature     VARCHAR(64)          -- balance_signature of the preceding entry (GENESIS for seq=1)
 balance_signature  VARCHAR(64)          -- HMAC-SHA256 hex of this entry
 ```
 
-Storing `frozen_balance` and `prev_signature` in each row makes every entry self-verifiable — no second read needed, and historical verification does not require knowing what the frozen balance was at that moment.
+Storing `balance_after` and `prev_signature` in each row makes every entry self-verifiable — no second read needed, and historical verification does not require reading the current account row.
 
 **On every entry insert (`LedgerPostingService`, called via `LedgerFacade`):**
-1. `SELECT FOR UPDATE` on `va_account` — locks the account row for the duration of the transaction.
+1. `SELECT FOR UPDATE` on `ledger_account` — locks the account row for the duration of the transaction.
 2. Validate new balance is non-negative (`computeBalance` — fast in-memory check before any DB reads).
 3. Fetch the last entry for this account (`findLastChainHead`).
-4. **Tamper check A — balance cross-check:** assert `va_account.balance == last_entry.balance_after`. Catches a direct `UPDATE va_account SET balance = X` that left `va_ledger_entry` intact. Thrown as `VA_BALANCE_MISMATCH`.
-5. **Tamper check B — HMAC chain integrity:** recompute `last_entry.balance_signature` from its stored `frozen_balance`, `prev_signature`, and other fields; compare to stored value. Catches a direct `UPDATE va_ledger_entry SET balance_after = X`. Thrown as `VA_CHAIN_TAMPERED`.
+4. **Tamper check A — balance cross-check:** assert `ledger_account.balance == last_entry.balance_after`. Catches a direct `UPDATE ledger_account SET balance = X` that left `va_ledger_entry` intact. Thrown as `VA_BALANCE_MISMATCH`.
+5. **Tamper check B — HMAC chain integrity:** recompute `last_entry.balance_signature` from its stored `prev_signature` and other fields; compare to stored value. Catches a direct `UPDATE va_ledger_entry SET balance_after = X`. Thrown as `VA_CHAIN_TAMPERED`.
 6. Compute `entry_seq = last_entry.entry_seq + 1`, new `balance_after`, new `balance_signature` (chaining to `last_entry.balance_signature` as `prev_signature`).
-7. Insert the `va_ledger_entry` row (with `frozen_balance` snapshot and `prev_signature`) and update `va_account.balance` atomically in the same transaction.
+7. Insert the `va_ledger_entry` row (with `prev_signature`) and update `ledger_account.balance` atomically in the same transaction.
 
 **Verification (reconciliation / bench verify endpoint):** each entry is self-verifiable — recompute `balance_signature` from the entry's own stored fields and compare. No external context needed.
 
 **Key management rules:**
 - `app_secret` lives in the application (environment secret / KMS); never stored in the DB.
-- The app DB role must have no `UPDATE`/`DELETE` on `va_ledger_entry` and no direct `UPDATE balance` on `va_account` — enforced via `REVOKE`. The signature is defense-in-depth for higher-privilege DB compromise.
+- The app DB role must have no `UPDATE`/`DELETE` on `va_ledger_entry` and no direct `UPDATE balance` on `ledger_account` — enforced via `REVOKE`. The signature is defense-in-depth for higher-privilege DB compromise.
 
-**What this catches:** direct `va_account.balance` edits (check A), direct `va_ledger_entry` row edits (check B), deleted entries, amount tampering, and direct `frozen_balance` edits.  
+**What this catches:** direct `ledger_account.balance` edits (check A), direct `va_ledger_entry` row edits (check B), deleted entries, and amount tampering.
 **What this does not catch:** an attacker who also has the `app_secret` and rewrites the chain — that is a key management problem, not a schema problem.
 
 ## Posting API — LedgerFacade
 
 `LedgerFacade` is the only public entry point into the ledger engine from outside the `domain.ledger` package. `LedgerPostingService` (the engine) has a package-private `post()` method — it cannot be called directly from handlers, consumers, or controllers.
 
-Two posting paths:
+Three posting paths:
 
 | Method | Use case | Idempotency |
 |---|---|---|
-| `postIfNew(tx, eventId, eventType)` | Kafka consumers, webhooks, any event-driven caller | Inbox check enforced here; returns `false` on duplicate |
-| `postDirect(tx)` | Bench endpoints, internal corrections, admin API | No inbox; DB `UNIQUE(account_id, source_event_id)` is the only backstop |
+| `postIfNew(tx, eventId, eventType)` | Single-journal event-driven callers and bench duplicate checks | Inbox check enforced here; returns `false` on duplicate |
+| `postAllIfNew(commands, eventId, eventType)` | Event-driven callers whose posting rule returns one or more journals | One inbox reservation for the business event; every generated command posts in the same transaction |
+| `postDirect(tx)` | Bench endpoints, internal corrections, admin API | No inbox; DB `UNIQUE(ledger_account_id, source_event_id)` is the only backstop |
 
-**All new handlers must use `postIfNew`.** Using `postDirect` without a comment explaining why is a red flag in code review.
+**All new event-driven handlers should use `postAllIfNew` when they call a posting rule.** Using `postDirect` without a comment explaining why is a red flag in code review.
 
 Inbound adapters (e.g. `SettlementEventConsumer`) are thin: they map the wire event to a domain command and call the handler. They do not interact with `InboxRepository` directly.
 
@@ -320,4 +325,3 @@ With HASH partitioning, entries for one transaction span multiple partitions. Tw
 **Transaction balance (net-zero):** the sum of all DEBIT amounts must equal the sum of all CREDIT amounts across every entry sharing the same `transaction_id`. A transaction that doesn't net to zero must never be committed.
 
 **Asset consistency:** all entries in a transaction must share the same `asset`. A transaction that DEBITs USD and CREDITs BTC would pass net-zero but corrupt the books. Reject at the service layer before writing.
-

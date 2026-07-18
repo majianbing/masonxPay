@@ -5,7 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 public record AccountStatementResponse(
-        String accountId,
+        String ledgerAccountId,
         String asset,
         String normalBalance,    // "DEBIT" or "CREDIT" — caller needs this to interpret sign
         LocalDate fromDate,

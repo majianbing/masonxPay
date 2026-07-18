@@ -17,7 +17,7 @@ public class TransactionRepository {
         this.jdbc = jdbc;
     }
 
-    public void insert(PostTransaction tx) {
+    public void insert(LedgerPostingCommand tx) {
         jdbc.update("""
                 INSERT INTO va_transaction (
                     transaction_id, entry_type, description, payment_reference_id,

@@ -2,8 +2,8 @@ package com.masonx.virtualaccount.domain.ledger.validator;
 
 import com.masonx.common.error.BusinessException;
 import com.masonx.virtualaccount.domain.constant.Direction;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.ledger.validator.api.TransactionValidator;
 import org.springframework.stereotype.Component;
 
@@ -19,10 +19,10 @@ import java.math.BigDecimal;
 public class NetZeroValidator implements TransactionValidator {
 
     @Override
-    public void validate(PostTransaction tx) {
+    public void validate(LedgerPostingCommand tx) {
         BigDecimal totalDebits  = BigDecimal.ZERO;
         BigDecimal totalCredits = BigDecimal.ZERO;
-        for (EntryDraft d : tx.entries()) {
+        for (AccountingEntryDraft d : tx.entries()) {
             if (d.direction() == Direction.DEBIT) totalDebits  = totalDebits.add(d.amount());
             else                                  totalCredits = totalCredits.add(d.amount());
         }

@@ -1,7 +1,7 @@
 package com.masonx.virtualaccount.domain.ledger.validator;
 
 import com.masonx.common.error.BusinessException;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.ledger.validator.api.TransactionValidator;
 import org.springframework.stereotype.Component;
 
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 public class AssetConsistencyValidator implements TransactionValidator {
 
     @Override
-    public void validate(PostTransaction tx) {
+    public void validate(LedgerPostingCommand tx) {
         long distinctAssets = tx.entries().stream()
                 .map(e -> e.asset())
                 .distinct()

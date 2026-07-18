@@ -7,11 +7,13 @@ import com.masonx.contracts.rail.MoneyMovementType;
 import com.masonx.contracts.rail.PaymentRail;
 import com.masonx.contracts.rail.RailSettlementEvent;
 import com.masonx.virtualaccount.domain.constant.*;
-import com.masonx.virtualaccount.domain.ledger.AccountRepository;
-import com.masonx.virtualaccount.domain.ledger.EntryDraft;
+import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
-import com.masonx.virtualaccount.domain.ledger.PostTransaction;
-import com.masonx.virtualaccount.domain.po.VaAccount;
+import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
+import com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule;
+import com.masonx.virtualaccount.domain.ledger.posting.RailSettlementPostingRule;
+import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +35,7 @@ import static org.mockito.Mockito.*;
 class CardRailSettlementHandlerTest {
 
     @Mock VirtualCardRepository virtualCardRepo;
-    @Mock AccountRepository     accountRepo;
+    @Mock LedgerAccountRepository     accountRepo;
     @Mock LedgerFacade          ledger;
 
     CardRailSettlementHandler handler;
@@ -47,8 +50,10 @@ class CardRailSettlementHandlerTest {
 
     @BeforeEach
     void setUp() {
+        SnowflakeIdGenerator idGen = new SnowflakeIdGenerator(0);
         handler = new CardRailSettlementHandler(
-                virtualCardRepo, accountRepo, ledger, new SnowflakeIdGenerator(0));
+                virtualCardRepo, accountRepo, ledger,
+                new CardSettlementPostingRule(idGen), new RailSettlementPostingRule(idGen));
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -78,35 +83,35 @@ class CardRailSettlementHandlerTest {
                 null, Instant.now(), Instant.now());
     }
 
-    private VaAccount cardAccount(BigDecimal balance) {
-        return new VaAccount(
-                CARD_ACCT, Mode.TEST, AccountRole.TENANT,
+    private LedgerAccount cardAccount(BigDecimal balance) {
+        return new LedgerAccount(
+                CARD_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
-                AccountType.PREPAID_CARD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
+                LedgerAccountType.PREPAID_CARD, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
-    private VaAccount holdAccount(BigDecimal balance) {
-        return new VaAccount(
-                HOLD_ACCT, Mode.TEST, AccountRole.TENANT,
+    private LedgerAccount holdAccount(BigDecimal balance) {
+        return new LedgerAccount(
+                HOLD_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
-                AccountType.PREPAID_CARD_HOLD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, AccountStatus.ACTIVE);
+                LedgerAccountType.PREPAID_CARD_HOLD, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
-    private VaAccount receivableAccount(String id, AccountType type, String providerId) {
-        return new VaAccount(
-                id, Mode.TEST, AccountRole.EXTERNAL,
+    private LedgerAccount receivableAccount(String id, LedgerAccountType type, String providerId) {
+        return new LedgerAccount(
+                id, Mode.TEST, LedgerAccountRole.EXTERNAL,
                 null, null, providerId, type, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, BigDecimal.ZERO, AccountStatus.ACTIVE);
+                NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
     }
 
-    private VaAccount walletAccount() {
-        return new VaAccount(
-                WALLET_ACCT, Mode.TEST, AccountRole.TENANT,
+    private LedgerAccount walletAccount() {
+        return new LedgerAccount(
+                WALLET_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
-                AccountType.WALLET, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, new BigDecimal("500.00"), AccountStatus.ACTIVE);
+                LedgerAccountType.WALLET, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, new BigDecimal("500.00"), LedgerAccountStatus.ACTIVE);
     }
 
     // ── CARD_SALE ─────────────────────────────────────────────────────────────
@@ -114,32 +119,33 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_posts_journal_debit_receivable_credit_card_account() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
-        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
-        VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        LedgerAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
         when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
         when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
-        when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
-        when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-sale"))).thenReturn(true);
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-sale"))).thenReturn(true);
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
 
-        var txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
-        verify(ledger).postIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-sale"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-sale"));
 
-        PostTransaction tx = txCaptor.getValue();
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
         assertThat(tx.entries()).hasSize(2);
 
-        EntryDraft debitEntry  = tx.entries().stream()
+        AccountingEntryDraft debitEntry  = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
-        EntryDraft creditEntry = tx.entries().stream()
+        AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
 
-        assertThat(debitEntry.accountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
-        assertThat(creditEntry.accountId()).isEqualTo(HOLD_ACCT);
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
         assertThat(debitEntry.amount()).isEqualByComparingTo("100.00");
         assertThat(creditEntry.amount()).isEqualByComparingTo("100.00");
     }
@@ -147,16 +153,16 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_does_not_mutate_frozen_balance_after_posting() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
-        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
-        VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        LedgerAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
         when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
         when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
-        when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
-        when(ledger.postIfNew(any(), any(), any())).thenReturn(true);
+        when(ledger.postAllIfNew(any(), any(), any())).thenReturn(true);
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
     }
@@ -164,17 +170,17 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_sale_duplicate_event_skips_balance_update() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
-        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
-        VaAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, AccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        LedgerAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct    = receivableAccount(RECEIVABLE_CARD_ACCT, LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
         when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
         when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
-        when(accountRepo.findExternalAccount("VISA_SIM", "USD", AccountType.CARD_NETWORK_RECEIVABLE))
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
                 .thenReturn(Optional.of(rcvAcct));
-        // Duplicate delivery → postIfNew returns false
-        when(ledger.postIfNew(any(), any(), any())).thenReturn(false);
+        // Duplicate delivery -> postAllIfNew returns false.
+        when(ledger.postAllIfNew(any(), any(), any())).thenReturn(false);
 
         handler.handle(event(MoneyMovementType.CARD_SALE, MASKED_PAN, MERCHANT_ID));
     }
@@ -200,89 +206,92 @@ class CardRailSettlementHandlerTest {
     @Test
     void card_reversal_posts_journal_debit_card_credit_hold_account() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
-        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
         when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
         when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
-        when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(true);
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(true);
 
         handler.handle(event(MoneyMovementType.CARD_REVERSAL, MASKED_PAN, MERCHANT_ID));
 
-        var txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
-        verify(ledger).postIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-reversal"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-reversal"));
 
-        EntryDraft debitEntry = txCaptor.getValue().entries().stream()
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
+        AccountingEntryDraft debitEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
-        EntryDraft creditEntry = txCaptor.getValue().entries().stream()
+        AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
-        assertThat(debitEntry.accountId()).isEqualTo(CARD_ACCT);
-        assertThat(creditEntry.accountId()).isEqualTo(HOLD_ACCT);
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(CARD_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
     }
 
     @Test
     void card_reversal_duplicate_event_skips_second_journal() {
         VirtualCard testCard = card();
-        VaAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
-        VaAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount cardAcct   = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct   = holdAccount(new BigDecimal("100.00"));
 
         when(virtualCardRepo.findActiveByMaskedPan(MASKED_PAN)).thenReturn(Optional.of(testCard));
         when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
         when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
-        when(ledger.postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(false);
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"))).thenReturn(false);
 
         handler.handle(event(MoneyMovementType.CARD_REVERSAL, MASKED_PAN, MERCHANT_ID));
 
-        verify(ledger).postIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"));
+        verify(ledger).postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-reversal"));
     }
 
     // ── BANK_CREDIT_TRANSFER ─────────────────────────────────────────────────
 
     @Test
     void bank_credit_transfer_posts_receivable_debit_and_wallet_credit() {
-        VaAccount wallet  = walletAccount();
-        VaAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, AccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
+        LedgerAccount wallet  = walletAccount();
+        LedgerAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, LedgerAccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
 
-        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", AccountType.WALLET))
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.WALLET))
                 .thenReturn(Optional.of(wallet));
-        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", AccountType.BANK_RAIL_RECEIVABLE))
+        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", LedgerAccountType.BANK_RAIL_RECEIVABLE))
                 .thenReturn(Optional.of(bankRcv));
-        when(ledger.postIfNew(any(), eq("evt_bank_001"), eq("rail-bank-settle"))).thenReturn(true);
+        when(ledger.postAllIfNew(any(), eq("evt_bank_001"), eq("rail-bank-settle"))).thenReturn(true);
 
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, MERCHANT_ID));
 
-        var txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
-        verify(ledger).postIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-settle"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-settle"));
 
-        PostTransaction tx = txCaptor.getValue();
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
         assertThat(tx.entries()).hasSize(2);
 
-        EntryDraft debitEntry  = tx.entries().stream()
+        AccountingEntryDraft debitEntry  = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
-        EntryDraft creditEntry = tx.entries().stream()
+        AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
 
-        assertThat(debitEntry.accountId()).isEqualTo(RECEIVABLE_BANK_ACCT);
-        assertThat(creditEntry.accountId()).isEqualTo(WALLET_ACCT);
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(RECEIVABLE_BANK_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(WALLET_ACCT);
         assertThat(debitEntry.amount()).isEqualByComparingTo("200.00");
         assertThat(creditEntry.amount()).isEqualByComparingTo("200.00");
     }
 
     @Test
     void bank_credit_transfer_duplicate_event_does_not_post_twice() {
-        VaAccount wallet  = walletAccount();
-        VaAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, AccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
+        LedgerAccount wallet  = walletAccount();
+        LedgerAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, LedgerAccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
 
-        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", AccountType.WALLET))
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.WALLET))
                 .thenReturn(Optional.of(wallet));
-        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", AccountType.BANK_RAIL_RECEIVABLE))
+        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", LedgerAccountType.BANK_RAIL_RECEIVABLE))
                 .thenReturn(Optional.of(bankRcv));
-        when(ledger.postIfNew(any(), any(), any())).thenReturn(false);
+        when(ledger.postAllIfNew(any(), any(), any())).thenReturn(false);
 
         handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, MERCHANT_ID));
 
-        verify(ledger, times(1)).postIfNew(any(), any(), any());
+        verify(ledger, times(1)).postAllIfNew(any(), any(), any());
     }
 
     @Test
@@ -296,31 +305,32 @@ class CardRailSettlementHandlerTest {
 
     @Test
     void bank_return_posts_wallet_debit_and_receivable_credit() {
-        VaAccount wallet  = walletAccount();
-        VaAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, AccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
+        LedgerAccount wallet  = walletAccount();
+        LedgerAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, LedgerAccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
 
-        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", AccountType.WALLET))
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.WALLET))
                 .thenReturn(Optional.of(wallet));
-        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", AccountType.BANK_RAIL_RECEIVABLE))
+        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", LedgerAccountType.BANK_RAIL_RECEIVABLE))
                 .thenReturn(Optional.of(bankRcv));
-        when(ledger.postIfNew(any(), eq("evt_bank_001"), eq("rail-bank-return"))).thenReturn(true);
+        when(ledger.postAllIfNew(any(), eq("evt_bank_001"), eq("rail-bank-return"))).thenReturn(true);
 
         handler.handle(bankEvent(MoneyMovementType.BANK_RETURN, MERCHANT_ID));
 
-        var txCaptor = ArgumentCaptor.forClass(PostTransaction.class);
-        verify(ledger).postIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-return"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-return"));
 
-        PostTransaction tx = txCaptor.getValue();
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
         assertThat(tx.entries()).hasSize(2);
 
-        EntryDraft debitEntry  = tx.entries().stream()
+        AccountingEntryDraft debitEntry  = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
-        EntryDraft creditEntry = tx.entries().stream()
+        AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
 
         // BANK_RETURN reverses the settlement: DR wallet / CR receivable
-        assertThat(debitEntry.accountId()).isEqualTo(WALLET_ACCT);
-        assertThat(creditEntry.accountId()).isEqualTo(RECEIVABLE_BANK_ACCT);
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(WALLET_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(RECEIVABLE_BANK_ACCT);
         assertThat(debitEntry.amount()).isEqualByComparingTo("200.00");
         assertThat(creditEntry.amount()).isEqualByComparingTo("200.00");
     }

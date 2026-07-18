@@ -9,11 +9,11 @@ import java.math.BigDecimal;
  * Order and format are fixed — any change breaks existing chains.
  *
  * Canonical string (null-byte separated):
- *   accountId \0 entrySeq \0 amount \0 direction \0 balanceAfter
+ *   ledgerAccountId \0 entrySeq \0 amount \0 direction \0 balanceAfter
  *   \0 transactionId \0 prevSignature
  */
 public record SignatureInput(
-        String accountId,
+        String ledgerAccountId,
         long entrySeq,
         BigDecimal amount,
         Direction direction,
@@ -25,7 +25,7 @@ public record SignatureInput(
         // stripTrailingZeros() normalises scale before toPlainString() so that
         // "10.00" (request body, scale 2) and "10.00000000" (DB NUMERIC(38,8), scale 8)
         // both produce "10" and never diverge between posting and verification.
-        return accountId + '\0'
+        return ledgerAccountId + '\0'
                 + entrySeq + '\0'
                 + amount.stripTrailingZeros().toPlainString() + '\0'
                 + direction.name() + '\0'
