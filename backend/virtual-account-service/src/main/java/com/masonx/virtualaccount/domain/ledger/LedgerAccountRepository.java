@@ -39,17 +39,30 @@ public class LedgerAccountRepository {
     }
 
     public void save(LedgerAccount account) {
-        jdbc.update("""
-                INSERT INTO ledger_account (
-                    ledger_account_id, mode, ledger_account_role, org_id, merchant_id, provider_id,
-                    ledger_account_type, asset, asset_class, scale, normal_balance,
-                    balance, status
-                ) VALUES (
-                    ?, ?::va_mode, ?::ledger_account_role, ?, ?, ?,
-                    ?::ledger_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
-                    ?, ?::ledger_account_status
-                )
-                """,
+        jdbc.update(INSERT_SQL, insertArgs(account));
+    }
+
+    /**
+     * Insert that tolerates losing a create race (e.g. the per-merchant
+     * MERCHANT_RECEIVABLE arbiter index). Caller re-reads the surviving row.
+     */
+    public void saveIfAbsent(LedgerAccount account) {
+        jdbc.update(INSERT_SQL + " ON CONFLICT DO NOTHING", insertArgs(account));
+    }
+
+    private static final String INSERT_SQL = """
+            INSERT INTO ledger_account (
+                ledger_account_id, mode, ledger_account_role, org_id, merchant_id, provider_id,
+                ledger_account_type, asset, asset_class, scale, normal_balance,
+                balance, status
+            ) VALUES (
+                ?, ?::va_mode, ?::ledger_account_role, ?, ?, ?,
+                ?::ledger_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
+                ?, ?::ledger_account_status
+            )""";
+
+    private static Object[] insertArgs(LedgerAccount account) {
+        return new Object[]{
                 account.ledgerAccountId(),
                 account.mode().name(),
                 account.ledgerAccountRole().name(),
@@ -62,7 +75,7 @@ public class LedgerAccountRepository {
                 account.scale(),
                 account.normalBalance().name(),
                 account.balance(),
-                account.status().name());
+                account.status().name()};
     }
 
     public Optional<LedgerAccount> findTenantAccount(String merchantId, Mode mode,

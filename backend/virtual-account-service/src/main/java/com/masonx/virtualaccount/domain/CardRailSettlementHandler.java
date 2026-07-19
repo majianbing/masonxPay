@@ -1,10 +1,15 @@
 package com.masonx.virtualaccount.domain;
 
 import com.masonx.common.error.BusinessException;
+import com.masonx.common.id.MasonXIdPrefix;
+import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.contracts.rail.MoneyMovementType;
 import com.masonx.contracts.rail.RailSettlementEvent;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountRole;
+import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
+import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.constant.SettlementExceptionReason;
 import com.masonx.virtualaccount.domain.constant.SettlementExceptionSource;
 import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
@@ -18,16 +23,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 
 /**
  * Posts double-entry ledger journals for rail settlement events.
  *
  * <p>Handles four movement types:
  * <ul>
- *   <li><b>CARD_SALE</b> — DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD_HOLD.
- *   <li><b>CARD_REVERSAL</b> — DR PREPAID_CARD / CR PREPAID_CARD_HOLD.
- *   <li><b>BANK_CREDIT_TRANSFER</b> — DR BANK_RAIL_RECEIVABLE / CR merchant WALLET.
- *   <li><b>BANK_RETURN</b> — reverses the settlement: DR merchant WALLET / CR BANK_RAIL_RECEIVABLE.
+ *   <li><b>CARD_SALE</b> — DR PREPAID_CARD_HOLD / CR card network settlement account.
+ *   <li><b>CARD_REVERSAL</b> — DR PREPAID_CARD_HOLD / CR PREPAID_CARD (hold released).
+ *   <li><b>BANK_CREDIT_TRANSFER</b> — DR BANK_RAIL_RECEIVABLE / CR merchant WALLET,
+ *       recouping any open MERCHANT_RECEIVABLE balance first.
+ *   <li><b>BANK_RETURN</b> — DR merchant WALLET up to its balance, shortfall booked
+ *       DR MERCHANT_RECEIVABLE (created on first need) / CR BANK_RAIL_RECEIVABLE.
  * </ul>
  *
  * <p>Idempotency: {@link LedgerFacade#postAllIfNew} uses the event envelope ID as the
@@ -55,6 +64,7 @@ public class CardRailSettlementHandler {
     private final RailSettlementPostingRule railSettlementPostingRule;
     private final SettlementExceptionService settlementExceptions;
     private final InboxRepository inbox;
+    private final SnowflakeIdGenerator idGen;
 
     public CardRailSettlementHandler(VirtualCardRepository virtualCardRepo,
                                      LedgerAccountRepository accountRepo,
@@ -62,7 +72,8 @@ public class CardRailSettlementHandler {
                                      CardSettlementPostingRule cardSettlementPostingRule,
                                      RailSettlementPostingRule railSettlementPostingRule,
                                      SettlementExceptionService settlementExceptions,
-                                     InboxRepository inbox) {
+                                     InboxRepository inbox,
+                                     SnowflakeIdGenerator idGen) {
         this.virtualCardRepo = virtualCardRepo;
         this.accountRepo     = accountRepo;
         this.ledger          = ledger;
@@ -70,6 +81,7 @@ public class CardRailSettlementHandler {
         this.railSettlementPostingRule = railSettlementPostingRule;
         this.settlementExceptions = settlementExceptions;
         this.inbox = inbox;
+        this.idGen = idGen;
     }
 
     public void handle(RailSettlementEvent event) {
@@ -171,9 +183,16 @@ public class CardRailSettlementHandler {
                 event, event.networkName(), LedgerAccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
+        // Recoupment: an existing MERCHANT_RECEIVABLE with open balance is paid
+        // down by this settlement before the remainder credits the wallet.
+        LedgerAccount merchantReceivable = accountRepo.findTenantAccount(
+                        event.merchantId(), RAIL_MODE, event.asset(), LedgerAccountType.MERCHANT_RECEIVABLE)
+                .orElse(null);
+
         boolean posted = ledger.postAllIfNew(
                 railSettlementPostingRule.buildBankTransfer(
-                        new RailSettlementPostingRule.BankEvent(event, eventId, wallet, receivable)),
+                        new RailSettlementPostingRule.BankEvent(
+                                event, eventId, wallet, receivable, merchantReceivable)),
                 eventId,
                 "rail-bank-settle");
 
@@ -195,9 +214,17 @@ public class CardRailSettlementHandler {
                 event, event.networkName(), LedgerAccountType.BANK_RAIL_RECEIVABLE, eventId);
         if (receivable == null) return;
 
+        // Shortfall path: when the wallet cannot cover the full return, the rest
+        // is booked as merchant debt. Create the debt account on first need.
+        LedgerAccount merchantReceivable = null;
+        if (wallet.balance().compareTo(event.amount()) < 0) {
+            merchantReceivable = findOrCreateMerchantReceivable(event, wallet);
+        }
+
         boolean posted = ledger.postAllIfNew(
                 railSettlementPostingRule.buildBankReturn(
-                        new RailSettlementPostingRule.BankEvent(event, eventId, wallet, receivable)),
+                        new RailSettlementPostingRule.BankEvent(
+                                event, eventId, wallet, receivable, merchantReceivable)),
                 eventId,
                 "rail-bank-return");
 
@@ -247,6 +274,37 @@ public class CardRailSettlementHandler {
                             "WALLET account not found for merchant=" + event.merchantId()
                                     + " asset=" + event.asset());
                     return null;
+                });
+    }
+
+    /**
+     * One MERCHANT_RECEIVABLE per (merchant, mode, asset), created on first
+     * shortfall. Race-safe via the partial unique index + ON CONFLICT DO NOTHING:
+     * concurrent creators both end up re-reading the single surviving row.
+     */
+    private LedgerAccount findOrCreateMerchantReceivable(RailSettlementEvent event, LedgerAccount wallet) {
+        return accountRepo.findTenantAccount(
+                        event.merchantId(), RAIL_MODE, event.asset(), LedgerAccountType.MERCHANT_RECEIVABLE)
+                .orElseGet(() -> {
+                    accountRepo.saveIfAbsent(new LedgerAccount(
+                            idGen.generate(MasonXIdPrefix.VA_ACCOUNT.prefix()),
+                            RAIL_MODE,
+                            LedgerAccountRole.TENANT,
+                            wallet.orgId(),
+                            event.merchantId(),
+                            null,
+                            LedgerAccountType.MERCHANT_RECEIVABLE,
+                            event.asset(),
+                            wallet.assetClass(),
+                            wallet.scale(),
+                            NormalBalance.DEBIT,
+                            BigDecimal.ZERO,
+                            LedgerAccountStatus.ACTIVE));
+                    return accountRepo.findTenantAccount(
+                                    event.merchantId(), RAIL_MODE, event.asset(),
+                                    LedgerAccountType.MERCHANT_RECEIVABLE)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "MERCHANT_RECEIVABLE creation failed for merchant=" + event.merchantId()));
                 });
     }
 

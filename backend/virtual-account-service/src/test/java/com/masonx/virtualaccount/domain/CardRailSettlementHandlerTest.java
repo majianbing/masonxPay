@@ -59,7 +59,7 @@ class CardRailSettlementHandlerTest {
         handler = new CardRailSettlementHandler(
                 virtualCardRepo, accountRepo, ledger,
                 new CardSettlementPostingRule(idGen), new RailSettlementPostingRule(idGen),
-                settlementExceptions, inbox);
+                settlementExceptions, inbox, idGen);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ class CardRailSettlementHandlerTest {
                 CARD_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 LedgerAccountType.PREPAID_CARD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
+                NormalBalance.CREDIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
     private LedgerAccount holdAccount(BigDecimal balance) {
@@ -102,7 +102,7 @@ class CardRailSettlementHandlerTest {
                 HOLD_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 LedgerAccountType.PREPAID_CARD_HOLD, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, balance, LedgerAccountStatus.ACTIVE);
+                NormalBalance.CREDIT, balance, LedgerAccountStatus.ACTIVE);
     }
 
     private LedgerAccount receivableAccount(String id, LedgerAccountType type, String providerId) {
@@ -113,11 +113,23 @@ class CardRailSettlementHandlerTest {
     }
 
     private LedgerAccount walletAccount() {
+        return walletAccount(new BigDecimal("500.00"));
+    }
+
+    private LedgerAccount walletAccount(BigDecimal balance) {
         return new LedgerAccount(
                 WALLET_ACCT, Mode.TEST, LedgerAccountRole.TENANT,
                 "org_1", MERCHANT_ID, null,
                 LedgerAccountType.WALLET, "USD", AssetClass.FIAT, 2,
-                NormalBalance.DEBIT, new BigDecimal("500.00"), LedgerAccountStatus.ACTIVE);
+                NormalBalance.CREDIT, balance, LedgerAccountStatus.ACTIVE);
+    }
+
+    private LedgerAccount merchantReceivableAccount() {
+        return new LedgerAccount(
+                "ac_debt_1", Mode.TEST, LedgerAccountRole.TENANT,
+                "org_1", MERCHANT_ID, null,
+                LedgerAccountType.MERCHANT_RECEIVABLE, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
     }
 
     // ── CARD_SALE ─────────────────────────────────────────────────────────────
@@ -150,8 +162,9 @@ class CardRailSettlementHandlerTest {
         AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
 
-        assertThat(debitEntry.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
-        assertThat(creditEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
+        // Liability convention: sale extinguishes the hold into a network obligation.
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
         assertThat(debitEntry.amount()).isEqualByComparingTo("100.00");
         assertThat(creditEntry.amount()).isEqualByComparingTo("100.00");
     }
@@ -263,8 +276,9 @@ class CardRailSettlementHandlerTest {
                 .filter(e -> e.direction() == Direction.DEBIT).findFirst().orElseThrow();
         AccountingEntryDraft creditEntry = tx.entries().stream()
                 .filter(e -> e.direction() == Direction.CREDIT).findFirst().orElseThrow();
-        assertThat(debitEntry.ledgerAccountId()).isEqualTo(CARD_ACCT);
-        assertThat(creditEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
+        // Liability convention: reversal releases the hold back to available funds.
+        assertThat(debitEntry.ledgerAccountId()).isEqualTo(HOLD_ACCT);
+        assertThat(creditEntry.ledgerAccountId()).isEqualTo(CARD_ACCT);
     }
 
     @Test
@@ -395,5 +409,87 @@ class CardRailSettlementHandlerTest {
         verify(settlementExceptions).park(
                 eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_bank_001"), anyString(),
                 eq(SettlementExceptionReason.INSUFFICIENT_BALANCE), anyString(), any());
+    }
+
+    @Test
+    void bank_return_shortfall_creates_merchant_receivable_and_splits_legs() {
+        LedgerAccount wallet  = walletAccount(new BigDecimal("120.00"));
+        LedgerAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, LedgerAccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
+        LedgerAccount debt    = merchantReceivableAccount();
+
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.WALLET))
+                .thenReturn(Optional.of(wallet));
+        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", LedgerAccountType.BANK_RAIL_RECEIVABLE))
+                .thenReturn(Optional.of(bankRcv));
+        // First lookup misses (account does not exist yet); re-find after create succeeds.
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.MERCHANT_RECEIVABLE))
+                .thenReturn(Optional.empty(), Optional.of(debt));
+        when(ledger.postAllIfNew(any(), eq("evt_bank_001"), eq("rail-bank-return"))).thenReturn(true);
+
+        handler.handle(bankEvent(MoneyMovementType.BANK_RETURN, MERCHANT_ID));
+
+        verify(accountRepo).saveIfAbsent(any(LedgerAccount.class));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-return"));
+
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
+        assertThat(tx.entries()).hasSize(3);
+        assertThat(tx.entries())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(WALLET_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.DEBIT);
+                    assertThat(e.amount()).isEqualByComparingTo("120.00");
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo("ac_debt_1");
+                    assertThat(e.direction()).isEqualTo(Direction.DEBIT);
+                    assertThat(e.amount()).isEqualByComparingTo("80.00");
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(RECEIVABLE_BANK_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                    assertThat(e.amount()).isEqualByComparingTo("200.00");
+                });
+    }
+
+    @Test
+    void bank_transfer_recoups_open_merchant_debt_before_crediting_wallet() {
+        LedgerAccount wallet  = walletAccount(BigDecimal.ZERO);
+        LedgerAccount bankRcv = receivableAccount(RECEIVABLE_BANK_ACCT, LedgerAccountType.BANK_RAIL_RECEIVABLE, "SEPA_SIM");
+        LedgerAccount debt = new LedgerAccount(
+                "ac_debt_1", Mode.TEST, LedgerAccountRole.TENANT,
+                "org_1", MERCHANT_ID, null,
+                LedgerAccountType.MERCHANT_RECEIVABLE, "USD", AssetClass.FIAT, 2,
+                NormalBalance.DEBIT, new BigDecimal("80.00"), LedgerAccountStatus.ACTIVE);
+
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.WALLET))
+                .thenReturn(Optional.of(wallet));
+        when(accountRepo.findExternalAccount("SEPA_SIM", "USD", LedgerAccountType.BANK_RAIL_RECEIVABLE))
+                .thenReturn(Optional.of(bankRcv));
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.MERCHANT_RECEIVABLE))
+                .thenReturn(Optional.of(debt));
+        when(ledger.postAllIfNew(any(), eq("evt_bank_001"), eq("rail-bank-settle"))).thenReturn(true);
+
+        handler.handle(bankEvent(MoneyMovementType.BANK_CREDIT_TRANSFER, MERCHANT_ID));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_bank_001"), eq("rail-bank-settle"));
+
+        LedgerPostingCommand tx = txCaptor.getValue().get(0);
+        assertThat(tx.entries()).hasSize(3);
+        assertThat(tx.entries())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo("ac_debt_1");
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                    assertThat(e.amount()).isEqualByComparingTo("80.00");
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(WALLET_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                    assertThat(e.amount()).isEqualByComparingTo("120.00");
+                });
     }
 }

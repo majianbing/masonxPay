@@ -180,7 +180,7 @@ class VirtualCardServiceTest {
                 "USD",
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 balance,
                 LedgerAccountStatus.ACTIVE);
     }
@@ -197,7 +197,7 @@ class VirtualCardServiceTest {
                 "USD",
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 balance,
                 LedgerAccountStatus.ACTIVE);
     }
@@ -214,7 +214,7 @@ class VirtualCardServiceTest {
                 "USD",
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 new BigDecimal("100.00"),
                 LedgerAccountStatus.ACTIVE);
     }

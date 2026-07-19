@@ -82,7 +82,7 @@ public class VirtualCardService {
                 req.currency(),
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE);
         accountRepo.save(vccAccount);
@@ -100,7 +100,7 @@ public class VirtualCardService {
                 req.currency(),
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE);
         accountRepo.save(holdAccount);

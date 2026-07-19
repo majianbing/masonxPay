@@ -30,12 +30,20 @@ Ownership/scoping and account classification are independent. Do not stack them 
 
 ## Account types & normal balance
 
-- **Asset** (`normal_balance = DEBIT`): `CASH`, `WALLET` — value you hold; normally cannot go negative.
+The ledger uses **platform-books convention**: accounts state the platform's own
+balance sheet. Merchant and cardholder funds held by the platform are platform
+**liabilities** (CREDIT-normal); money mirrors and amounts owed to the platform
+are **assets** (DEBIT-normal). Balances are always positive magnitudes — the
+posting engine applies entry direction against `normal_balance`.
+
+- **Fund-holding liability** (`normal_balance = CREDIT`): `WALLET`, `PREPAID_CARD`, `PREPAID_CARD_HOLD` — merchant/cardholder money the platform owes back; cannot go negative (no overdraft).
+- **Asset** (`normal_balance = DEBIT`): `CASH` — external-world money mirror (bank transfer, provider settlement landing).
 - **Liability** (`normal_balance = CREDIT`): `CREDIT_LINE` — balance = amount owed; bounded by `credit_limit`; available credit = `credit_limit − outstanding`.
 - **Receivable** (`normal_balance = DEBIT`): `RECEIVABLE` — money owed to the platform by a customer. Balance = outstanding amount. Settlement (customer pays) and write-off (财务核销) are both ledger entries that reduce this balance.
+- **Merchant debt** (`normal_balance = DEBIT`): `MERCHANT_RECEIVABLE` — TENANT-scoped platform asset booked when a bank-return shortfall exceeds the merchant wallet; auto-created (one per merchant/mode/asset) and recouped from later inbound settlements before the wallet is credited.
 - **Reserve** (`normal_balance = DEBIT`): `RESERVE` — merchant reserve funds held by the platform. Owned by the **TENANT** (the reserve is still the merchant's money, just restricted — the merchant can see their reserve balance). Fixed reserve and rolling reserve are identical at the ledger layer — both move $X into this account. The calculation of $X (fixed amount vs percentage) is business-layer policy, not a ledger concern.
 - **Bad debt** (`normal_balance = DEBIT`): `BAD_DEBT` — PLATFORM account used as the debit side of a write-off entry (销账 - 财务核销). Represents uncollectable receivables expensed by the platform.
-- Platform/external accounts (`FEE_INCOME`, `CLEARING`, `SUSPENSE`, `BAD_DEBT`, provider mirror) use the same primitive with the appropriate role.
+- Platform/external accounts (`PLATFORM_FEE_RECEIVABLE`, `FEE_INCOME`, `CLEARING`, `SUSPENSE`, `BAD_DEBT`, provider mirror) use the same primitive with the appropriate role. Gateway settlement fees accrue into `PLATFORM_FEE_RECEIVABLE` (DEBIT-normal asset); `FEE_INCOME` is reserved for later true revenue recognition.
 
 Balance is **derived/materialized** from append-only entries, respecting `normal_balance`. Never `UPDATE`/`DELETE` an entry; corrections and reversals are new compensating entries.
 
@@ -43,8 +51,8 @@ Balance is **derived/materialized** from append-only entries, respecting `normal
 
 A card (debit or credit) is an **access instrument** bound to an underlying account. Debit vs credit differs only in what the card points at:
 
-- **Debit card** → asset account (`CASH`/`WALLET`); spend decreases balance; cannot go below 0.
-- **Credit card** → liability account (`CREDIT_LINE`); spend increases outstanding; up to `credit_limit`.
+- **Debit card** → fund-holding account (`WALLET`/`PREPAID_CARD`); spend decreases balance; cannot go below 0.
+- **Credit card** → credit-line account (`CREDIT_LINE`); spend increases outstanding; up to `credit_limit`.
 
 Same model, same provider mechanics — only `normal_balance` + limit policy change.
 
@@ -68,7 +76,7 @@ ledger_account             -- generic ledger account; ONLY universal columns
   mode          TEST|LIVE
   ledger_account_role TENANT|PLATFORM|EXTERNAL
   org_id, merchant_id      (set for TENANT)        provider_id (set for EXTERNAL)
-  ledger_account_type CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|PREPAID_CARD|PREPAID_CARD_HOLD|FEE_INCOME|CLEARING|SUSPENSE|BAD_DEBT
+  ledger_account_type CASH|WALLET|CREDIT_LINE|RECEIVABLE|RESERVE|PREPAID_CARD|PREPAID_CARD_HOLD|PLATFORM_FEE_RECEIVABLE|FEE_INCOME|CLEARING|SUSPENSE|BAD_DEBT
   -- RESERVE is TENANT-owned: the merchant's restricted funds, visible on their balance sheet
   asset         USD|BTC|USDC...  + asset_class FIAT|CRYPTO + scale
   normal_balance DEBIT|CREDIT
@@ -102,13 +110,13 @@ Type-specific columns live **only** in extension tables — never on `ledger_acc
 
 Holds (冻结/解冻) are real ledger movements. The ledger no longer has a mutable `frozen_balance` column. Availability is modeled by splitting a product balance across ledger accounts:
 
-- **Available account:** for VCCs this is `PREPAID_CARD`.
-- **Hold account:** for VCCs this is the paired `PREPAID_CARD_HOLD`.
-- **Freeze / authorization hold:** `DR PREPAID_CARD_HOLD`, `CR PREPAID_CARD`.
-- **Release / reversal:** `DR PREPAID_CARD`, `CR PREPAID_CARD_HOLD`.
-- **Settlement of held funds:** `DR CARD_NETWORK_RECEIVABLE`, `CR PREPAID_CARD_HOLD`.
+- **Available account:** for VCCs this is `PREPAID_CARD` (CREDIT-normal liability).
+- **Hold account:** for VCCs this is the paired `PREPAID_CARD_HOLD` (CREDIT-normal liability).
+- **Freeze / authorization hold:** `DR PREPAID_CARD`, `CR PREPAID_CARD_HOLD` — liability moves available → held.
+- **Release / reversal:** `DR PREPAID_CARD_HOLD`, `CR PREPAID_CARD` — held liability returns to available.
+- **Settlement of held funds:** `DR PREPAID_CARD_HOLD`, `CR CARD_NETWORK_RECEIVABLE` — held cardholder liability is extinguished into an obligation to the network (issuing-side payable; type name retained until CoA cleanup).
 
-For debit-normal asset accounts, the user-facing values are:
+Balances are positive magnitudes regardless of normal balance, so the user-facing values are:
 
 ```text
 available = balance(available ledger account)
@@ -127,8 +135,8 @@ Individual hold metadata (reason, expiry, dispute reference, auth code replay) i
 | 余额 (Ledger Balance) | `ledger_account.balance` |
 | 可用余额 (Available Balance) | Balance on the available ledger account, e.g. `PREPAID_CARD` |
 | 冻结余额 (Reserved/Held Balance) | Balance on the paired hold ledger account, e.g. `PREPAID_CARD_HOLD` |
-| 冻结资金 (Hold) | `DR hold account / CR available account` |
-| 解冻资金 (Release) | `DR available account / CR hold account` |
+| 冻结资金 (Hold) | `DR available account / CR hold account` (liability moves available → held) |
+| 解冻资金 (Release) | `DR hold account / CR available account` (held liability returns) |
 | 挂账 (Receivable/Outstanding) | Balance on a `RECEIVABLE` account |
 | 销账 - 客户补款 (Settlement) | DEBIT `CASH`, CREDIT `RECEIVABLE` |
 | 销账 - 财务核销 (Write-off) | DEBIT `BAD_DEBT` (PLATFORM), CREDIT `RECEIVABLE` |

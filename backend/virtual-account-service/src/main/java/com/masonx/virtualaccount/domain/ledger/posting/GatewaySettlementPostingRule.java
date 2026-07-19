@@ -59,7 +59,7 @@ public class GatewaySettlementPostingRule implements PostingRule<GatewaySettleme
 
         boolean hasFee = cmd.feeAmount().compareTo(BigDecimal.ZERO) > 0;
         if (hasFee) {
-            var platformFeeOpt = accountRepo.findPlatformAccount(cmd.asset(), LedgerAccountType.FEE_INCOME);
+            var platformFeeOpt = accountRepo.findPlatformAccount(cmd.asset(), LedgerAccountType.PLATFORM_FEE_RECEIVABLE);
             if (platformFeeOpt.isPresent()) {
                 return List.of(
                         new AccountingEntryDraft(tenantCash.ledgerAccountId(), Direction.DEBIT,

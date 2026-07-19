@@ -93,14 +93,15 @@ class CardAuthorizationServiceTest {
         assertThat(eventId).startsWith("card_auth_");
         LedgerPostingCommand tx = txCaptor.getValue().get(0);
         assertThat(tx.entries()).hasSize(2);
+        // Liability convention: hold moves available -> held as DR CARD / CR HOLD.
         assertThat(tx.entries())
                 .anySatisfy(entry -> {
-                    assertThat(entry.ledgerAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
+                    assertThat(entry.ledgerAccountId()).isEqualTo(CARD_ACCOUNT_ID);
                     assertThat(entry.direction()).isEqualTo(Direction.DEBIT);
                     assertThat(entry.sourceEventId()).isEqualTo(eventId);
                 })
                 .anySatisfy(entry -> {
-                    assertThat(entry.ledgerAccountId()).isEqualTo(CARD_ACCOUNT_ID);
+                    assertThat(entry.ledgerAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
                     assertThat(entry.direction()).isEqualTo(Direction.CREDIT);
                     assertThat(entry.sourceEventId()).isEqualTo(eventId);
                 });
@@ -306,7 +307,7 @@ class CardAuthorizationServiceTest {
                 "USD",
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 balance,
                 LedgerAccountStatus.ACTIVE);
     }
@@ -323,7 +324,7 @@ class CardAuthorizationServiceTest {
                 "USD",
                 AssetClass.FIAT,
                 2,
-                NormalBalance.DEBIT,
+                NormalBalance.CREDIT,
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE);
     }

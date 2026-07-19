@@ -26,10 +26,12 @@ public class CardSettlementPostingRule {
     public List<LedgerPostingCommand> buildSale(SaleEvent event) {
         String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         RailSettlementEvent railEvent = event.event();
+        // Held cardholder liability is extinguished and becomes an obligation to the
+        // network: DR PREPAID_CARD_HOLD (down) / CR network settlement account (up).
         return List.of(new LedgerPostingCommand(txId, List.of(
-                new AccountingEntryDraft(event.receivableAccount().ledgerAccountId(), Direction.DEBIT,
+                new AccountingEntryDraft(event.holdAccount().ledgerAccountId(), Direction.DEBIT,
                         railEvent.amount(), railEvent.asset(), event.eventId()),
-                new AccountingEntryDraft(event.holdAccount().ledgerAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(event.receivableAccount().ledgerAccountId(), Direction.CREDIT,
                         railEvent.amount(), railEvent.asset(), event.eventId())
         ), TransactionType.CARD_SALE, "Card sale " + railEvent.maskedPan(), railEvent.railPaymentId(),
                 LocalDate.now(), event.cardAccount().mode(), event.cardAccount().orgId(),
@@ -39,10 +41,12 @@ public class CardSettlementPostingRule {
     public List<LedgerPostingCommand> buildReversal(ReversalEvent event) {
         String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
         RailSettlementEvent railEvent = event.event();
+        // Confirmed reversal releases the hold back to available:
+        // DR PREPAID_CARD_HOLD (down) / CR PREPAID_CARD (up).
         return List.of(new LedgerPostingCommand(txId, List.of(
-                new AccountingEntryDraft(event.cardAccount().ledgerAccountId(), Direction.DEBIT,
+                new AccountingEntryDraft(event.holdAccount().ledgerAccountId(), Direction.DEBIT,
                         railEvent.amount(), railEvent.asset(), event.eventId()),
-                new AccountingEntryDraft(event.holdAccount().ledgerAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(event.cardAccount().ledgerAccountId(), Direction.CREDIT,
                         railEvent.amount(), railEvent.asset(), event.eventId())
         ), TransactionType.REVERSAL, "Card auth reversal " + railEvent.maskedPan(), railEvent.railPaymentId(),
                 LocalDate.now(), event.cardAccount().mode(), event.cardAccount().orgId(),

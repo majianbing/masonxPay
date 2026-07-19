@@ -12,13 +12,20 @@ Phase MR extended this service with card issuing and rail settlement capabilitie
 
 **New LedgerAccountTypes**
 
-| Type | Role | Description |
-|---|---|---|
-| `PREPAID_CARD` | TENANT | Ring-fenced wallet bound to a VirtualCard lifecycle |
-| `PREPAID_CARD_HOLD` | TENANT | Authorized-but-unsettled prepaid card funds |
-| `CARD_NETWORK_RECEIVABLE` | EXTERNAL | Amounts owed by card network between sale and settlement |
-| `BANK_RAIL_RECEIVABLE` | EXTERNAL | Amounts owed from bank rail between pain.001 and pacs.002 ACSC |
-| `SUSPENSE_UNKNOWN_TXN` | PLATFORM | Card transactions timed out — outcome unknown, reversal pending |
+| Type | Role | Normal | Description |
+|---|---|---|---|
+| `PREPAID_CARD` | TENANT | CREDIT | Ring-fenced cardholder funds bound to a VirtualCard lifecycle |
+| `PREPAID_CARD_HOLD` | TENANT | CREDIT | Authorized-but-unsettled prepaid card funds |
+| `CARD_NETWORK_RECEIVABLE` | EXTERNAL | CREDIT | Issuing-side obligation to the card network (payable semantics; name kept until CoA cleanup) |
+| `BANK_RAIL_RECEIVABLE` | EXTERNAL | DEBIT | Money sitting at the bank rail owed to the platform |
+| `SUSPENSE_UNKNOWN_TXN` | PLATFORM | DEBIT | Card transactions timed out — outcome unknown, reversal pending |
+| `MERCHANT_RECEIVABLE` | TENANT | DEBIT | Merchant debt from bank-return shortfalls; recouped from later settlements |
+
+**Normal-balance convention (platform books):** merchant and cardholder funds held
+by the platform are liabilities — `WALLET`, `PREPAID_CARD`, and `PREPAID_CARD_HOLD`
+are CREDIT-normal. `CASH` (external-world money mirror) and receivables are
+DEBIT-normal assets. Balances are always positive magnitudes; the engine applies
+direction against normal balance.
 
 **VirtualCard entity**
 `virtual_card` table links `card_token_id` → `vcc_account_id` (PREPAID_CARD), `hold_account_id` (PREPAID_CARD_HOLD), and `owner_account_id` (WALLET). `masked_pan` is display/audit metadata only. Lifecycle: ACTIVE → FROZEN / EXPIRED / CLOSED.
@@ -33,10 +40,13 @@ Phase MR extended this service with card issuing and rail settlement capabilitie
 
 **Rail settlement consumer**
 `SettlementEventConsumer` extended to handle `RailSettlementEvent` from Kafka topic `rail.settlement.events`:
-- Card sale: DR CARD_NETWORK_RECEIVABLE / CR PREPAID_CARD_HOLD
-- Card reversal: DR PREPAID_CARD / CR PREPAID_CARD_HOLD
-- Bank settle: DR BANK_RAIL_RECEIVABLE / CR target account
-- Bank return: reverse the settlement journal
+- Card sale: DR PREPAID_CARD_HOLD / CR card network settlement account
+- Card reversal: DR PREPAID_CARD_HOLD / CR PREPAID_CARD (hold released)
+- Bank settle: DR BANK_RAIL_RECEIVABLE / CR merchant WALLET — recouping any open
+  MERCHANT_RECEIVABLE balance first (CR debt before CR wallet)
+- Bank return — always postable: DR WALLET up to its balance; shortfall booked
+  DR MERCHANT_RECEIVABLE (auto-created per merchant/mode/asset, race-safe via a
+  partial unique index); CR BANK_RAIL_RECEIVABLE for the full amount
 - All journals idempotent on `source_event_id`
 
 **Settlement exception parking** (no event is ever dropped)

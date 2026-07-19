@@ -67,7 +67,7 @@ The key distinction is:
 | `EntryDraft` | `AccountingEntryDraft` | It is a pre-persistence debit/credit leg. The suffix avoids confusion with persisted `LedgerEntry`. |
 | `VaAccount` | `LedgerAccount` | The row represents an accounting account, not a wallet or user account. |
 | `AccountRepository` | `LedgerAccountRepository` | Makes ownership explicit and avoids generic "account" overload. |
-| `AccountType` | `LedgerAccountType` | Types such as `PREPAID_CARD_HOLD`, `FEE_INCOME`, `CLEARING`, `TAX_PAYABLE` are ledger-account categories. |
+| `AccountType` | `LedgerAccountType` | Types such as `PREPAID_CARD_HOLD`, `PLATFORM_FEE_RECEIVABLE`, `FEE_INCOME`, `CLEARING`, `TAX_PAYABLE` are ledger-account categories. |
 | `AccountRole` | `LedgerAccountRole` | Scope class of the ledger account: tenant, platform, external. |
 | `AccountStatus` | `LedgerAccountStatus` | Posting eligibility belongs to the ledger account. |
 | `va_account` | `ledger_account` | DB table should express the accounting primitive directly. |

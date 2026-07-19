@@ -303,8 +303,8 @@ FROM va_ledger_entry e
 JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id
 WHERE a.merchant_id = 'mer_test_001'
 ORDER BY e.created_at;
--- DR PREPAID_CARD 200
--- CR WALLET 200
+-- DR WALLET 200
+-- CR PREPAID_CARD 200  (liability moves wallet -> card)
 ```
 
 ### B4. Authorize using the VCC — approved
@@ -351,7 +351,7 @@ When the card sale is approved on the ISO 8583 path (MR1), rail-service publishe
 
 ```sql
 -- Ledger journal for the card sale
--- DR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) / CR PREPAID_CARD_HOLD account
+-- DR PREPAID_CARD_HOLD / CR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) — hold extinguished into network obligation
 SELECT e.ledger_account_id, e.direction, e.amount, e.balance_after, e.source_event_id
 FROM va_ledger_entry e
 JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id

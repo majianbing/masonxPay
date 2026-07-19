@@ -132,28 +132,32 @@ function near(a, b) {
 // ── setup(): wallet → card → funded card ─────────────────────────────────────
 export function setup() {
     const runId = 'card' + Date.now();
-    const merchantId = 'm_' + runId;
 
-    // Counter-leg for wallet funding: one bench pair provides an EXTERNAL account.
+    // One bench pair provides a funded merchant context: its CASH account is the
+    // DEBIT-normal asset leg used to fund the CREDIT-normal wallet liability
+    // (DR CASH / CR WALLET — the internal cash→wallet transfer shape). The
+    // wallet must belong to the same merchant to pass tenant-scope validation.
     const pairRes = post('/internal/bench/setup', {pairCount: 1});
     if (pairRes.status !== 200) {
         throw new Error(`bench setup failed ${pairRes.status}: ${pairRes.body} ` +
             '(is the stack up with va.bench.enabled=true? see bench/va/docker-compose.yml)');
     }
-    const externalId = pairRes.json().pairs[0].externalLedgerAccountId;
+    const benchRunId = pairRes.json().runId;
+    const cashId = pairRes.json().pairs[0].tenantLedgerAccountId;
+    const merchantId = 'm_' + benchRunId + '_0';   // matches the pair's CASH account merchant
 
-    // Merchant wallet.
+    // Merchant wallet (CREDIT-normal platform liability).
     const walletRes = post('/internal/va/accounts', {
-        merchantId, orgId: 'org_cardbench', ledgerAccountType: 'WALLET', asset: 'USD',
+        merchantId, orgId: 'org_bench', ledgerAccountType: 'WALLET', asset: 'USD',
     });
     if (walletRes.status !== 200 && walletRes.status !== 201) {
         throw new Error(`wallet create failed ${walletRes.status}: ${walletRes.body}`);
     }
     const walletId = walletRes.json().ledgerAccountId;
 
-    // Fund the wallet (DR wallet / CR external), then create + fund the card.
+    // Fund the wallet: DR CASH (asset up) / CR WALLET (liability up).
     const fundWallet = post('/internal/bench/post', {
-        tenantLedgerAccountId: walletId, externalLedgerAccountId: externalId, amount: FUND_AMOUNT,
+        tenantLedgerAccountId: cashId, externalLedgerAccountId: walletId, amount: FUND_AMOUNT,
     });
     if (fundWallet.status !== 200) {
         throw new Error(`wallet funding failed ${fundWallet.status}: ${fundWallet.body}`);

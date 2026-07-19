@@ -26,14 +26,14 @@ import java.math.BigDecimal;
  *
  *   With fee and platform account present (3 entries):
  *     DEBIT  tenant CASH        netAmount
- *     DEBIT  platform FEE_INCOME feeAmount
+ *     DEBIT  platform PLATFORM_FEE_RECEIVABLE feeAmount
  *     CREDIT external CLEARING  amount (gross)
  *
  * Direction = DEBIT (refund reversal, money out):
  *   CREDIT tenant CASH      amount
  *   DEBIT  external CLEARING amount
  *
- * TENANT CASH and platform FEE_INCOME are DEBIT-normal (asset perspective).
+ * TENANT CASH and platform PLATFORM_FEE_RECEIVABLE are DEBIT-normal (asset perspective).
  * EXTERNAL CLEARING is CREDIT-normal (inflow source).
  *
  * Idempotency: the inbox layer (va_inbox_event) prevents the same event from

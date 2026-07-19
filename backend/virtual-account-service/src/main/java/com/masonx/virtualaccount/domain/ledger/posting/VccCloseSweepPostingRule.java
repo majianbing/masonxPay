@@ -26,10 +26,11 @@ public class VccCloseSweepPostingRule implements PostingRule<VccCloseSweepPostin
     @Override
     public List<LedgerPostingCommand> build(CloseSweepEvent event) {
         String txId = idGen.generate(MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix());
+        // Liability moves card -> wallet: DR PREPAID_CARD (liability down) / CR WALLET (up).
         return List.of(new LedgerPostingCommand(txId, List.of(
-                new AccountingEntryDraft(event.ownerAccount().ledgerAccountId(), Direction.DEBIT,
+                new AccountingEntryDraft(event.card().vccAccountId(), Direction.DEBIT,
                         event.amount(), event.card().currency(), txId),
-                new AccountingEntryDraft(event.card().vccAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(event.ownerAccount().ledgerAccountId(), Direction.CREDIT,
                         event.amount(), event.card().currency(), txId)
         ), TransactionType.INTERNAL, "Close card sweep " + event.card().cardId(), null,
                 LocalDate.now(), event.ownerAccount().mode(), event.ownerAccount().orgId(),

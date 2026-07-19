@@ -31,8 +31,10 @@ The bench stack runs VA with `va.bench.enabled=true`, which exposes the
 
 ## Scenarios
 
-Each run does its own setup: creates a merchant WALLET, funds it via a bench
-counter-account, creates a VCC, and loads `FUND_AMOUNT` onto the card.
+Each run does its own setup: creates a merchant WALLET (CREDIT-normal platform
+liability), funds it from the bench merchant's CASH account (`DR CASH / CR WALLET`
+— the internal cash→wallet transfer shape), creates a VCC, and loads
+`FUND_AMOUNT` onto the card.
 
 ### 1. smoke — functional walk (run this after any auth-path change)
 

@@ -26,10 +26,11 @@ public class VccFundingPostingRule implements PostingRule<VccFundingPostingRule.
     @Override
     public List<LedgerPostingCommand> build(FundingEvent event) {
         String txId = idGen.generate(MasonXIdPrefix.CARD_FUND_TRANSACTION.prefix());
+        // Liability moves wallet -> card: DR WALLET (liability down) / CR PREPAID_CARD (up).
         return List.of(new LedgerPostingCommand(txId, List.of(
-                new AccountingEntryDraft(event.card().vccAccountId(), Direction.DEBIT,
+                new AccountingEntryDraft(event.card().ownerAccountId(), Direction.DEBIT,
                         event.amount(), event.card().currency(), event.eventId()),
-                new AccountingEntryDraft(event.card().ownerAccountId(), Direction.CREDIT,
+                new AccountingEntryDraft(event.card().vccAccountId(), Direction.CREDIT,
                         event.amount(), event.card().currency(), event.eventId())
         ), TransactionType.INTERNAL, "Fund card " + event.card().cardId(), null,
                 LocalDate.now(), event.ownerAccount().mode(), event.ownerAccount().orgId(),
