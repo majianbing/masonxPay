@@ -36,8 +36,6 @@ public class ReversalTaskService {
     // Backoff delays (seconds) indexed by 0-based attempt number.
     private static final long[] BACKOFF_SECONDS = { 30L, 120L, 300L };
 
-    private static final String PREPAID_CARD_BIN = "999999";
-
     private final ReversalTaskRepository         reversalRepo;
     private final RailPaymentRepository          paymentRepo;
     private final Iso8583ReversalSender          reversalSender;
@@ -119,10 +117,10 @@ public class ReversalTaskService {
     }
 
     private void publishCardReversalIfPrepaid(ReversalTask task) {
-        if (task.maskedPan() != null && task.maskedPan().startsWith(PREPAID_CARD_BIN)) {
+        if (task.cardTokenId() != null) {
             publisher.publishCardReversal(
                     task.paymentId(), task.merchantId(), task.network(),
-                    task.maskedPan(), task.amount(), task.currency());
+                    task.cardTokenId(), task.maskedPan(), task.amount(), task.currency());
         }
     }
 

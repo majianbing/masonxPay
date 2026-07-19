@@ -9,9 +9,8 @@ import java.time.LocalDate;
 /**
  * A funded virtual card issued against a PREPAID_CARD LedgerAccount.
  *
- * <p>maskedPan stores only the masked form (e.g. {@code 4111****1234}).
- * The simulator test PAN used to build ISO 8583 DE2 is never persisted here —
- * it travels in the CanonicalPaymentCommand and is masked before any log write.
+ * <p>cardTokenId is the simulator card identity used by issuer decisions.
+ * maskedPan stores only the display/audit form (e.g. {@code 4111****1234}).
  *
  * <p>vccAccountId points to the PREPAID_CARD account that holds the loaded balance.
  * holdAccountId points to the paired PREPAID_CARD_HOLD account for authorized
@@ -21,6 +20,7 @@ import java.time.LocalDate;
  */
 public record VirtualCard(
         String cardId,
+        String cardTokenId,
         String maskedPan,
         String bin,
         String vccAccountId,

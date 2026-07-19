@@ -1,5 +1,7 @@
 package com.masonx.rail.canonical;
 
+import com.masonx.common.card.SimulatorCardTokenId;
+
 /**
  * Simulator card reference. Contains a test PAN for building ISO 8583 DE2.
  *
@@ -22,5 +24,10 @@ public record CardToken(
     /** BIN prefix (first 6 digits). Used for routing and logging only. */
     public String bin() {
         return testPan != null && testPan.length() >= 6 ? testPan.substring(0, 6) : "";
+    }
+
+    /** Deterministic simulator identity used by VA instead of masked PAN. */
+    public String cardTokenId() {
+        return SimulatorCardTokenId.fromPan(testPan);
     }
 }

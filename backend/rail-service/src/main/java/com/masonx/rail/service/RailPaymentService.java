@@ -77,7 +77,8 @@ public class RailPaymentService {
             String network = command.metadata().getOrDefault("network", "UNKNOWN");
             publisher.publishCardSale(
                     command.paymentId(), command.merchantId(), network,
-                    command.cardToken().masked(), command.amount(), command.currency());
+                    command.cardToken().cardTokenId(), command.cardToken().masked(),
+                    command.amount(), command.currency());
         }
 
         return response;

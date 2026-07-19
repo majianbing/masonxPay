@@ -24,4 +24,12 @@ public class InboxRepository {
                 eventId, eventType);
         return rows == 1;
     }
+
+    public boolean hasProcessed(String eventId) {
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM va_inbox_event WHERE event_id = ?)",
+                Boolean.class,
+                eventId);
+        return Boolean.TRUE.equals(exists);
+    }
 }

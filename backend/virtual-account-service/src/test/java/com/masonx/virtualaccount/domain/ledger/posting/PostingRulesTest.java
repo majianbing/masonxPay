@@ -173,7 +173,7 @@ class PostingRulesTest {
 
     private static VirtualCard card() {
         return new VirtualCard(
-                "card_1", "999999****1234", "999999",
+                "card_1", "ctok_abc123", "999999****1234", "999999",
                 "ac_card", "ac_hold", "ac_owner", VirtualCardStatus.ACTIVE,
                 null, "USD", LocalDate.of(2027, 1, 1), Instant.now(), Instant.now());
     }
@@ -190,12 +190,12 @@ class PostingRulesTest {
     }
 
     private static RailSettlementEvent railEvent(MoneyMovementType type, String amount) {
-        var envelope = new EventEnvelope(EVENT_ID, RailSettlementEvent.TYPE, 2,
+        var envelope = new EventEnvelope(EVENT_ID, RailSettlementEvent.TYPE, RailSettlementEvent.SCHEMA_VERSION,
                 Instant.now(), "corr_1", null);
         return new RailSettlementEvent(
                 envelope, "rail_payment_1", PaymentRail.CARD_ISO8583, type,
                 "USD", amount(amount), null, null, "VISA_SIM", Instant.now(),
-                MERCHANT_ID, "999999****1234");
+                MERCHANT_ID, "999999****1234", "ctok_abc123");
     }
 
     private static RecordSettlementCommand settlementCommand() {

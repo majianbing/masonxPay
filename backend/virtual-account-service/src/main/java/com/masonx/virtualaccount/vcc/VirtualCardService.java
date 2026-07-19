@@ -2,6 +2,7 @@ package com.masonx.virtualaccount.vcc;
 
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
+import com.masonx.common.card.SimulatorCardTokenId;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.*;
@@ -106,12 +107,14 @@ public class VirtualCardService {
 
         // Generate simulator test PAN: BIN 999999 + 10 random digits.
         String testPan   = VA_BIN + randomPanSuffix();
+        String cardTokenId = SimulatorCardTokenId.fromPan(testPan);
         String maskedPan = VA_BIN + "****" + testPan.substring(testPan.length() - 4);
         LocalDate expiry = req.expiry() != null ? req.expiry() : LocalDate.now().plusYears(1);
 
         String cardId = idGen.generate(MasonXIdPrefix.VIRTUAL_CARD.prefix());
         VirtualCard card = new VirtualCard(
                 cardId,
+                cardTokenId,
                 maskedPan,
                 VA_BIN,
                 vccAccountId,
@@ -126,7 +129,7 @@ public class VirtualCardService {
         virtualCardRepo.save(card);
 
         return new CreateVccResponse(
-                cardId, testPan, maskedPan, VA_BIN,
+                cardId, cardTokenId, testPan, maskedPan, VA_BIN,
                 req.currency(), expiry.toString());
     }
 
@@ -245,7 +248,7 @@ public class VirtualCardService {
         BigDecimal frozen   = holdAccount != null ? holdAccount.balance() : BigDecimal.ZERO;
         BigDecimal avail    = balance;
         return new VccResponse(
-                card.cardId(), card.maskedPan(), card.bin(),
+                card.cardId(), card.cardTokenId(), card.maskedPan(), card.bin(),
                 card.status().name(),
                 balance, frozen, avail,
                 card.spendingLimit(),

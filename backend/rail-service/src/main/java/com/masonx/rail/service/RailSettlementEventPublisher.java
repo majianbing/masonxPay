@@ -45,33 +45,35 @@ public class RailSettlementEventPublisher {
     }
 
     public void publishCardSale(String paymentId, String merchantId, String networkName,
-                                String maskedPan, BigDecimal amount, String currency) {
+                                String cardTokenId, String maskedPan,
+                                BigDecimal amount, String currency) {
         publish(buildEvent(paymentId, merchantId, PaymentRail.CARD_ISO8583,
-                MoneyMovementType.CARD_SALE, amount, currency, networkName, maskedPan));
+                MoneyMovementType.CARD_SALE, amount, currency, networkName, cardTokenId, maskedPan));
     }
 
     public void publishCardReversal(String paymentId, String merchantId, String networkName,
-                                    String maskedPan, BigDecimal amount, String currency) {
+                                    String cardTokenId, String maskedPan,
+                                    BigDecimal amount, String currency) {
         publish(buildEvent(paymentId, merchantId, PaymentRail.CARD_ISO8583,
-                MoneyMovementType.CARD_REVERSAL, amount, currency, networkName, maskedPan));
+                MoneyMovementType.CARD_REVERSAL, amount, currency, networkName, cardTokenId, maskedPan));
     }
 
     public void publishBankTransferSettled(String paymentId, String merchantId,
                                            String networkName, BigDecimal amount, String currency) {
         publish(buildEvent(paymentId, merchantId, PaymentRail.BANK_ISO20022,
-                MoneyMovementType.BANK_CREDIT_TRANSFER, amount, currency, networkName, null));
+                MoneyMovementType.BANK_CREDIT_TRANSFER, amount, currency, networkName, null, null));
     }
 
     public void publishBankReturn(String paymentId, String merchantId,
                                   String networkName, BigDecimal amount, String currency) {
         publish(buildEvent(paymentId, merchantId, PaymentRail.BANK_ISO20022,
-                MoneyMovementType.BANK_RETURN, amount, currency, networkName, null));
+                MoneyMovementType.BANK_RETURN, amount, currency, networkName, null, null));
     }
 
     private RailSettlementEvent buildEvent(String paymentId, String merchantId,
                                            PaymentRail rail, MoneyMovementType movementType,
                                            BigDecimal amount, String currency,
-                                           String networkName, String maskedPan) {
+                                           String networkName, String cardTokenId, String maskedPan) {
         TenantRef tenant = new TenantRef(Mode.TEST, null,
                 new MerchantId(UUID.fromString(merchantId)));
         EventEnvelope envelope = new EventEnvelope(
@@ -84,12 +86,13 @@ public class RailSettlementEventPublisher {
         return new RailSettlementEvent(
                 envelope, paymentId, rail, movementType,
                 currency, amount,
-                null,        // vccAccountId — VA resolves via maskedPan
+                null,        // vccAccountId — VA resolves card settlements via cardTokenId
                 networkName, // receivableAccountId — VA resolves via networkName lookup
                 networkName,
                 Instant.now(),
                 merchantId,
-                maskedPan);
+                maskedPan,
+                cardTokenId);
     }
 
     private void publish(RailSettlementEvent event) {

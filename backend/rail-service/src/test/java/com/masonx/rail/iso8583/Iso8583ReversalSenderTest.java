@@ -167,7 +167,7 @@ class Iso8583ReversalSenderTest {
                 "t1", "pmnt_1", 0, 3,
                 originalStan, originalRrn, "VISA_SIM",
                 Instant.now(), new BigDecimal("50.00"), "USD", "merch_1",
-                null);  // maskedPan
+                null, null);  // cardTokenId/maskedPan
     }
 
     private static ISOMsg mockApprovedResponse() {

@@ -70,6 +70,8 @@ rail-service status: SETTLED
 
 For BIN 999999, card-network-sim calls `virtual-account-service` at `POST /internal/issuer/authorize` instead of applying rule-based logic. This makes the VCC authorization decision driven by real ledger balance state — the card-network-sim itself has no knowledge of account balances.
 
+The sim plays the issuer/processor role: it mints a unique `authorizationId` per authorization and reuses it when retrying the call (the VA endpoint is idempotent on it and replays the stored decision), derives a simulator `cardTokenId` from the test PAN, maps VA decline reason tokens to DE39 response codes, and mints the DE38 auth code on approval. Raw ISO 8583 vocabulary never crosses into virtual-account-service.
+
 ---
 
 ## Engineering notes

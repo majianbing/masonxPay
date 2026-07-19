@@ -20,5 +20,6 @@ public record ReversalTask(
         BigDecimal amount,
         String     currency,
         String     merchantId,
-        String     maskedPan      // null for non-card payments; used to identify card product on reversal
+        String     cardTokenId,   // null for non-card payments; VA card settlement identity
+        String     maskedPan      // null for non-card payments; display/audit metadata only
 ) {}

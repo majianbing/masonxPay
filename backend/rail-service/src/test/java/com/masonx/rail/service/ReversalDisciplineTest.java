@@ -164,6 +164,6 @@ class ReversalDisciplineTest {
                 id, paymentId, attempts, maxAttempts,
                 "000042", "012345678901", "VISA_SIM",
                 Instant.now(), new BigDecimal("19.99"), "USD", "merch_1",
-                null);   // maskedPan — null for non-prepaid test tasks
+                null, null);   // cardTokenId/maskedPan — null for non-prepaid test tasks
     }
 }

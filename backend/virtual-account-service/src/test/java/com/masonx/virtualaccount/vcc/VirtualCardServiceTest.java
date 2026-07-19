@@ -148,11 +148,13 @@ class VirtualCardServiceTest {
         verify(virtualCardRepo).save(cardCaptor.capture());
         assertThat(cardCaptor.getValue().vccAccountId()).isEqualTo(VCC_ACCOUNT_ID);
         assertThat(cardCaptor.getValue().holdAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
+        assertThat(cardCaptor.getValue().cardTokenId()).startsWith("ctok_");
     }
 
     private static VirtualCard card() {
         return new VirtualCard(
                 CARD_ID,
+                "ctok_abc123",
                 "999999****1234",
                 "999999",
                 VCC_ACCOUNT_ID,

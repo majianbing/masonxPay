@@ -43,7 +43,7 @@ public class ReversalTaskRepository {
         List<ReversalTask> tasks = jdbc.query("""
                 SELECT rt.id, rt.payment_id, rt.attempts, rt.max_attempts,
                        rt.original_stan, rt.original_rrn, rt.network, rt.original_tx_time,
-                       rp.amount, rp.currency, rp.merchant_id, rp.masked_pan
+                       rp.amount, rp.currency, rp.merchant_id, rp.card_token_id, rp.masked_pan
                 FROM rail_reversal_task rt
                 JOIN rail_payment rp ON rt.payment_id = rp.payment_id
                 WHERE rt.status = 'PENDING'
@@ -64,6 +64,7 @@ public class ReversalTaskRepository {
                         rs.getBigDecimal("amount"),
                         rs.getString("currency"),
                         rs.getString("merchant_id"),
+                        rs.getString("card_token_id"),
                         rs.getString("masked_pan")
                 ));
 

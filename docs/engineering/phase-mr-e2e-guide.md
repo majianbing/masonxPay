@@ -85,7 +85,7 @@ curl -s -X POST http://localhost:8081/v1/rail/authorize \
 
 ```sql
 -- psql -p 5432 -U pay_app_user -d msx_rail
-SELECT payment_id, status, network, amount, masked_pan
+SELECT payment_id, status, network, amount, masked_pan, card_token_id
 FROM rail_payment
 WHERE idempotency_key = 'idem_card_a1';
 -- status = APPROVED
@@ -256,6 +256,7 @@ curl -s -X POST http://localhost:8086/v1/vcc/cards \
 ```json
 {
   "cardId":    "card_<snowflake>",
+  "cardTokenId": "ctok_<simulator-token>",
   "testPan":   "999999XXXXXX1234",
   "maskedPan": "999999****1234",
   "bin":       "999999",
@@ -264,7 +265,7 @@ curl -s -X POST http://localhost:8086/v1/vcc/cards \
 }
 ```
 
-**Save `testPan` and `cardId` — `testPan` is returned only once.**
+**Save `testPan`, `cardId`, and `cardTokenId` — `testPan` is returned only once.**
 
 ```bash
 CARD_ID="card_<id from response>"
@@ -321,9 +322,9 @@ curl -s -X POST http://localhost:8081/v1/rail/authorize \
   }" | jq .
 ```
 
-The card-network-sim detects BIN `999999` and calls `POST :8086/internal/issuer/authorize` with the masked PAN.
+The card-network-sim detects BIN `999999`, mints an `authorizationId` for the auth, derives a simulator `cardTokenId` from DE2, and calls `POST :8086/internal/issuer/authorize` with that token.
 
-**Expected response:** `"status": "APPROVED"`.
+**Expected response:** `"decision": "APPROVED"`.
 
 **Verify the hold ledger account was funded on authorization:**
 
@@ -639,14 +640,18 @@ The `/internal/issuer/authorize` endpoint requires `X-Internal-Token`. Verify th
 curl -s -o /dev/null -w "%{http_code}" \
   -X POST http://localhost:8086/internal/issuer/authorize \
   -H "Content-Type: application/json" \
-  -d '{"maskedPan":"999999****1234","amount":10.00,"currency":"USD","stan":"000001"}'
+  -d '{"authorizationId":"auth_manual_001","cardTokenId":"ctok_from_card_create_response","amount":10.00,"currency":"USD","stan":"000001"}'
 
 # Should return 200 with decision
 curl -s -X POST http://localhost:8086/internal/issuer/authorize \
   -H "Content-Type: application/json" \
   -H "X-Internal-Token: internal-dev-secret" \
-  -d '{"maskedPan":"999999****1234","amount":10.00,"currency":"USD","stan":"000001"}' | jq .
+  -d '{"authorizationId":"auth_manual_001","cardTokenId":"ctok_from_card_create_response","amount":10.00,"currency":"USD","stan":"000001"}' | jq .
 ```
+
+The endpoint is idempotent on `authorizationId`: repeating the same call replays the
+stored decision without posting a second hold. Use a fresh `authorizationId` to make
+a new authorization.
 
 ---
 

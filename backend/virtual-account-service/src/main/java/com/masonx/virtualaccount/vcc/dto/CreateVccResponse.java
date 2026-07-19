@@ -7,7 +7,8 @@ package com.masonx.virtualaccount.vcc.dto;
  */
 public record CreateVccResponse(
         String cardId,
-        String testPan,    // full test PAN — returned once; use maskedPan for subsequent references
+        String cardTokenId,
+        String testPan,    // full test PAN — returned once for simulator ISO 8583 DE2
         String maskedPan,
         String bin,
         String currency,
