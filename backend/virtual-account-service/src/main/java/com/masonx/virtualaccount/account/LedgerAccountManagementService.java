@@ -41,7 +41,7 @@ public class LedgerAccountManagementService {
                 req.asset().toUpperCase(),
                 deriveAssetClass(req.asset()),
                 deriveScale(req.asset()),
-                deriveNormalBalance(req.ledgerAccountType()),
+                LedgerAccount.normalBalanceFor(req.ledgerAccountType()),
                 LedgerAccount.classify(req.ledgerAccountType()),
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE
@@ -60,28 +60,16 @@ public class LedgerAccountManagementService {
         return toResponse(account);
     }
 
-    public PagedResult<LedgerAccountResponse> listAccounts(String merchantId, int page, int size) {
-        long total = accountRepo.countTenantAccountsByMerchant(merchantId);
+    public PagedResult<LedgerAccountResponse> listAccounts(String merchantId, Mode mode, int page, int size) {
+        long total = accountRepo.countTenantAccountsByMerchantAndMode(merchantId, mode);
         List<LedgerAccountResponse> content = accountRepo
-                .findTenantAccountsByMerchant(merchantId, page, size)
+                .findTenantAccountsByMerchantAndMode(merchantId, mode, page, size)
                 .stream().map(this::toResponse).toList();
         int totalPages = size > 0 ? (int) Math.ceil((double) total / size) : 0;
         return new PagedResult<>(content, page, size, total, totalPages);
     }
 
     // ── Derivation helpers ────────────────────────────────────────────────────
-
-    private NormalBalance deriveNormalBalance(LedgerAccountType type) {
-        return switch (type) {
-            // Platform-books convention: merchant/cardholder funds held by the
-            // platform are liabilities, so fund-holding tenant accounts are
-            // CREDIT-normal. CASH (external-world money mirror), receivables,
-            // and reserves remain DEBIT-normal assets.
-            case WALLET, PREPAID_CARD, PREPAID_CARD_HOLD,
-                 CREDIT_LINE, FEE_INCOME, CLEARING, SUSPENSE, BAD_DEBT -> NormalBalance.CREDIT;
-            default -> NormalBalance.DEBIT;
-        };
-    }
 
     private AssetClass deriveAssetClass(String asset) {
         // Extend here for CRYPTO assets if needed.
@@ -101,6 +89,7 @@ public class LedgerAccountManagementService {
                 a.mode().name(),
                 a.ledgerAccountType().name(),
                 a.accountClass().name(),
+                a.normalBalance().name(),
                 a.merchantId(),
                 a.asset(),
                 a.balance(),

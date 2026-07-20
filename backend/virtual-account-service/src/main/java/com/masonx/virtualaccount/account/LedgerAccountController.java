@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.account;
 
+import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.account.dto.LedgerAccountResponse;
 import com.masonx.virtualaccount.account.dto.CreateLedgerAccountRequest;
 import com.masonx.virtualaccount.vcc.dto.PagedResult;
@@ -42,8 +43,9 @@ public class LedgerAccountController {
     @GetMapping("/v1/va/accounts")
     public ResponseEntity<PagedResult<LedgerAccountResponse>> list(
             @RequestParam String merchantId,
+            @RequestParam(defaultValue = "TEST") Mode mode,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(service.listAccounts(merchantId, page, Math.min(size, 100)));
+        return ResponseEntity.ok(service.listAccounts(merchantId, mode, page, Math.min(size, 100)));
     }
 }

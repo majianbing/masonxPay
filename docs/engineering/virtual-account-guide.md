@@ -56,6 +56,24 @@ A card (debit or credit) is an **access instrument** bound to an underlying acco
 
 Same model, same provider mechanics — only `normal_balance` + limit policy change.
 
+## Dashboard account visibility
+
+Ledger accounts are the financial primitive; VCCs are a business product layered
+on top. A merchant can create many VCCs, and each VCC creates implementation
+ledger accounts (`PREPAID_CARD`, `PREPAID_CARD_HOLD`) to keep card funding,
+authorization holds, settlement, and close-sweep auditable.
+
+The merchant Virtual Account dashboard should therefore show only merchant-level
+financial accounts by default:
+
+- `CASH`
+- `WALLET`
+- `MERCHANT_RECEIVABLE`
+
+Per-card backing accounts must not be mixed into the main Virtual Account list.
+They remain queryable through ledger/account detail APIs for audit and debugging,
+but merchant-facing card lifecycle views belong in the VCC domain UI.
+
 ## Asset, not currency
 
 Use `asset` (USD, BTC, USDC…) + `asset_class` (FIAT|CRYPTO) + `scale`, not ISO-4217 `currency`. Precision is asset-driven (cards 2dp, crypto 8dp), stored as `NUMERIC(38, scale)`, never float. (See Red Lines.)

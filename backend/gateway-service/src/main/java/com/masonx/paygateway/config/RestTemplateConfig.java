@@ -31,6 +31,15 @@ public class RestTemplateConfig {
                 .build();
     }
 
+    @Bean
+    public RestTemplate virtualAccountRestTemplate(RestTemplateBuilder builder) {
+        return builder
+                .setConnectTimeout(Duration.ofSeconds(2))
+                .setReadTimeout(Duration.ofSeconds(5))
+                .errorHandler(new NoOpResponseErrorHandler())
+                .build();
+    }
+
     private static class NoOpResponseErrorHandler implements ResponseErrorHandler {
         @Override
         public boolean hasError(ClientHttpResponse response) throws IOException {

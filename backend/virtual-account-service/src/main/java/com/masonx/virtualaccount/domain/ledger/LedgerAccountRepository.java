@@ -127,11 +127,32 @@ public class LedgerAccountRepository {
                 """, ROW_MAPPER, merchantId, size, (long) page * size);
     }
 
+    public List<LedgerAccount> findTenantAccountsByMerchantAndMode(String merchantId, Mode mode, int page, int size) {
+        return jdbc.query("""
+                SELECT * FROM ledger_account
+                WHERE ledger_account_role = 'TENANT'
+                  AND merchant_id = ?
+                  AND mode = ?::va_mode
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """, ROW_MAPPER, merchantId, mode.name(), size, (long) page * size);
+    }
+
     public long countTenantAccountsByMerchant(String merchantId) {
         Long n = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM ledger_account
                 WHERE ledger_account_role = 'TENANT' AND merchant_id = ?
                 """, Long.class, merchantId);
+        return n != null ? n : 0L;
+    }
+
+    public long countTenantAccountsByMerchantAndMode(String merchantId, Mode mode) {
+        Long n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ledger_account
+                WHERE ledger_account_role = 'TENANT'
+                  AND merchant_id = ?
+                  AND mode = ?::va_mode
+                """, Long.class, merchantId, mode.name());
         return n != null ? n : 0L;
     }
 
