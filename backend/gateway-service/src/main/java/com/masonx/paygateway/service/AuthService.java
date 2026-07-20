@@ -1,7 +1,16 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.common.tenant.Mode;
+import com.masonx.common.tenant.MerchantId;
+import com.masonx.common.tenant.OrgId;
+import com.masonx.common.tenant.TenantRef;
+import com.masonx.contracts.EventEnvelope;
+import com.masonx.contracts.merchant.MerchantCreatedEvent;
 import com.masonx.paygateway.domain.merchant.*;
 import com.masonx.paygateway.domain.organization.*;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.user.*;
 import com.masonx.paygateway.security.MerchantUserDetails;
 import com.masonx.paygateway.security.jwt.JwtService;
@@ -40,6 +49,8 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final MfaService mfaService;
     private final GatewayIdService gatewayIdService;
+    private final OutboxEventRepository outboxEventRepository;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.jwt.refresh-token-expiry-ms}")
     private long refreshTokenExpiryMs;
@@ -54,7 +65,9 @@ public class AuthService {
                        JwtService jwtService,
                        AuthenticationManager authenticationManager,
                        MfaService mfaService,
-                       GatewayIdService gatewayIdService) {
+                       GatewayIdService gatewayIdService,
+                       OutboxEventRepository outboxEventRepository,
+                       ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
         this.organizationUserRepository = organizationUserRepository;
@@ -66,6 +79,8 @@ public class AuthService {
         this.authenticationManager = authenticationManager;
         this.mfaService = mfaService;
         this.gatewayIdService = gatewayIdService;
+        this.outboxEventRepository = outboxEventRepository;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -90,6 +105,7 @@ public class AuthService {
         merchant.setName(req.merchantName());
         gatewayIdService.assignMerchant(merchant);
         merchant = merchantRepository.save(merchant);
+        writeMerchantCreatedOutbox(org, merchant);
 
         OrganizationUser orgUser = new OrganizationUser();
         orgUser.setUser(user);
@@ -178,6 +194,33 @@ public class AuthService {
 
         return new AuthResponse(accessToken, rawRefresh, "Bearer", user.getId(), user.getEmail(),
                 memberships, false, null, user.isMfaEnabled());
+    }
+
+    private void writeMerchantCreatedOutbox(Organization org, Merchant merchant) {
+        try {
+            String eventId = gatewayIdService.generate(com.masonx.common.id.MasonXIdPrefix.EVENT);
+            var event = new MerchantCreatedEvent(
+                    new EventEnvelope(
+                            eventId,
+                            MerchantCreatedEvent.TYPE,
+                            MerchantCreatedEvent.SCHEMA_VERSION,
+                            Instant.now(),
+                            eventId,
+                            new TenantRef(Mode.TEST, new OrgId(org.getId()), new MerchantId(merchant.getId()))),
+                    org.getId().toString(),
+                    merchant.getId().toString(),
+                    merchant.getExternalId(),
+                    merchant.getName(),
+                    List.of(Mode.TEST.name()),
+                    "USD");
+            outboxEventRepository.save(gatewayIdService.outboxEvent(
+                    merchant.getId(),
+                    MerchantCreatedEvent.TYPE,
+                    merchant.getId(),
+                    objectMapper.writeValueAsString(event)));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize merchant.created outbox event", e);
+        }
     }
 
     public List<AuthResponse.OrgMembership> buildMemberships(UUID userId) {

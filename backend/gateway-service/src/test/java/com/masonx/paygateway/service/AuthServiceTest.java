@@ -1,7 +1,11 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.masonx.contracts.merchant.MerchantCreatedEvent;
 import com.masonx.paygateway.domain.merchant.*;
 import com.masonx.paygateway.domain.organization.*;
+import com.masonx.paygateway.domain.outbox.OutboxEvent;
+import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.user.*;
 import com.masonx.paygateway.security.MerchantUserDetails;
 import com.masonx.paygateway.security.jwt.JwtService;
@@ -43,15 +47,19 @@ class AuthServiceTest {
     @Mock AuthenticationManager authenticationManager;
     @Mock MfaService mfaService;
     @Mock GatewayIdService gatewayIdService;
+    @Mock OutboxEventRepository outboxEventRepository;
 
     private AuthService authService;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new ObjectMapper().findAndRegisterModules();
         authService = new AuthService(
                 userRepository, organizationRepository, organizationUserRepository,
                 merchantRepository, merchantUserRepository, refreshTokenRepository,
-                passwordEncoder, jwtService, authenticationManager, mfaService, gatewayIdService);
+                passwordEncoder, jwtService, authenticationManager, mfaService,
+                gatewayIdService, outboxEventRepository, objectMapper);
         // inject @Value field
         ReflectionTestUtils.setField(authService, "refreshTokenExpiryMs", 86_400_000L);
     }
@@ -97,6 +105,10 @@ class AuthServiceTest {
         when(jwtService.generateAccessToken(any())).thenReturn("access-token");
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(organizationUserRepository.findActiveByUserId(userId)).thenReturn(List.of());
+        when(gatewayIdService.generate(com.masonx.common.id.MasonXIdPrefix.EVENT)).thenReturn("evt_merchant_1");
+        when(gatewayIdService.outboxEvent(eq(merchant.getId()), eq(MerchantCreatedEvent.TYPE),
+                eq(merchant.getId()), anyString())).thenAnswer(inv -> new OutboxEvent(
+                inv.getArgument(0), inv.getArgument(1), inv.getArgument(2), inv.getArgument(3)));
 
         AuthResponse resp = authService.register(
                 new RegisterRequest("new@example.com", "pass", "Acme"));
@@ -108,6 +120,22 @@ class AuthServiceTest {
 
         verify(organizationUserRepository).save(any());
         verify(merchantUserRepository).save(any());
+        verify(outboxEventRepository).save(argThat(event -> {
+            try {
+                MerchantCreatedEvent payload = objectMapper.readValue(
+                        event.getPayload(), MerchantCreatedEvent.class);
+                return MerchantCreatedEvent.TYPE.equals(event.getEventType())
+                        && merchant.getId().equals(event.getMerchantId())
+                        && merchant.getId().equals(event.getResourceId())
+                        && "evt_merchant_1".equals(payload.envelope().eventId())
+                        && org.getId().toString().equals(payload.organizationId())
+                        && merchant.getId().toString().equals(payload.merchantId())
+                        && payload.modes().contains("TEST")
+                        && "USD".equals(payload.defaultAsset());
+            } catch (Exception e) {
+                return false;
+            }
+        }));
     }
 
     // ── login ─────────────────────────────────────────────────────────────────
