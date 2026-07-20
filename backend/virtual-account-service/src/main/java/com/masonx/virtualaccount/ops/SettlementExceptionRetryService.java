@@ -18,7 +18,8 @@ import org.springframework.stereotype.Service;
  * Re-drives a parked settlement event through its original handler.
  *
  * <p>Safe to repeat: posting is idempotent (inbox + UNIQUE(ledger_account_id,
- * source_event_id)), and if the event still cannot post, the handler re-parks it
+ * source_event_id, source_event_leg)), and if the event still cannot post, the
+ * handler re-parks it
  * — the upsert bumps delivery_count on the same row, which is how this service
  * detects that the retry failed without needing a return value from the handler.
  */

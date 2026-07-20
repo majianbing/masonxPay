@@ -94,6 +94,34 @@ class VirtualCardServiceTest {
         verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
         verify(accountRepo).updateStatus(HOLD_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
         verify(ledger, never()).postDirect(any());
+        verify(ledger, never()).postAllIfNew(any(), any(), any());
+    }
+
+    @Test
+    void closeCard_uses_stable_idempotency_event_for_sweep() {
+        when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findByIdForUpdate(VCC_ACCOUNT_ID)).thenReturn(
+                Optional.of(vccAccount(new BigDecimal("12.00"))));
+        when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(
+                Optional.of(holdAccount(BigDecimal.ZERO)));
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.CARD_CLOSE_TRANSACTION.prefix()))
+                .thenReturn("tx_close_1");
+        when(ledger.postAllIfNew(any(), eq("vcc_close_" + CARD_ID), eq("vcc-card-close")))
+                .thenReturn(true);
+
+        service.closeCard(CARD_ID, MERCHANT_ID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("vcc_close_" + CARD_ID), eq("vcc-card-close"));
+        verify(ledger, never()).postDirect(any());
+        assertThat(txCaptor.getValue().get(0).transactionId()).isEqualTo("tx_close_1");
+        assertThat(txCaptor.getValue().get(0).entries())
+                .allSatisfy(entry -> assertThat(entry.sourceEventId()).isEqualTo("vcc_close_" + CARD_ID));
+        verify(virtualCardRepo).updateStatus(CARD_ID, VirtualCardStatus.CLOSED);
+        verify(accountRepo).updateStatus(VCC_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
+        verify(accountRepo).updateStatus(HOLD_ACCOUNT_ID, LedgerAccountStatus.CLOSED);
     }
 
     @Test

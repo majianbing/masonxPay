@@ -46,6 +46,7 @@ public class LedgerPostingService {
     private final TransactionRepository txRepo;
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator idGenerator;
+    private final AccountingPeriodService periodService;
     private final List<TransactionValidator> txValidators;
     private final List<LockedAccountValidator> lockedAccountValidators;
     private final List<EntryValidator> entryValidators;
@@ -55,6 +56,7 @@ public class LedgerPostingService {
                                 TransactionRepository txRepo,
                                 BalanceSignatureService signatureService,
                                 SnowflakeIdGenerator idGenerator,
+                                AccountingPeriodService periodService,
                                 List<TransactionValidator> txValidators,
                                 List<LockedAccountValidator> lockedAccountValidators,
                                 List<EntryValidator> entryValidators) {
@@ -63,6 +65,7 @@ public class LedgerPostingService {
         this.txRepo = txRepo;
         this.signatureService = signatureService;
         this.idGenerator = idGenerator;
+        this.periodService = periodService;
         this.txValidators = txValidators;
         this.lockedAccountValidators = lockedAccountValidators;
         this.entryValidators = entryValidators;
@@ -77,6 +80,12 @@ public class LedgerPostingService {
         for (TransactionValidator v : txValidators) {
             v.validate(tx);
         }
+
+        if (tx.entries().isEmpty()) {
+            throw new BusinessException("VA_EMPTY_TRANSACTION", "Ledger transaction has no entries");
+        }
+
+        periodService.assertOpen(tx.mode(), tx.entries().get(0).asset(), tx.effectiveDate());
 
         // Lock accounts in sorted order — prevents deadlocks across concurrent transactions.
         List<String> sortedAccountIds = tx.entries().stream()
@@ -117,14 +126,17 @@ public class LedgerPostingService {
 
             long entrySeq = anchor.entrySeq() + 1;
 
-            String signature = signatureService.compute(new SignatureInput(
+            SignatureInput signatureInput = new SignatureInput(
                     draft.ledgerAccountId(),
                     entrySeq,
                     draft.amount(),
+                    draft.asset(),
                     draft.direction(),
                     newBalance,
                     tx.transactionId(),
-                    anchor.signature()));
+                    anchor.signature(),
+                    signatureService.activeKeyId());
+            String signature = signatureService.compute(signatureInput);
 
             LedgerEntry entry = new LedgerEntry(
                     idGenerator.generate(MasonXIdPrefix.LEDGER_ENTRY.prefix()),
@@ -137,7 +149,9 @@ public class LedgerPostingService {
                     newBalance,
                     anchor.signature(),
                     signature,
+                    signatureInput.signatureKeyId(),
                     draft.sourceEventId(),
+                    draft.sourceEventLeg(),
                     EntryStatus.POSTED,
                     tx.effectiveDate(),
                     Instant.now());
@@ -184,10 +198,12 @@ public class LedgerPostingService {
                                     ledgerAccountId,
                                     head.entrySeq(),
                                     head.amount(),
+                                    head.asset(),
                                     head.direction(),
                                     head.balanceAfter(),
                                     head.transactionId(),
-                                    head.prevSignature()),
+                                    head.prevSignature(),
+                                    head.signatureKeyId()),
                             head.signature());
                     if (!valid) {
                         throw new BusinessException("VA_CHAIN_TAMPERED",

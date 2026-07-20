@@ -37,8 +37,8 @@ import java.math.BigDecimal;
  * EXTERNAL CLEARING is CREDIT-normal (inflow source).
  *
  * Idempotency: the inbox layer (va_inbox_event) prevents the same event from
- * reaching this handler twice. The UNIQUE(ledger_account_id, source_event_id) constraint
- * on va_ledger_entry is a secondary safeguard.
+ * reaching this handler twice. The UNIQUE(ledger_account_id, source_event_id,
+ * source_event_leg) constraint on va_ledger_entry is a secondary safeguard.
  *
  * Failure discipline: a settlement command that cannot post is never dropped —
  * invalid amounts, missing accounts, and posting-time business failures park the

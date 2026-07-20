@@ -10,6 +10,7 @@ public enum MasonXIdPrefix {
     ADMIN_AUDIT_LOG("aal_"),
     ADMIN_USER("adm_"),
     API_KEY("ak_"),
+    ACCOUNTING_PERIOD("ap_"),
     BILLING_CUSTOMER("cus_"),
     CARD_AUTHORIZATION("cauth_"),
     CARD_CLOSE_TRANSACTION("tx_close_"),

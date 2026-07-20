@@ -92,16 +92,38 @@ class LedgerSettlementHandlerTest {
         verifyNoInteractions(ledger, accountRepo);
     }
 
+    @Test
+    void handle_parks_command_when_fee_receivable_account_missing() {
+        when(accountRepo.findTenantAccount(MERCHANT_ID, Mode.TEST, "USD", LedgerAccountType.CASH))
+                .thenReturn(Optional.of(cashAccount()));
+        when(accountRepo.findExternalAccount("stripe", "USD", LedgerAccountType.CLEARING))
+                .thenReturn(Optional.of(clearingAccount()));
+        when(accountRepo.findPlatformAccount("USD", LedgerAccountType.PLATFORM_FEE_RECEIVABLE))
+                .thenReturn(Optional.empty());
+
+        handler.handle(command(new BigDecimal("100.00"), new BigDecimal("3.00")));
+
+        verify(settlementExceptions).park(
+                eq(SettlementExceptionSource.GATEWAY_SETTLEMENT), eq(EVENT_ID), anyString(),
+                eq(SettlementExceptionReason.LEDGER_ACCOUNT_NOT_FOUND), anyString(), any());
+        verifyNoInteractions(ledger);
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     private static RecordSettlementCommand command(BigDecimal amount) {
+        return command(amount, BigDecimal.ZERO);
+    }
+
+    private static RecordSettlementCommand command(BigDecimal amount, BigDecimal feeAmount) {
         var tenant = new TenantRef(
                 Mode.TEST,
                 new OrgId(UUID.fromString("00000000-0000-0000-0000-000000000001")),
                 new MerchantId(MERCHANT_UUID));
+        BigDecimal netAmount = amount.subtract(feeAmount);
         return new RecordSettlementCommand(
                 EVENT_ID, tenant, UUID.fromString("00000000-0000-0000-0000-000000000003"),
-                "stripe", amount, BigDecimal.ZERO, amount,
+                "stripe", amount, feeAmount, netAmount,
                 "USD", AssetClass.FIAT, 2, Direction.CREDIT);
     }
 

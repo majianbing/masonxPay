@@ -7,12 +7,13 @@ import com.masonx.contracts.rail.RailSettlementEvent;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.ledger.AccountingDateResolver;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,9 +27,16 @@ import java.util.List;
 public class RailSettlementPostingRule {
 
     private final SnowflakeIdGenerator idGen;
+    private final AccountingDateResolver accountingDateResolver;
+
+    @Autowired
+    public RailSettlementPostingRule(SnowflakeIdGenerator idGen, AccountingDateResolver accountingDateResolver) {
+        this.idGen = idGen;
+        this.accountingDateResolver = accountingDateResolver;
+    }
 
     public RailSettlementPostingRule(SnowflakeIdGenerator idGen) {
-        this.idGen = idGen;
+        this(idGen, new AccountingDateResolver());
     }
 
     /**
@@ -62,7 +70,8 @@ public class RailSettlementPostingRule {
 
         return List.of(new LedgerPostingCommand(txId, entries,
                 TransactionType.BANK_TRANSFER, "Bank credit transfer " + railEvent.networkName(),
-                railEvent.railPaymentId(), LocalDate.now(), Mode.TEST, null, railEvent.merchantId()));
+                railEvent.railPaymentId(), accountingDateResolver.fromInstant(railEvent.settledAt()),
+                Mode.TEST, null, railEvent.merchantId()));
     }
 
     /**
@@ -107,7 +116,8 @@ public class RailSettlementPostingRule {
 
         return List.of(new LedgerPostingCommand(txId, entries,
                 TransactionType.REVERSAL, "Bank return " + railEvent.networkName(),
-                railEvent.railPaymentId(), LocalDate.now(), Mode.TEST, null, railEvent.merchantId()));
+                railEvent.railPaymentId(), accountingDateResolver.fromInstant(railEvent.settledAt()),
+                Mode.TEST, null, railEvent.merchantId()));
     }
 
     public record BankEvent(

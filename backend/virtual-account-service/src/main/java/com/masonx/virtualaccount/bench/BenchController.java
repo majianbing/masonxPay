@@ -6,7 +6,6 @@ import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.*;
 import com.masonx.virtualaccount.domain.ledger.*;
 
-import java.time.LocalDate;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,17 +32,20 @@ public class BenchController {
     private final LedgerFacade            ledger;
     private final BalanceSignatureService signatureService;
     private final SnowflakeIdGenerator    idGenerator;
+    private final AccountingDateResolver  accountingDateResolver;
     private final JdbcTemplate            jdbc;
 
     public BenchController(LedgerAccountRepository accountRepo,
                            LedgerFacade ledger,
                            BalanceSignatureService signatureService,
                            SnowflakeIdGenerator idGenerator,
+                           AccountingDateResolver accountingDateResolver,
                            JdbcTemplate jdbc) {
         this.accountRepo      = accountRepo;
         this.ledger           = ledger;
         this.signatureService = signatureService;
         this.idGenerator      = idGenerator;
+        this.accountingDateResolver = accountingDateResolver;
         this.jdbc             = jdbc;
     }
 
@@ -90,7 +92,7 @@ public class BenchController {
                         req.amount(), "USD", "bench_" + txId),
                 new AccountingEntryDraft(req.externalLedgerAccountId(), Direction.CREDIT,
                         req.amount(), "USD", "bench_" + txId)
-        ), TransactionType.INTERNAL, "VA bench posting", null, LocalDate.now(),
+        ), TransactionType.INTERNAL, "VA bench posting", null, accountingDateResolver.today(),
                 tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId()));
         return new PostResponse(true);
     }
@@ -132,13 +134,14 @@ public class BenchController {
         LedgerAccount account = accountRepo.findById(ledgerAccountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + ledgerAccountId));
 
-        record EntryRow(long entrySeq, BigDecimal amount, Direction direction,
+        record EntryRow(long entrySeq, BigDecimal amount, String asset, Direction direction,
                         BigDecimal balanceAfter,
-                        String prevSignature, String balanceSignature, String transactionId) {}
+                        String prevSignature, String balanceSignature, String transactionId,
+                        String signatureKeyId) {}
 
         List<EntryRow> entries = jdbc.query("""
-                SELECT entry_seq, amount, direction, balance_after,
-                       prev_signature, balance_signature, transaction_id
+                SELECT entry_seq, amount, asset, direction, balance_after,
+                       prev_signature, balance_signature, transaction_id, signature_key_id
                 FROM va_ledger_entry
                 WHERE ledger_account_id = ?
                 ORDER BY entry_seq ASC
@@ -146,11 +149,13 @@ public class BenchController {
                 (rs, __) -> new EntryRow(
                         rs.getLong("entry_seq"),
                         rs.getBigDecimal("amount"),
+                        rs.getString("asset"),
                         Direction.valueOf(rs.getString("direction")),
                         rs.getBigDecimal("balance_after"),
                         rs.getString("prev_signature"),
                         rs.getString("balance_signature"),
-                        rs.getString("transaction_id")),
+                        rs.getString("transaction_id"),
+                        rs.getString("signature_key_id")),
                 ledgerAccountId);
 
         int entryCount = entries.size();
@@ -188,8 +193,8 @@ public class BenchController {
         Long firstBrokenChainAtSeq = null;
         for (EntryRow e : entries) {
             String expected = signatureService.compute(new SignatureInput(
-                    ledgerAccountId, e.entrySeq(), e.amount(), e.direction(),
-                    e.balanceAfter(), e.transactionId(), e.prevSignature()));
+                    ledgerAccountId, e.entrySeq(), e.amount(), e.asset(), e.direction(),
+                    e.balanceAfter(), e.transactionId(), e.prevSignature(), e.signatureKeyId()));
             if (!expected.equals(e.balanceSignature())) {
                 chainOk = false;
                 firstBrokenChainAtSeq = e.entrySeq();
@@ -272,7 +277,7 @@ public class BenchController {
                 new AccountingEntryDraft(req.externalLedgerAccountId(), Direction.CREDIT,
                         req.amount(), "USD", eventId)
         ), TransactionType.INTERNAL, "VA bench duplicate check", null,
-                LocalDate.now(), tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId());
+                accountingDateResolver.today(), tenantAccount.mode(), tenantAccount.orgId(), tenantAccount.merchantId());
     }
 
     // ── DTOs ─────────────────────────────────────────────────────────────────

@@ -15,11 +15,13 @@ import java.math.BigDecimal;
 public record ChainHead(
         long entrySeq,
         BigDecimal amount,
+        String asset,
         Direction direction,
         BigDecimal balanceAfter,
         String transactionId,
         String prevSignature,
-        String signature          // balance_signature of this entry; becomes prevSignature for next
+        String signature,         // balance_signature of this entry; becomes prevSignature for next
+        String signatureKeyId
 ) {
     public ChainAnchor toAnchor() {
         return new ChainAnchor(entrySeq, signature);

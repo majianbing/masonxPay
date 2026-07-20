@@ -17,6 +17,7 @@ spring:
 va:
   signature:
     secret: test-secret-do-not-use-in-production
+    active-key-id: default
   id:
     node-id: 0
   kafka:

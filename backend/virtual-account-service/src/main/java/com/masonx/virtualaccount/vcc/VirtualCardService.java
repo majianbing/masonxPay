@@ -212,10 +212,12 @@ public class VirtualCardService {
 
         BigDecimal remaining = vccAccount.balance();
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            for (var command : closeSweepPostingRule.build(
-                    new VccCloseSweepPostingRule.CloseSweepEvent(card, ownerAccount, remaining))) {
-                ledger.postDirect(command);
-            }
+            String eventId = closeEventId(cardId);
+            ledger.postAllIfNew(
+                    closeSweepPostingRule.build(
+                            new VccCloseSweepPostingRule.CloseSweepEvent(card, ownerAccount, remaining, eventId)),
+                    eventId,
+                    "vcc-card-close");
         }
 
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.CLOSED);
@@ -268,5 +270,9 @@ public class VirtualCardService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest unavailable", e);
         }
+    }
+
+    private static String closeEventId(String cardId) {
+        return "vcc_close_" + cardId;
     }
 }

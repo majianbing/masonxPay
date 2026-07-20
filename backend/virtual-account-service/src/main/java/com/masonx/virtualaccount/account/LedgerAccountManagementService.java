@@ -42,6 +42,7 @@ public class LedgerAccountManagementService {
                 deriveAssetClass(req.asset()),
                 deriveScale(req.asset()),
                 deriveNormalBalance(req.ledgerAccountType()),
+                LedgerAccount.classify(req.ledgerAccountType()),
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE
         );
@@ -99,6 +100,7 @@ public class LedgerAccountManagementService {
                 a.ledgerAccountId(),
                 a.mode().name(),
                 a.ledgerAccountType().name(),
+                a.accountClass().name(),
                 a.merchantId(),
                 a.asset(),
                 a.balance(),

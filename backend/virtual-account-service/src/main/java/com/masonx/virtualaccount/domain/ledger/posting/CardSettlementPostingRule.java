@@ -6,21 +6,29 @@ import com.masonx.contracts.rail.RailSettlementEvent;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.ledger.AccountingDateResolver;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
 import java.util.List;
 
 @Component
 public class CardSettlementPostingRule {
 
     private final SnowflakeIdGenerator idGen;
+    private final AccountingDateResolver accountingDateResolver;
+
+    @Autowired
+    public CardSettlementPostingRule(SnowflakeIdGenerator idGen, AccountingDateResolver accountingDateResolver) {
+        this.idGen = idGen;
+        this.accountingDateResolver = accountingDateResolver;
+    }
 
     public CardSettlementPostingRule(SnowflakeIdGenerator idGen) {
-        this.idGen = idGen;
+        this(idGen, new AccountingDateResolver());
     }
 
     public List<LedgerPostingCommand> buildSale(SaleEvent event) {
@@ -34,7 +42,8 @@ public class CardSettlementPostingRule {
                 new AccountingEntryDraft(event.receivableAccount().ledgerAccountId(), Direction.CREDIT,
                         railEvent.amount(), railEvent.asset(), event.eventId())
         ), TransactionType.CARD_SALE, "Card sale " + railEvent.maskedPan(), railEvent.railPaymentId(),
-                LocalDate.now(), event.cardAccount().mode(), event.cardAccount().orgId(),
+                accountingDateResolver.fromInstant(railEvent.settledAt()),
+                event.cardAccount().mode(), event.cardAccount().orgId(),
                 event.cardAccount().merchantId()));
     }
 
@@ -49,7 +58,8 @@ public class CardSettlementPostingRule {
                 new AccountingEntryDraft(event.cardAccount().ledgerAccountId(), Direction.CREDIT,
                         railEvent.amount(), railEvent.asset(), event.eventId())
         ), TransactionType.REVERSAL, "Card auth reversal " + railEvent.maskedPan(), railEvent.railPaymentId(),
-                LocalDate.now(), event.cardAccount().mode(), event.cardAccount().orgId(),
+                accountingDateResolver.fromInstant(railEvent.settledAt()),
+                event.cardAccount().mode(), event.cardAccount().orgId(),
                 event.cardAccount().merchantId()));
     }
 

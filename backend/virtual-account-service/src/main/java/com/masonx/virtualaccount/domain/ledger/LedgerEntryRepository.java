@@ -26,11 +26,11 @@ public class LedgerEntryRepository {
                 INSERT INTO va_ledger_entry (
                     entry_id, transaction_id, ledger_account_id, direction, amount, asset,
                     entry_seq, balance_after, prev_signature,
-                    balance_signature, source_event_id, status, effective_date
+                    balance_signature, signature_key_id, source_event_id, source_event_leg, status, effective_date
                 ) VALUES (
                     ?, ?, ?, ?::va_entry_direction, ?, ?,
                     ?, ?, ?,
-                    ?, ?, ?::va_entry_status, ?
+                    ?, ?, ?, ?, ?::va_entry_status, ?
                 )
                 """,
                 entry.entryId(),
@@ -43,7 +43,9 @@ public class LedgerEntryRepository {
                 entry.balanceAfter(),
                 entry.prevSignature(),
                 entry.balanceSignature(),
+                entry.signatureKeyId(),
                 entry.sourceEventId(),
+                entry.sourceEventLeg(),
                 entry.status().name(),
                 entry.effectiveDate());
     }
@@ -125,7 +127,9 @@ public class LedgerEntryRepository {
             rs.getBigDecimal("balance_after"),
             rs.getString("prev_signature"),
             rs.getString("balance_signature"),
+            rs.getString("signature_key_id"),
             rs.getString("source_event_id"),
+            rs.getString("source_event_leg"),
             EntryStatus.valueOf(rs.getString("status")),
             rs.getObject("effective_date", LocalDate.class),
             rs.getTimestamp("created_at").toInstant());
@@ -140,7 +144,7 @@ public class LedgerEntryRepository {
         var rows = jdbc.query(
                 """
                 SELECT entry_seq, amount, direction, balance_after,
-                       transaction_id, prev_signature, balance_signature
+                       asset, transaction_id, prev_signature, balance_signature, signature_key_id
                 FROM va_ledger_entry
                 WHERE ledger_account_id = ?
                 ORDER BY entry_seq DESC
@@ -149,11 +153,13 @@ public class LedgerEntryRepository {
                 (rs, __) -> new ChainHead(
                         rs.getLong("entry_seq"),
                         rs.getBigDecimal("amount"),
+                        rs.getString("asset"),
                         Direction.valueOf(rs.getString("direction")),
                         rs.getBigDecimal("balance_after"),
                         rs.getString("transaction_id"),
                         rs.getString("prev_signature"),
-                        rs.getString("balance_signature")),
+                        rs.getString("balance_signature"),
+                        rs.getString("signature_key_id")),
                 ledgerAccountId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }

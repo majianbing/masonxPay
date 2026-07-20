@@ -53,11 +53,11 @@ public class LedgerAccountRepository {
     private static final String INSERT_SQL = """
             INSERT INTO ledger_account (
                 ledger_account_id, mode, ledger_account_role, org_id, merchant_id, provider_id,
-                ledger_account_type, asset, asset_class, scale, normal_balance,
+                ledger_account_type, asset, asset_class, scale, normal_balance, account_class,
                 balance, status
             ) VALUES (
                 ?, ?::va_mode, ?::ledger_account_role, ?, ?, ?,
-                ?::ledger_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance,
+                ?::ledger_account_type, ?, ?::va_asset_class, ?, ?::va_normal_balance, ?::va_account_class,
                 ?, ?::ledger_account_status
             )""";
 
@@ -74,6 +74,7 @@ public class LedgerAccountRepository {
                 account.assetClass().name(),
                 account.scale(),
                 account.normalBalance().name(),
+                account.accountClass().name(),
                 account.balance(),
                 account.status().name()};
     }
@@ -172,6 +173,7 @@ public class LedgerAccountRepository {
             AssetClass.valueOf(rs.getString("asset_class")),
             rs.getInt("scale"),
             NormalBalance.valueOf(rs.getString("normal_balance")),
+            AccountClass.valueOf(rs.getString("account_class")),
             rs.getBigDecimal("balance"),
             LedgerAccountStatus.valueOf(rs.getString("status"))
     );

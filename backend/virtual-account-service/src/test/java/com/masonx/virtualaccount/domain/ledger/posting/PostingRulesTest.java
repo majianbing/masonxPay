@@ -18,6 +18,7 @@ import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
 import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
+import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
 import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
@@ -31,6 +32,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -61,11 +63,11 @@ class PostingRulesTest {
         var rule = new VccCloseSweepPostingRule(idGen);
 
         LedgerPostingCommand command = rule.build(new VccCloseSweepPostingRule.CloseSweepEvent(
-                card(), account("ac_owner", LedgerAccountType.WALLET), amount("12.00"))).get(0);
+                card(), account("ac_owner", LedgerAccountType.WALLET), amount("12.00"), "vcc_close_card_1")).get(0);
 
         assertThat(command.transactionId()).isEqualTo("tx_close");
-        assertLeg(command, "ac_card", Direction.DEBIT, "12.00", "tx_close");
-        assertLeg(command, "ac_owner", Direction.CREDIT, "12.00", "tx_close");
+        assertLeg(command, "ac_card", Direction.DEBIT, "12.00", "vcc_close_card_1");
+        assertLeg(command, "ac_owner", Direction.CREDIT, "12.00", "vcc_close_card_1");
     }
 
     @Test
@@ -227,13 +229,34 @@ class PostingRulesTest {
                 account("ac_clearing", LedgerAccountType.CLEARING, LedgerAccountRole.EXTERNAL))).get(0);
 
         assertThat(command.entryType()).isEqualTo(TransactionType.SETTLEMENT);
-        assertLeg(command, "ac_cash", Direction.DEBIT, "97.00", EVENT_ID);
-        assertLeg(command, "ac_fee", Direction.DEBIT, "3.00", EVENT_ID);
-        assertLeg(command, "ac_clearing", Direction.CREDIT, "100.00", EVENT_ID);
+        assertLeg(command, "ac_cash", Direction.DEBIT, "97.00", EVENT_ID, "merchant_net");
+        assertLeg(command, "ac_fee", Direction.DEBIT, "3.00", EVENT_ID, "platform_fee");
+        assertLeg(command, "ac_clearing", Direction.CREDIT, "100.00", EVENT_ID, "provider_gross");
+    }
+
+    @Test
+    void gatewaySettlement_withPlatformFee_requires_fee_receivable_account() {
+        LedgerAccountRepository accountRepo = mock(LedgerAccountRepository.class);
+        when(accountRepo.findPlatformAccount("USD", LedgerAccountType.PLATFORM_FEE_RECEIVABLE))
+                .thenReturn(Optional.empty());
+        var rule = new GatewaySettlementPostingRule(accountRepo, idGen("tx_settlement"));
+
+        assertThatThrownBy(() -> rule.build(new GatewaySettlementPostingRule.SettlementEvent(
+                settlementCommand(), MERCHANT_ID,
+                account("ac_cash", LedgerAccountType.CASH),
+                account("ac_clearing", LedgerAccountType.CLEARING, LedgerAccountRole.EXTERNAL))))
+                .hasMessageContaining("No PLATFORM_FEE_RECEIVABLE account");
     }
 
     private static void assertLeg(LedgerPostingCommand command, String ledgerAccountId,
                                   Direction direction, String amount, String sourceEventId) {
+        assertLeg(command, ledgerAccountId, direction, amount, sourceEventId,
+                AccountingEntryDraft.DEFAULT_SOURCE_EVENT_LEG);
+    }
+
+    private static void assertLeg(LedgerPostingCommand command, String ledgerAccountId,
+                                  Direction direction, String amount, String sourceEventId,
+                                  String sourceEventLeg) {
         assertThat(command.entries())
                 .anySatisfy(entry -> {
                     assertThat(entry.ledgerAccountId()).isEqualTo(ledgerAccountId);
@@ -241,6 +264,7 @@ class PostingRulesTest {
                     assertThat(entry.amount()).isEqualByComparingTo(amount);
                     assertThat(entry.asset()).isEqualTo("USD");
                     assertThat(entry.sourceEventId()).isEqualTo(sourceEventId);
+                    assertThat(entry.sourceEventLeg()).isEqualTo(sourceEventLeg);
                 });
     }
 

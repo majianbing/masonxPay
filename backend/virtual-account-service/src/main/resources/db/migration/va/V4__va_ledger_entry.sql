@@ -26,13 +26,14 @@ CREATE TABLE va_ledger_entry (
     balance_after     NUMERIC(38, 8)      NOT NULL,
 
     -- HMAC-SHA256 tamper-evident chain.
-    -- Inputs: ledger_account_id || entry_seq || amount || direction || balance_after
-    --         || transaction_id || prev_signature
+    -- Inputs: ledger_account_id || entry_seq || amount || asset || direction
+    --         || balance_after || transaction_id || prev_signature || signature_key_id
     balance_signature VARCHAR(64)         NOT NULL,
 
     -- Traceability back to the upstream event.
-    -- Dedup is enforced by va_inbox_event (first line) and
-    -- UNIQUE(ledger_account_id, source_event_id) below (DB-level safety net).
+    -- Dedup is enforced by va_inbox_event (first line) and the ledger-entry
+    -- unique key. V17 adds source_event_leg so one event can touch the same
+    -- account through multiple semantic legs without losing DB idempotency.
     source_event_id   VARCHAR(64)         NOT NULL,
 
     status            va_entry_status     NOT NULL DEFAULT 'POSTED',
@@ -107,7 +108,8 @@ CREATE TABLE va_ledger_entry_62 PARTITION OF va_ledger_entry FOR VALUES WITH (MO
 CREATE TABLE va_ledger_entry_63 PARTITION OF va_ledger_entry FOR VALUES WITH (MODULUS 64, REMAINDER 63);
 
 -- PK and dedup constraint on each child partition.
--- UNIQUE(ledger_account_id, source_event_id) includes the partition key — valid on hash-partitioned table.
+-- V17 replaces the original UNIQUE(ledger_account_id, source_event_id) with
+-- UNIQUE(ledger_account_id, source_event_id, source_event_leg).
 -- Prevents the same upstream event from posting twice to the same account.
 DO $$
 DECLARE i INT;

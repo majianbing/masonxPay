@@ -7,7 +7,8 @@
 -- The stored payload is the exact object the retry path re-drives through the
 -- original handler (RailSettlementEvent for RAIL_SETTLEMENT, VA-native
 -- RecordSettlementCommand for GATEWAY_SETTLEMENT). Replay is safe because the
--- inbox and UNIQUE(ledger_account_id, source_event_id) make posting idempotent.
+-- inbox and UNIQUE(ledger_account_id, source_event_id, source_event_leg) make
+-- posting idempotent.
 --
 -- UNIQUE(event_id): a redelivered failing event updates the existing row
 -- (delivery_count++) instead of duplicating; a redelivery after DISCARDED

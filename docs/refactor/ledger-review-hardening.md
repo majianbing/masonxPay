@@ -100,8 +100,46 @@ system-wide trial balance held throughout.
 - Hold expiry and reversal matching keyed on `card_authorization`.
 - Debt lifecycle beyond the ledger: limits, notifications, write-off to `BAD_DEBT`.
 
+## Medium-tier batch — findings #5–#8 and crypto carry-overs (2026-07-20)
+
+Implemented via codex, reviewed and runtime-verified per item:
+
+- **#5 — deterministic close-sweep idempotency:** sweep event id is now
+  `vcc_close_{cardId}` and posts through `postAllIfNew` (inbox + DB backstop
+  both active); `postDirect` remains bench-only.
+- **#6 — fee account fail-fast:** a positive-fee settlement with no
+  `PLATFORM_FEE_RECEIVABLE` account throws and parks instead of silently
+  posting net-only; V16 seeds the TEST/USD platform fee account.
+- **#7 — multi-leg idempotency:** `source_event_leg` discriminator (V17)
+  extends the DB dedup key to
+  `UNIQUE(ledger_account_id, source_event_id, source_event_leg)` — one event
+  may touch the same account through multiple deterministic semantic legs
+  without weakening the backstop.
+- **#8 — chart of accounts and period close:** `account_class`
+  (ASSET/LIABILITY/EQUITY/REVENUE/EXPENSE) derived centrally in
+  `LedgerAccount.classify` and backfilled in V18; `accounting_period` with an
+  engine-level `assertOpen` gate (permissive until ops closes a period);
+  `AccountingDateResolver` pins UTC and uses event time (`settledAt`) for
+  settlements.
+- **Carry-overs:** HMAC canonical now covers `asset` and the signature key id;
+  `signature_key_id` per entry + `va.signature.keys`/`active-key-id` config
+  enable key rotation with historical verifiability (V19);
+  `UNIQUE(ledger_account_id, entry_seq)` enforced per partition (V19).
+  Trial-balance read consistency was withdrawn: the report reads one SQL
+  statement, which is snapshot-consistent under READ COMMITTED.
+
+The HMAC canonical change is chain-breaking: local/dev VA databases require a
+reset (`docker compose down -v`).
+
+Known small follow-ups: VA module lacks a `@RestControllerAdvice`
+(BusinessException surfaces as HTTP 500 on ops endpoints);
+`deriveNormalBalance(BAD_DEBT)` returns CREDIT while its class is EXPENSE
+(latent — no creation path uses BAD_DEBT yet).
+
 ## Changelog
 
 - 2026-07-19: Fixes #1 and #2 committed (`c463932`) after codex review.
 - 2026-07-19: Fix #3 implemented and runtime-verified; codex review added
   `PLATFORM_FEE_RECEIVABLE` (V15) and card-token test alignment.
+- 2026-07-20: Medium-tier batch (#5–#8) and crypto carry-overs implemented,
+  reviewed, and runtime-verified; review backlog fully closed.
