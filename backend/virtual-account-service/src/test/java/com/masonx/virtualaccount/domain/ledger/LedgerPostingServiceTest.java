@@ -35,6 +35,7 @@ class LedgerPostingServiceTest {
     @Mock LedgerEntryRepository   entryRepo;
     @Mock TransactionRepository   txRepo;
     @Mock BalanceSignatureService  signatureService;
+    @Mock AccountingPeriodService periodService;
 
     LedgerPostingService service;
 
@@ -43,6 +44,7 @@ class LedgerPostingServiceTest {
         service = new LedgerPostingService(
                 accountRepo, entryRepo, txRepo, signatureService,
                 new SnowflakeIdGenerator(0),
+                periodService,
                 List.of(new AssetConsistencyValidator(), new NetZeroValidator()),
                 List.of(new AccountScopeValidator()),
                 List.of(new InsufficientBalanceValidator()));
@@ -82,9 +84,9 @@ class LedgerPostingServiceTest {
 
     /** A ChainHead whose verify() call will pass when mocked to return true. */
     private ChainHead chainHead(long seq, String sig) {
-        return new ChainHead(seq, new BigDecimal("100.00"), Direction.DEBIT,
+        return new ChainHead(seq, new BigDecimal("100.00"), "USD", Direction.DEBIT,
                 new BigDecimal("100.00"), "tx_prev",
-                ChainAnchor.GENESIS_SIGNATURE, sig);
+                ChainAnchor.GENESIS_SIGNATURE, sig, SignatureInput.DEFAULT_SIGNATURE_KEY_ID);
     }
 
     // --- validation tests ---
@@ -166,6 +168,24 @@ class LedgerPostingServiceTest {
 
         verify(entryRepo, times(2)).insert(any());
         verify(accountRepo, times(2)).updateLedgerBalance(any(), any());
+        verify(periodService).assertOpen(Mode.TEST, "USD", LocalDate.of(2026, 1, 1));
+    }
+
+    @Test
+    void rejects_posting_into_closed_accounting_period() {
+        doThrow(new BusinessException("VA_ACCOUNTING_PERIOD_CLOSED", "closed"))
+                .when(periodService).assertOpen(Mode.TEST, "USD", LocalDate.of(2026, 1, 1));
+
+        var tx = tx(List.of(
+                debit("ac_tenant", "100.00"), credit("ac_ext", "100.00")));
+
+        assertThatThrownBy(() -> service.post(tx))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).code())
+                        .isEqualTo("VA_ACCOUNTING_PERIOD_CLOSED"));
+
+        verify(accountRepo, never()).findByIdForUpdate(any());
+        verify(entryRepo, never()).insert(any());
     }
 
     @Test
@@ -183,6 +203,38 @@ class LedgerPostingServiceTest {
         var captor = ArgumentCaptor.forClass(LedgerEntry.class);
         verify(entryRepo, times(2)).insert(captor.capture());
         assertThat(captor.getAllValues()).allMatch(e -> e.entrySeq() == 1L);
+        assertThat(captor.getAllValues())
+                .allMatch(e -> e.sourceEventLeg().equals(AccountingEntryDraft.DEFAULT_SOURCE_EVENT_LEG));
+        assertThat(captor.getAllValues())
+                .allMatch(e -> e.signatureKeyId().equals(SignatureInput.DEFAULT_SIGNATURE_KEY_ID));
+    }
+
+    @Test
+    void copies_source_event_leg_from_draft_to_entry() {
+        when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
+                Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));
+        when(accountRepo.findByIdForUpdate("ac_ext")).thenReturn(
+                Optional.of(externalAccount("ac_ext")));
+        when(entryRepo.findLastChainHead(any())).thenReturn(Optional.empty());
+        when(signatureService.compute(any())).thenReturn("sig");
+
+        service.post(tx(List.of(
+                new AccountingEntryDraft("ac_tenant", Direction.DEBIT,
+                        new BigDecimal("100.00"), "USD", "evt_1", "merchant_net"),
+                new AccountingEntryDraft("ac_ext", Direction.CREDIT,
+                        new BigDecimal("100.00"), "USD", "evt_1", "provider_gross"))));
+
+        var captor = ArgumentCaptor.forClass(LedgerEntry.class);
+        verify(entryRepo, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo("ac_tenant");
+                    assertThat(e.sourceEventLeg()).isEqualTo("merchant_net");
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo("ac_ext");
+                    assertThat(e.sourceEventLeg()).isEqualTo("provider_gross");
+                });
     }
 
     @Test
@@ -234,9 +286,9 @@ class LedgerPostingServiceTest {
     void rejects_posting_when_va_account_balance_tampered() {
         // Simulate: attacker ran UPDATE ledger_account SET balance = 0 but left va_ledger_entry intact.
         // account.balance() = 0, but last entry balance_after = 100 → mismatch caught before HMAC check.
-        ChainHead head = new ChainHead(1L, new BigDecimal("100.00"), Direction.DEBIT,
+        ChainHead head = new ChainHead(1L, new BigDecimal("100.00"), "USD", Direction.DEBIT,
                 new BigDecimal("100.00"), "tx_prev",
-                ChainAnchor.GENESIS_SIGNATURE, "sig");
+                ChainAnchor.GENESIS_SIGNATURE, "sig", SignatureInput.DEFAULT_SIGNATURE_KEY_ID);
 
         when(accountRepo.findByIdForUpdate("ac_tenant")).thenReturn(
                 Optional.of(cashAccount("ac_tenant", BigDecimal.ZERO)));   // tampered balance

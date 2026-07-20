@@ -345,10 +345,13 @@ public record RailSettlementEvent(
     MoneyMovementType type,      // CARD_SALE | BANK_CREDIT_TRANSFER | CARD_REVERSAL | BANK_RETURN
     String asset,
     BigDecimal amount,
-    String vccAccountId,         // non-null for VCC card payments
-    String receivableAccountId,  // CARD_NETWORK_RECEIVABLE or BANK_RAIL_RECEIVABLE account
+    String vccAccountId,         // reserved; currently null
+    String receivableAccountId,  // informational; VA resolves receivable by networkName
     String networkName,          // VISA_SIM | MC_SIM | SEPA_SIM | FEDNOW_SIM
-    Instant settledAt
+    Instant settledAt,
+    String merchantId,           // merchant scope for tenant account lookup
+    String maskedPan,            // display/audit metadata only
+    String cardTokenId           // VA-issued simulator card identity
 )
 ```
 

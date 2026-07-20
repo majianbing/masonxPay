@@ -32,6 +32,11 @@ va:
     # HMAC-SHA256 secret for the tamper-evident balance chain.
     # MUST be set via VA_SIGNATURE_SECRET in production — never commit a real value.
     secret: ${VA_SIGNATURE_SECRET:change-me-in-production}
+    # New ledger entries use this key id. Keep historical keys configured in
+    # va.signature.keys so old chains remain verifiable after rotation.
+    active-key-id: ${VA_SIGNATURE_ACTIVE_KEY_ID:default}
+    # Optional rotation map, e.g. va.signature.keys.2026-q3: ${VA_SIGNATURE_SECRET_2026_Q3}.
+    # The legacy va.signature.secret property is always registered as key id "default".
   id:
     # Node ID (0–1023). Must be unique across all running VA service instances.
     # Set VA_NODE_ID per pod/instance in deployment config.

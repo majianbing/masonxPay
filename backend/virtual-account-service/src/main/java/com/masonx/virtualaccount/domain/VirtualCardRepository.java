@@ -23,11 +23,12 @@ public class VirtualCardRepository {
     public void save(VirtualCard card) {
         jdbc.update("""
                 INSERT INTO virtual_card (
-                    card_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
+                    card_id, card_token_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
                     status, spending_limit, currency, expiry
-                ) VALUES (?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
                 """,
                 card.cardId(),
+                card.cardTokenId(),
                 card.maskedPan(),
                 card.bin(),
                 card.vccAccountId(),
@@ -60,13 +61,13 @@ public class VirtualCardRepository {
     }
 
     /**
-     * Looks up an ACTIVE card by its masked PAN (first 6 + **** + last 4).
-     * Used by the issuer auth endpoint to identify the card from the simulator request.
+     * Looks up an ACTIVE card by the simulator token id derived from the test PAN.
+     * This is the issuer-decision identity; masked PAN is display/audit metadata.
      */
-    public Optional<VirtualCard> findActiveByMaskedPan(String maskedPan) {
+    public Optional<VirtualCard> findActiveByCardTokenId(String cardTokenId) {
         var rows = jdbc.query(
-                "SELECT * FROM virtual_card WHERE masked_pan = ? AND status = 'ACTIVE' LIMIT 1",
-                ROW_MAPPER, maskedPan);
+                "SELECT * FROM virtual_card WHERE card_token_id = ? AND status = 'ACTIVE' LIMIT 1",
+                ROW_MAPPER, cardTokenId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
@@ -101,6 +102,7 @@ public class VirtualCardRepository {
         Date expiry = rs.getDate("expiry");
         return new VirtualCard(
                 rs.getString("card_id"),
+                rs.getString("card_token_id"),
                 rs.getString("masked_pan"),
                 rs.getString("bin"),
                 rs.getString("vcc_account_id"),

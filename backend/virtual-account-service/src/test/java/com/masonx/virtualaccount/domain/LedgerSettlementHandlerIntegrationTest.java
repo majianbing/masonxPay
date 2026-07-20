@@ -72,7 +72,7 @@ class LedgerSettlementHandlerIntegrationTest {
         platformFee = new LedgerAccount(
                 "ac_test_fee_1", Mode.TEST, LedgerAccountRole.PLATFORM,
                 null, null, null,
-                LedgerAccountType.FEE_INCOME, "USD", AssetClass.FIAT, 2,
+                LedgerAccountType.PLATFORM_FEE_RECEIVABLE, "USD", AssetClass.FIAT, 2,
                 NormalBalance.DEBIT, BigDecimal.ZERO, LedgerAccountStatus.ACTIVE);
 
         accountRepo.save(tenantCash);

@@ -9,6 +9,8 @@ import java.util.List;
 @Repository
 public class RailPaymentRepository {
 
+    private static final String PREPAID_CARD_BIN = "999999";
+
     private final JdbcTemplate jdbc;
 
     public RailPaymentRepository(JdbcTemplate jdbc) {
@@ -55,11 +57,14 @@ public class RailPaymentRepository {
 
     public void insert(CanonicalPaymentCommand cmd, String status) {
         String maskedPan = cmd.cardToken() != null ? cmd.cardToken().masked() : null;
+        String cardTokenId = cmd.cardToken() != null && PREPAID_CARD_BIN.equals(cmd.cardToken().bin())
+                ? cmd.cardToken().cardTokenId()
+                : null;
         jdbc.update("""
                 INSERT INTO rail_payment
                     (payment_id, merchant_id, mode, rail, network, movement_type,
-                     amount, currency, status, idempotency_key, original_payment_id, masked_pan)
-                VALUES (?, ?, ?, ?::rail_type, ?, ?::rail_movement, ?, ?, ?::rail_status, ?, ?, ?)
+                     amount, currency, status, idempotency_key, original_payment_id, masked_pan, card_token_id)
+                VALUES (?, ?, ?, ?::rail_type, ?, ?::rail_movement, ?, ?, ?::rail_status, ?, ?, ?, ?)
                 """,
                 cmd.paymentId(),
                 cmd.merchantId(),
@@ -72,13 +77,8 @@ public class RailPaymentRepository {
                 status,
                 cmd.idempotencyKey(),
                 cmd.originalPaymentId(),
-                maskedPan);
-    }
-
-    public String findMaskedPan(String paymentId) {
-        return jdbc.queryForObject(
-                "SELECT masked_pan FROM rail_payment WHERE payment_id = ?",
-                String.class, paymentId);
+                maskedPan,
+                cardTokenId);
     }
 
     public void updateStatus(String paymentId, String merchantId, String status) {

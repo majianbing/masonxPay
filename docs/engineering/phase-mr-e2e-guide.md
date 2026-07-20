@@ -85,7 +85,7 @@ curl -s -X POST http://localhost:8081/v1/rail/authorize \
 
 ```sql
 -- psql -p 5432 -U pay_app_user -d msx_rail
-SELECT payment_id, status, network, amount, masked_pan
+SELECT payment_id, status, network, amount, masked_pan, card_token_id
 FROM rail_payment
 WHERE idempotency_key = 'idem_card_a1';
 -- status = APPROVED
@@ -256,6 +256,7 @@ curl -s -X POST http://localhost:8086/v1/vcc/cards \
 ```json
 {
   "cardId":    "card_<snowflake>",
+  "cardTokenId": "ctok_<simulator-token>",
   "testPan":   "999999XXXXXX1234",
   "maskedPan": "999999****1234",
   "bin":       "999999",
@@ -264,7 +265,7 @@ curl -s -X POST http://localhost:8086/v1/vcc/cards \
 }
 ```
 
-**Save `testPan` and `cardId` — `testPan` is returned only once.**
+**Save `testPan`, `cardId`, and `cardTokenId` — `testPan` is returned only once.**
 
 ```bash
 CARD_ID="card_<id from response>"
@@ -302,8 +303,8 @@ FROM va_ledger_entry e
 JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id
 WHERE a.merchant_id = 'mer_test_001'
 ORDER BY e.created_at;
--- DR PREPAID_CARD 200
--- CR WALLET 200
+-- DR WALLET 200
+-- CR PREPAID_CARD 200  (liability moves wallet -> card)
 ```
 
 ### B4. Authorize using the VCC — approved
@@ -321,9 +322,9 @@ curl -s -X POST http://localhost:8081/v1/rail/authorize \
   }" | jq .
 ```
 
-The card-network-sim detects BIN `999999` and calls `POST :8086/internal/issuer/authorize` with the masked PAN.
+The card-network-sim detects BIN `999999`, mints an `authorizationId` for the auth, derives a simulator `cardTokenId` from DE2, and calls `POST :8086/internal/issuer/authorize` with that token.
 
-**Expected response:** `"status": "APPROVED"`.
+**Expected response:** `"decision": "APPROVED"`.
 
 **Verify the hold ledger account was funded on authorization:**
 
@@ -350,7 +351,7 @@ When the card sale is approved on the ISO 8583 path (MR1), rail-service publishe
 
 ```sql
 -- Ledger journal for the card sale
--- DR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) / CR PREPAID_CARD_HOLD account
+-- DR PREPAID_CARD_HOLD / CR CARD_NETWORK_RECEIVABLE (va_rail_visa_rcv) — hold extinguished into network obligation
 SELECT e.ledger_account_id, e.direction, e.amount, e.balance_after, e.source_event_id
 FROM va_ledger_entry e
 JOIN ledger_account a ON a.ledger_account_id = e.ledger_account_id
@@ -639,14 +640,18 @@ The `/internal/issuer/authorize` endpoint requires `X-Internal-Token`. Verify th
 curl -s -o /dev/null -w "%{http_code}" \
   -X POST http://localhost:8086/internal/issuer/authorize \
   -H "Content-Type: application/json" \
-  -d '{"maskedPan":"999999****1234","amount":10.00,"currency":"USD","stan":"000001"}'
+  -d '{"authorizationId":"auth_manual_001","cardTokenId":"ctok_from_card_create_response","amount":10.00,"currency":"USD","stan":"000001"}'
 
 # Should return 200 with decision
 curl -s -X POST http://localhost:8086/internal/issuer/authorize \
   -H "Content-Type: application/json" \
   -H "X-Internal-Token: internal-dev-secret" \
-  -d '{"maskedPan":"999999****1234","amount":10.00,"currency":"USD","stan":"000001"}' | jq .
+  -d '{"authorizationId":"auth_manual_001","cardTokenId":"ctok_from_card_create_response","amount":10.00,"currency":"USD","stan":"000001"}' | jq .
 ```
+
+The endpoint is idempotent on `authorizationId`: repeating the same call replays the
+stored decision without posting a second hold. Use a fresh `authorizationId` to make
+a new authorization.
 
 ---
 

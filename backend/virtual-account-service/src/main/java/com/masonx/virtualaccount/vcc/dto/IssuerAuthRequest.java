@@ -6,12 +6,25 @@ import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 
-/** Authorization request from the card-network-sim for a BIN 999999 VA-issued card. */
+/**
+ * Real-time authorization decision request from an issuer adapter.
+ *
+ * <p>{@code authorizationId} is minted by the issuer side, unique per distinct
+ * authorization within that issuer, and MUST be reused when a delivery is
+ * retried — the decision endpoint is idempotent on it and replays the stored
+ * decision. The issuer identity itself is bound to the adapter endpoint, not
+ * carried in the payload.
+ *
+ * <p>{@code cardTokenId} is the card identity resolved by the issuer/processor
+ * side. {@code stan}/{@code rrn} are optional network audit metadata; no
+ * decision logic may depend on them.
+ */
 public record IssuerAuthRequest(
-        @NotBlank String maskedPan,               // first 6 + **** + last 4
+        @NotBlank String authorizationId,
+        @NotBlank String cardTokenId,
         @NotNull @DecimalMin("0.01") BigDecimal amount,
         @NotBlank String currency,
-        @NotBlank String stan,
+        String stan,
         String rrn
 ) {
 }

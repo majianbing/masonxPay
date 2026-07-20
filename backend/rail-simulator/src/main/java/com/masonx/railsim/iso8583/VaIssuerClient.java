@@ -9,20 +9,28 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.math.BigDecimal;
-
 /**
- * HTTP client that calls virtual-account-service's issuer auth endpoint for BIN 999999 cards.
+ * HTTP client that calls virtual-account-service's authorization decision endpoint
+ * for BIN 999999 cards.
  *
- * <p>BIN 999999 identifies VA-issued VCCs. The card network sim acts as the card network
- * but delegates authorization decisions to the VA service (the card issuer).
+ * <p>BIN 999999 identifies VA-issued VCCs. The card network sim acts as the card
+ * network + issuer processor but delegates the authorization decision to the VA
+ * service (the program manager).
+ *
+ * <p>The VA endpoint is idempotent on {@code authorizationId}, so one retry with
+ * the same id is safe: if the first attempt timed out after VA committed a hold,
+ * the retry replays the original decision instead of leaving an orphaned hold
+ * behind a blind DE39=91 decline.
  */
 @Component
 public class VaIssuerClient {
 
     private static final Logger log = LoggerFactory.getLogger(VaIssuerClient.class);
 
+    static final String REASON_ISSUER_UNAVAILABLE = "ISSUER_UNAVAILABLE";
+
     private static final String TOKEN_HEADER = "X-Internal-Token";
+    private static final int MAX_ATTEMPTS = 2;
 
     private final String vaIssuerUrl;
     private final String internalAuthToken;
@@ -39,25 +47,34 @@ public class VaIssuerClient {
     }
 
     /**
-     * Calls the VA issuer endpoint and returns its decision.
-     * On any HTTP or network error, returns a decline with DE39=91 (issuer unavailable).
+     * Calls the VA decision endpoint and returns its decision, retrying once with
+     * the same authorizationId on transport failure. On persistent failure,
+     * returns a decline with reason {@link #REASON_ISSUER_UNAVAILABLE}.
      */
-    public SimIssuerAuthResponse authorize(String maskedPan, BigDecimal amount,
-                                           String currency, String stan, String rrn) {
+    public SimIssuerAuthResponse authorize(SimIssuerAuthRequest request) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(TOKEN_HEADER, internalAuthToken);
-        var entity = new HttpEntity<>(new SimIssuerAuthRequest(maskedPan, amount, currency, stan, rrn), headers);
-        try {
-            var resp = restTemplate.postForEntity(vaIssuerUrl, entity, SimIssuerAuthResponse.class);
-            SimIssuerAuthResponse body = resp.getBody();
-            if (body == null) {
-                log.error("VA issuer returned null response for maskedPan={}", maskedPan);
-                return new SimIssuerAuthResponse("DECLINED", "91", null, "Null response from issuer");
+        var entity = new HttpEntity<>(request, headers);
+
+        RestClientException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                var resp = restTemplate.postForEntity(vaIssuerUrl, entity, SimIssuerAuthResponse.class);
+                SimIssuerAuthResponse body = resp.getBody();
+                if (body == null) {
+                    log.error("VA issuer returned null response for authorizationId={}",
+                            request.authorizationId());
+                    return new SimIssuerAuthResponse("DECLINED", REASON_ISSUER_UNAVAILABLE);
+                }
+                return body;
+            } catch (RestClientException e) {
+                lastFailure = e;
+                log.warn("VA issuer call attempt {}/{} failed for authorizationId={}: {}",
+                        attempt, MAX_ATTEMPTS, request.authorizationId(), e.getMessage());
             }
-            return body;
-        } catch (RestClientException e) {
-            log.error("VA issuer call failed for maskedPan={}: {}", maskedPan, e.getMessage());
-            return new SimIssuerAuthResponse("DECLINED", "91", null, "Issuer unavailable");
         }
+        log.error("VA issuer unreachable after {} attempts for authorizationId={}: {}",
+                MAX_ATTEMPTS, request.authorizationId(), lastFailure.getMessage());
+        return new SimIssuerAuthResponse("DECLINED", REASON_ISSUER_UNAVAILABLE);
     }
 }

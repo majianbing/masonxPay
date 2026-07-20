@@ -27,14 +27,43 @@ public record LedgerAccount(
         AssetClass assetClass,
         int scale,
         NormalBalance normalBalance,
+        AccountClass accountClass,
         BigDecimal balance,
         LedgerAccountStatus status
 ) {
+    public LedgerAccount(String ledgerAccountId,
+                         Mode mode,
+                         LedgerAccountRole ledgerAccountRole,
+                         String orgId,
+                         String merchantId,
+                         String providerId,
+                         LedgerAccountType ledgerAccountType,
+                         String asset,
+                         AssetClass assetClass,
+                         int scale,
+                         NormalBalance normalBalance,
+                         BigDecimal balance,
+                         LedgerAccountStatus status) {
+        this(ledgerAccountId, mode, ledgerAccountRole, orgId, merchantId, providerId,
+                ledgerAccountType, asset, assetClass, scale, normalBalance,
+                classify(ledgerAccountType), balance, status);
+    }
+
     /** Returns a copy with an updated balance — used by LedgerPostingService to track
      *  in-memory state when multiple entries for the same account exist in one transaction. */
     public LedgerAccount withBalance(BigDecimal newBalance) {
         return new LedgerAccount(ledgerAccountId, mode, ledgerAccountRole, orgId, merchantId, providerId,
-                ledgerAccountType, asset, assetClass, scale, normalBalance,
+                ledgerAccountType, asset, assetClass, scale, normalBalance, accountClass,
                 newBalance, status);
+    }
+
+    public static AccountClass classify(LedgerAccountType type) {
+        return switch (type) {
+            case WALLET, CREDIT_LINE, PREPAID_CARD, PREPAID_CARD_HOLD,
+                 CARD_NETWORK_RECEIVABLE, CLEARING, SUSPENSE -> AccountClass.LIABILITY;
+            case FEE_INCOME -> AccountClass.REVENUE;
+            case BAD_DEBT -> AccountClass.EXPENSE;
+            default -> AccountClass.ASSET;
+        };
     }
 }

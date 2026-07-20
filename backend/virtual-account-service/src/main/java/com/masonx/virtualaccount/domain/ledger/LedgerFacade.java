@@ -25,8 +25,8 @@ import java.util.List;
  *   postDirect(tx)
  *     For callers that have no event identity (bench, internal corrections,
  *     future admin API). Bypasses inbox intentionally. The UNIQUE(ledger_account_id,
- *     source_event_id) DB constraint is the only backstop here — duplicate
- *     source_event_ids on the same account throw DataIntegrityViolationException.
+ *     source_event_id, source_event_leg) DB constraint is the only backstop here.
+ *     Duplicate source event legs on the same account throw DataIntegrityViolationException.
  *
  * Cross-cutting concerns that apply to all postings (observability, audit
  * fan-out, future rate-limiting) belong in this class, not in the engine.

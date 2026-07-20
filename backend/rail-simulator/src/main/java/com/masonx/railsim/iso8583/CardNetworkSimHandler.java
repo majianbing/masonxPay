@@ -1,5 +1,6 @@
 package com.masonx.railsim.iso8583;
 
+import com.masonx.common.card.SimulatorCardTokenId;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -193,11 +195,33 @@ public class CardNetworkSimHandler extends SimpleChannelInboundHandler<ByteBuf> 
         String     currency = numericToIsoAlpha(request.getString(49));
         String     rrn      = request.getString(37);
 
-        SimIssuerAuthResponse resp = vaIssuer.authorize(maskPan(pan), amount, currency, stan, rrn);
-        log.info("VA issuer decision={} responseCode={} for STAN={}", resp.decision(), resp.responseCode(), stan);
+        // Issuer-minted identity for this authorization; VaIssuerClient reuses it
+        // on retry. A retransmitted 0100 would need network-level dedup before
+        // minting a fresh id, but rail-service never retransmits — it reverses
+        // on timeout (MR2) — so one id per received 0100 is correct here.
+        String authorizationId = "auth_" + UUID.randomUUID();
 
-        sendAuthResponse(ctx, request, resp.responseCode(),
-                "APPROVED".equals(resp.decision()) ? resp.authCode() : null);
+        String cardTokenId = SimulatorCardTokenId.fromPan(pan);
+        SimIssuerAuthResponse resp = vaIssuer.authorize(new SimIssuerAuthRequest(
+                authorizationId, cardTokenId, amount, currency, stan, rrn));
+        boolean approved = "APPROVED".equals(resp.decision());
+        String responseCode = approved ? "00" : de39For(resp.reason());
+        log.info("VA issuer decision={} reason={} de39={} for STAN={} authorizationId={} cardTokenId={}",
+                resp.decision(), resp.reason(), responseCode, stan, authorizationId, cardTokenId);
+
+        sendAuthResponse(ctx, request, responseCode,
+                approved ? issuerSim.generateAuthCode() : null);
+    }
+
+    /** Maps program-manager decline reason tokens to ISO 8583 DE39 response codes. */
+    private static String de39For(String reason) {
+        return switch (reason == null ? "" : reason) {
+            case "INSUFFICIENT_FUNDS"  -> "51";
+            case "CARD_NOT_FOUND"      -> "14";
+            case "AUTH_STATE_ANOMALY"  -> "96";
+            case "ISSUER_UNAVAILABLE"  -> "91";
+            default                    -> "05";
+        };
     }
 
     // ── response building ─────────────────────────────────────────────────────

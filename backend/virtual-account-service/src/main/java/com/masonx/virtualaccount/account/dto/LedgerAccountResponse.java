@@ -6,6 +6,7 @@ public record LedgerAccountResponse(
         String     ledgerAccountId,
         String     mode,
         String     ledgerAccountType,
+        String     accountClass,
         String     merchantId,
         String     asset,
         BigDecimal balance,

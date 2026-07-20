@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 
 import java.util.Map;
@@ -47,9 +48,12 @@ public class RailKafkaConsumerConfig {
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, RailSettlementEvent>
     railSettlementListenerContainerFactory(
-            ConsumerFactory<String, RailSettlementEvent> railSettlementConsumerFactory) {
+            ConsumerFactory<String, RailSettlementEvent> railSettlementConsumerFactory,
+            DefaultErrorHandler settlementErrorHandler) {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, RailSettlementEvent>();
         factory.setConsumerFactory(railSettlementConsumerFactory);
+        // Same park-don't-drop backstop as the auto-configured gateway factory.
+        factory.setCommonErrorHandler(settlementErrorHandler);
         return factory;
     }
 }

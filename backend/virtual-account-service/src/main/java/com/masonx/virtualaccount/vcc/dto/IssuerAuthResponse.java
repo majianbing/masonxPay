@@ -1,9 +1,11 @@
 package com.masonx.virtualaccount.vcc.dto;
 
+/**
+ * Program-manager authorization decision. Network specifics — DE39 response
+ * code mapping and DE38 auth code minting — are owned by the issuer/rail side.
+ */
 public record IssuerAuthResponse(
-        String decision,     // "APPROVED" or "DECLINED"
-        String responseCode, // DE39: "00"=approved, "51"=insufficient funds, "14"=invalid card, etc.
-        String authCode,     // DE38: 6-char auth code if approved; null otherwise
-        String reason        // human-readable decline reason; null if approved
+        String decision,  // APPROVED / DECLINED
+        String reason     // machine token when declined (e.g. INSUFFICIENT_FUNDS); null if approved
 ) {
 }

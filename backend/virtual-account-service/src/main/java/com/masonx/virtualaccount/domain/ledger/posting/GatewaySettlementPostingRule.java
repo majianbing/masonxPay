@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.domain.ledger.posting;
 
+import com.masonx.common.error.BusinessException;
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.virtualaccount.domain.constant.Direction;
@@ -7,13 +8,14 @@ import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
 import com.masonx.virtualaccount.domain.constant.TransactionType;
 import com.masonx.virtualaccount.domain.dto.RecordSettlementCommand;
 import com.masonx.virtualaccount.domain.ledger.AccountingEntryDraft;
+import com.masonx.virtualaccount.domain.ledger.AccountingDateResolver;
 import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,10 +24,19 @@ public class GatewaySettlementPostingRule implements PostingRule<GatewaySettleme
 
     private final LedgerAccountRepository accountRepo;
     private final SnowflakeIdGenerator idGen;
+    private final AccountingDateResolver accountingDateResolver;
 
-    public GatewaySettlementPostingRule(LedgerAccountRepository accountRepo, SnowflakeIdGenerator idGen) {
+    @Autowired
+    public GatewaySettlementPostingRule(LedgerAccountRepository accountRepo,
+                                        SnowflakeIdGenerator idGen,
+                                        AccountingDateResolver accountingDateResolver) {
         this.accountRepo = accountRepo;
         this.idGen = idGen;
+        this.accountingDateResolver = accountingDateResolver;
+    }
+
+    public GatewaySettlementPostingRule(LedgerAccountRepository accountRepo, SnowflakeIdGenerator idGen) {
+        this(accountRepo, idGen, new AccountingDateResolver());
     }
 
     @Override
@@ -40,7 +51,7 @@ public class GatewaySettlementPostingRule implements PostingRule<GatewaySettleme
 
         return List.of(new LedgerPostingCommand(txId,
                 buildEntries(cmd, event.tenantCash(), event.externalClearing()),
-                entryType, description, paymentRefId, LocalDate.now(),
+                entryType, description, paymentRefId, accountingDateResolver.today(),
                 cmd.tenant().mode(), orgId, event.merchantId()));
     }
 
@@ -59,25 +70,25 @@ public class GatewaySettlementPostingRule implements PostingRule<GatewaySettleme
 
         boolean hasFee = cmd.feeAmount().compareTo(BigDecimal.ZERO) > 0;
         if (hasFee) {
-            var platformFeeOpt = accountRepo.findPlatformAccount(cmd.asset(), LedgerAccountType.FEE_INCOME);
-            if (platformFeeOpt.isPresent()) {
-                return List.of(
-                        new AccountingEntryDraft(tenantCash.ledgerAccountId(), Direction.DEBIT,
-                                cmd.netAmount(), cmd.asset(), cmd.sourceEventId()),
-                        new AccountingEntryDraft(platformFeeOpt.get().ledgerAccountId(), Direction.DEBIT,
-                                cmd.feeAmount(), cmd.asset(), cmd.sourceEventId()),
-                        new AccountingEntryDraft(externalClearing.ledgerAccountId(), Direction.CREDIT,
-                                cmd.amount(), cmd.asset(), cmd.sourceEventId())
-                );
-            }
+            LedgerAccount platformFee = accountRepo.findPlatformAccount(
+                            cmd.asset(), LedgerAccountType.PLATFORM_FEE_RECEIVABLE)
+                    .orElseThrow(() -> new BusinessException("VA_ACCOUNT_NOT_FOUND",
+                            "No PLATFORM_FEE_RECEIVABLE account for asset: " + cmd.asset()));
+            return List.of(
+                    new AccountingEntryDraft(tenantCash.ledgerAccountId(), Direction.DEBIT,
+                            cmd.netAmount(), cmd.asset(), cmd.sourceEventId(), "merchant_net"),
+                    new AccountingEntryDraft(platformFee.ledgerAccountId(), Direction.DEBIT,
+                            cmd.feeAmount(), cmd.asset(), cmd.sourceEventId(), "platform_fee"),
+                    new AccountingEntryDraft(externalClearing.ledgerAccountId(), Direction.CREDIT,
+                            cmd.amount(), cmd.asset(), cmd.sourceEventId(), "provider_gross")
+            );
         }
 
-        BigDecimal net = hasFee ? cmd.netAmount() : cmd.amount();
         List<AccountingEntryDraft> entries = new ArrayList<>();
         entries.add(new AccountingEntryDraft(tenantCash.ledgerAccountId(), Direction.DEBIT,
-                net, cmd.asset(), cmd.sourceEventId()));
+                cmd.amount(), cmd.asset(), cmd.sourceEventId()));
         entries.add(new AccountingEntryDraft(externalClearing.ledgerAccountId(), Direction.CREDIT,
-                net, cmd.asset(), cmd.sourceEventId()));
+                cmd.amount(), cmd.asset(), cmd.sourceEventId()));
         return entries;
     }
 

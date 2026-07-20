@@ -118,6 +118,7 @@ public class LedgerQueryService {
             return new TrialBalanceRow(
                     a.ledgerAccountId(),
                     a.ledgerAccountType().name(),
+                    a.accountClass().name(),
                     a.ledgerAccountRole().name(),
                     a.merchantId(),
                     a.normalBalance().name(),

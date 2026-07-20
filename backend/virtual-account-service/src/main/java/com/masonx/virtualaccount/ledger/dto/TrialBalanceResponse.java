@@ -16,6 +16,7 @@ public record TrialBalanceResponse(
     public record TrialBalanceRow(
             String ledgerAccountId,
             String ledgerAccountType,
+            String accountClass,
             String ledgerAccountRole,
             String merchantId,   // null for PLATFORM/EXTERNAL
             String normalBalance,

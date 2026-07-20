@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 public record VccResponse(
         String     cardId,
+        String     cardTokenId,
         String     maskedPan,
         String     bin,
         String     status,

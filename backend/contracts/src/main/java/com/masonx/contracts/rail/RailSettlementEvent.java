@@ -13,15 +13,15 @@ import java.time.Instant;
  * <p>Additive-only contract — never remove, rename, or retype fields.
  * Bump SCHEMA_VERSION on every additive change.
  *
- * @param vccAccountId        Reserved for future use; currently null — VA handler resolves
- *                            the card account via {@code maskedPan}.
+ * @param vccAccountId        Reserved for future use; currently null.
  * @param receivableAccountId Informational; VA handler resolves the receivable account
  *                            via {@code networkName}.
  * @param merchantId          Merchant owning this payment (v2). Required for bank transfer
  *                            journal posting (VA needs to find the merchant WALLET account).
- * @param maskedPan           Masked card PAN (v2); non-null for card payments. VA uses this
- *                            to look up the card account. Never contains raw PAN digits beyond
- *                            first-6 + last-4.
+ * @param maskedPan           Masked card PAN (v2); display/audit metadata only. Never contains
+ *                            raw PAN digits beyond first-6 + last-4.
+ * @param cardTokenId         Simulator card identity (v3); non-null for VA-issued card payments.
+ *                            VA uses this to look up the card, never maskedPan.
  */
 public record RailSettlementEvent(
         EventEnvelope envelope,
@@ -36,8 +36,10 @@ public record RailSettlementEvent(
         Instant settledAt,
         // v2 additions — nullable on older producers
         String merchantId,
-        String maskedPan
+        String maskedPan,
+        // v3 addition — nullable on older producers
+        String cardTokenId
 ) {
     public static final String TYPE = "rail.settlement.recorded";
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
 }
