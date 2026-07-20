@@ -60,10 +60,10 @@ public class LedgerAccountManagementService {
         return toResponse(account);
     }
 
-    public PagedResult<LedgerAccountResponse> listAccounts(String merchantId, int page, int size) {
-        long total = accountRepo.countTenantAccountsByMerchant(merchantId);
+    public PagedResult<LedgerAccountResponse> listAccounts(String merchantId, Mode mode, int page, int size) {
+        long total = accountRepo.countTenantAccountsByMerchantAndMode(merchantId, mode);
         List<LedgerAccountResponse> content = accountRepo
-                .findTenantAccountsByMerchant(merchantId, page, size)
+                .findTenantAccountsByMerchantAndMode(merchantId, mode, page, size)
                 .stream().map(this::toResponse).toList();
         int totalPages = size > 0 ? (int) Math.ceil((double) total / size) : 0;
         return new PagedResult<>(content, page, size, total, totalPages);
@@ -89,6 +89,7 @@ public class LedgerAccountManagementService {
                 a.mode().name(),
                 a.ledgerAccountType().name(),
                 a.accountClass().name(),
+                a.normalBalance().name(),
                 a.merchantId(),
                 a.asset(),
                 a.balance(),

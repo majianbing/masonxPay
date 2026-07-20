@@ -122,6 +122,9 @@ app:
   webhook:
     outbox-poller:
       enabled: ${WEBHOOK_OUTBOX_POLLER_ENABLED:true}
+  virtual-account:
+    base-url: ${VA_SERVICE_BASE_URL:http://localhost:8086}
+    internal-token: ${INTERNAL_AUTH_TOKEN:internal-dev-secret}
 
   sharding:
     payment:

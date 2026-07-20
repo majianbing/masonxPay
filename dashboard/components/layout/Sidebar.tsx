@@ -6,6 +6,7 @@ import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch, UserRound,
   Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign, BarChart2, AlertTriangle, ClipboardList, Bot,
+  Landmark,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
@@ -26,6 +27,7 @@ const nav = [
   { href: '/disputes', label: 'Disputes', icon: AlertTriangle },
   { href: '/scheduled-retries', label: 'Retries', icon: TimerReset },
   { href: '/routing/policies', label: 'Routing', icon: GitBranch },
+  { href: '/virtual-account', label: 'Virtual Account', icon: Landmark },
   { href: '/connectors', label: 'Connectors', icon: Plug },
   { href: '/payment-links', label: 'Payment Links', icon: Link2 },
   { href: '/assistant', label: 'Assistant', icon: Bot },

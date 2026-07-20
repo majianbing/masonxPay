@@ -160,6 +160,9 @@ services:
       RAIL_BASE_URL: ${RAIL_BASE_URL:-http://rail-service:8081}
       RAIL_RESOLVED_TOPIC: ${RAIL_RESOLVED_TOPIC:-rail.payment.resolved}
       RAIL_RESOLVED_CONSUMER_GROUP_ID: ${RAIL_RESOLVED_CONSUMER_GROUP_ID:-gateway-rail-resolved}
+      # Optional gateway → VA dashboard proxy. Gateway does not depend on VA startup.
+      VA_SERVICE_BASE_URL: ${VA_SERVICE_BASE_URL:-http://virtual-account:8086}
+      INTERNAL_AUTH_TOKEN: ${INTERNAL_AUTH_TOKEN:-internal-dev-secret}
       # RAG support assistant (docs-only)
       AI_ASSISTANT_ENABLED: ${AI_ASSISTANT_ENABLED:-false}
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8090}
@@ -305,9 +308,10 @@ services:
       RAIL_DB_USERNAME: ${DB_USERNAME:-pay_app_user}
       RAIL_DB_PASSWORD: ${DB_PASSWORD:-password123}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      RAIL_SIMULATOR_HOST: rail-simulator
-      RAIL_SIMULATOR_HTTP_PORT: 9090
-      RAIL_SIMULATOR_TCP_PORT: 9091
+      RAIL_SIM_HOST: rail-simulator
+      RAIL_SIM_HTTP_PORT: 9090
+      RAIL_SIM_TCP_PORT: 9091
+      RAIL_SIM_BANK_URL: http://rail-simulator:9090
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 8081 || exit 1"]
       interval: 10s
@@ -353,6 +357,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       VA_KAFKA_CONSUMER_ENABLED: ${VA_KAFKA_CONSUMER_ENABLED:-true}
       VA_SETTLEMENT_TOPIC: ${VA_SETTLEMENT_TOPIC:-payment.settlement.events}
+      VA_BENCH_ENABLED: ${VA_BENCH_ENABLED:-false}
 
 volumes:
   postgres_data:
