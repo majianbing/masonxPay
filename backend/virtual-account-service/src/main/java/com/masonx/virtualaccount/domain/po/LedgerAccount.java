@@ -66,4 +66,16 @@ public record LedgerAccount(
             default -> AccountClass.ASSET;
         };
     }
+
+    public static NormalBalance normalBalanceFor(LedgerAccountType type) {
+        return switch (type) {
+            // Platform-books convention: merchant/cardholder funds held by the
+            // platform are liabilities, so fund-holding tenant accounts are
+            // CREDIT-normal. CASH (external-world money mirror), receivables,
+            // and reserves remain DEBIT-normal assets.
+            case WALLET, PREPAID_CARD, PREPAID_CARD_HOLD,
+                 CREDIT_LINE, FEE_INCOME, CLEARING, SUSPENSE, BAD_DEBT -> NormalBalance.CREDIT;
+            default -> NormalBalance.DEBIT;
+        };
+    }
 }

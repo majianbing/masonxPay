@@ -7,7 +7,6 @@ import com.masonx.virtualaccount.domain.constant.AssetClass;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountRole;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountType;
-import com.masonx.virtualaccount.domain.constant.NormalBalance;
 import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.inbound.InboxRepository;
@@ -80,18 +79,10 @@ public class MerchantLedgerProvisioningService {
                 asset,
                 AssetClass.FIAT,
                 scale(asset),
-                normalBalance(type),
+                LedgerAccount.normalBalanceFor(type),
                 LedgerAccount.classify(type),
                 BigDecimal.ZERO,
                 LedgerAccountStatus.ACTIVE));
-    }
-
-    private NormalBalance normalBalance(LedgerAccountType type) {
-        return switch (type) {
-            case WALLET, PREPAID_CARD, PREPAID_CARD_HOLD,
-                 CREDIT_LINE, FEE_INCOME, CLEARING, SUSPENSE, BAD_DEBT -> NormalBalance.CREDIT;
-            default -> NormalBalance.DEBIT;
-        };
     }
 
     private int scale(String asset) {
