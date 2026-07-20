@@ -1,6 +1,6 @@
 # MasonXPay
 
-MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supports multi-provider payments, hosted checkout, embedded checkout, routing rules, webhooks, observability, and a high-throughput payment-core track.
+MasonXPay is a Java/Spring Boot and Next.js payment platform covering multi-provider payment orchestration, a double-entry virtual account ledger with card issuing, an ISO 8583 / ISO 20022 multi-rail track, merchant operations, and a high-throughput payment-core track.
 
 ## Product Inspiration
 
@@ -22,12 +22,15 @@ Hosted on Vercel + Render + Neon free tier. The first request may take around 30
 - Multi-provider connector management: Stripe, Square, Braintree, Mollie, and TEST-only Mason Simulator.
 - Payment lifecycle: create, confirm, capture, cancel, refund, idempotency, and webhook delivery.
 - Checkout options: hosted payment links and embedded browser SDK checkout.
+- Payment orchestration: route policies, capability-aware routing, and outcome-aware retry/fallback.
+- Merchant operations: disputes, subscriptions and invoicing, scheduled payment retries, and a merchant audit log.
 - Merchant dashboard: payments, refunds, routing rules, connectors, API keys, webhooks, logs, and team access.
+- Virtual Account service: a double-entry ledger (CASH/WALLET/receivable accounts) with a merchant-facing ledger and statement view, plus a Virtual Credit Card (VCC) product backed by the same ledger — VA acts as card issuer for BIN 999999.
+- Multi-rail infrastructure: ISO 8583 card rail (Netty + jPOS), ISO 20022 bank rail (HTTP + JAXB), two-sided network simulator, UNKNOWN state and reversal discipline, and Kafka-driven ledger settlement.
 - High-throughput core: 64 logical payment shards, ShardingSphere-JDBC, Kafka outbox/workers, Redis hot path, and payment read projections.
 - Observability: Prometheus metrics, Grafana dashboards, Kafka JMX metrics, alert rules, and request tracing.
 - Benchmarks: k6 scenarios for create, confirm, refund, idempotency replay, get, and list flows.
-- Multi-rail infrastructure: ISO 8583 card rail (Netty + jPOS), ISO 20022 bank rail (HTTP + JAXB), two-sided network simulator, UNKNOWN state and reversal discipline, and Kafka-driven ledger settlement.
-- Virtual Credit Card (VCC) product: merchant-funded prepaid cards backed by the double-entry ledger; VA service acts as card issuer for BIN 999999.
+- AI assistant: an early-stage, budget-gated dashboard assistant scoped to approved docs, with a separate Python AI coprocessor (`ai-service/`) for embeddings and eval runs.
 
 ## Repository Layout
 
@@ -60,18 +63,26 @@ cp .env.docker.example .env
 docker compose up --build
 ```
 
-Open:
+The default command starts only the core stack — Postgres, `gateway-service`, and the dashboard. Everything else (rail, virtual account, Kafka/Redis, observability, AI) is opt-in behind a Compose profile:
 
-| Service | URL |
-|---------|-----|
-| Dashboard | http://localhost:3000 |
-| Backend API (gateway) | http://localhost:8080 |
-| Rail service API | http://localhost:8081 |
-| Virtual account service | http://localhost:8082 |
-| Rail simulator (HTTP) | http://localhost:9090 |
-| Rail simulator (ISO8583 TCP) | localhost:9091 |
-| Prometheus | http://localhost:9092 |
-| Grafana | http://localhost:3001 |
+| Service | URL | Profile |
+|---------|-----|---------|
+| Dashboard | http://localhost:3000 | default |
+| Backend API (gateway) | http://localhost:8080 | default |
+| Rail service API | http://localhost:8081 | `rail` |
+| Rail simulator (HTTP) | http://localhost:9099 | `rail` |
+| Rail simulator (ISO8583 TCP) | localhost:9091 | `rail` |
+| Virtual account service | http://localhost:8086 | `virtual-account` |
+| AI service | http://localhost:8090 | `ai` |
+| Prometheus | http://localhost:9090 | `infra` |
+| Grafana | http://localhost:3001 | `infra` |
+
+`--profile infra` brings up everything at once (Redis, Kafka, rail, virtual account, and observability); the narrower `rail`, `virtual-account`, and `ai` profiles bring up only that track plus its own dependencies. Example:
+
+```bash
+docker compose --profile virtual-account up --build   # gateway + dashboard + VA ledger + Kafka
+docker compose --profile infra up --build              # everything
+```
 
 Grafana login: `admin` / `admin`.
 
@@ -103,7 +114,7 @@ docker compose down -v
 # Rebuild after code changes
 docker compose up --build
 
-# OR, With Redis/Kafka
+# OR, everything (Redis/Kafka, rail, virtual account, observability)
 docker compose --profile infra up --build
 ```
 
@@ -132,6 +143,9 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 - [Payment operations agent plan](docs/planning/payment-operations-agent-plan.md)
 - [Development guide](docs/engineering/development-guide.md)
 - [Connector development](docs/engineering/connector-development.md)
+- [Virtual account ledger guide](docs/engineering/virtual-account-guide.md)
+- [Gateway to virtual account event integration](docs/architecture/gateway-va-event-integration.md)
+- [Testing strategy](docs/engineering/testing-strategy.md)
 - [Server SDK](sdk/server/README.md)
 
 ## Tech Stack
