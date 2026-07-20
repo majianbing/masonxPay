@@ -10,6 +10,9 @@
 
 # Boundary
 - Apply an anti-corruption layer (ACL) at the Kafka consumer edge: the inbound adapter maps `contracts` events to VA-native commands; domain/ledger code never imports `contracts`. Cross-service seam decisions live in `docs/refactor/modularize-backend.md`.
+- Gateway PSP/acquirer principal is not a VA balance. In normal payment-gateway mode, merchants own their Stripe/Square/Braintree/Mollie/acquirer accounts and MasonXPay does not hold those funds. A merchant can configure multiple external PSP accounts, each with its own balance, payout timing, reserve/dispute behavior, and reporting semantics. Do not collapse those external balances into one "Virtual Account" balance unless a separate treasury/reconciliation product is explicitly designed.
+- Gateway-originated platform fees are the carve-out: the fee MasonXPay is owed or has earned on gateway volume is platform money and may be booked in VA through `PLATFORM_FEE_RECEIVABLE` and later `FEE_INCOME`. That does not make the merchant's PSP principal MasonXPay-held funds.
+- Do not reuse today's pooled `EXTERNAL provider_id` mirror-account pattern for bring-your-own PSP balances. That pattern is appropriate when MasonXPay is the counterparty to a rail/network/provider position. Merchant-owned Stripe/Square accounts are segregated merchant buckets; pooling them into one `EXTERNAL:stripe` row would misstate many merchants' funds as one MasonXPay position.
 
 # Account Model
 

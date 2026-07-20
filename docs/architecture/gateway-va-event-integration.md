@@ -48,6 +48,32 @@ VA owns:
 
 The shared contract in `contracts` is a business fact, not a VA command. Gateway publishes "a merchant was created"; VA decides which ledger accounts to create.
 
+## Design Consideration: PSP Accounts Are Not VA Balances
+
+Gateway merchants can attach multiple merchant-owned PSP/acquirer accounts, for
+example two Stripe accounts and one Square account. Those accounts are external
+settlement domains owned by the merchant, not funds held by MasonXPay. They have
+different balance APIs, pending/available rules, payout schedules, dispute
+reserves, and reporting semantics.
+
+VA provisioning on `merchant.created` creates internal ledger resources for VA
+products; it must not imply that gateway PSP balances have been moved into or
+unified by MasonXPay. The gateway-to-VA integration may still post MasonXPay's
+own economics, such as `PLATFORM_FEE_RECEIVABLE` and later `FEE_INCOME`; that is
+the platform-fee carve-out, not custody of merchant PSP principal.
+
+Do not model bring-your-own PSP balances with the current pooled VA `EXTERNAL`
+account pattern. That pattern fits rail/network positions where MasonXPay is the
+counterparty. Merchant-owned Stripe/Square accounts are segregated buckets; a
+single `EXTERNAL:stripe` mirror would incorrectly combine multiple merchants'
+outside funds into one MasonXPay ledger position.
+
+If MasonXPay later adds external balance reporting, it should be a separate
+treasury/reconciliation surface that shows provider-specific balances and payout
+state, not a single Virtual Account balance. Open follow-up: revisit automatic
+`CASH`/`WALLET` provisioning for merchants who only use gateway PSP routing and
+do not have a VA wallet, VCC, reserve, or fee-ledger use case enabled.
+
 ## Event Contract
 
 `MerchantCreatedEvent`
