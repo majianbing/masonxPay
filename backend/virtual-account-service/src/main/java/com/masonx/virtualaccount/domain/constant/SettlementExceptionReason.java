@@ -14,5 +14,6 @@ public enum SettlementExceptionReason {
     INVALID_AMOUNT,               // non-positive amount
     INSUFFICIENT_BALANCE,         // posting would drive a balance negative (e.g. bank return after spend)
     POSTING_FAILED,               // other business rule rejected the journal
-    UNEXPECTED_ERROR              // parked by the Kafka backstop after retries exhausted
+    UNEXPECTED_ERROR,             // parked by the Kafka backstop after retries exhausted
+    MOVEMENT_TYPE_NOT_IMPLEMENTED // movement type is a defined MoneyMovementType with no posting rule yet
 }

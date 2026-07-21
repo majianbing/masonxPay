@@ -29,7 +29,7 @@ import java.math.BigDecimal;
 /**
  * Posts double-entry ledger journals for rail settlement events.
  *
- * <p>Handles four movement types:
+ * <p>Handles four movement types today:
  * <ul>
  *   <li><b>CARD_SALE</b> — DR PREPAID_CARD_HOLD / CR card network settlement account.
  *   <li><b>CARD_REVERSAL</b> — DR PREPAID_CARD_HOLD / CR PREPAID_CARD (hold released).
@@ -38,6 +38,18 @@ import java.math.BigDecimal;
  *   <li><b>BANK_RETURN</b> — DR merchant WALLET up to its balance, shortfall booked
  *       DR MERCHANT_RECEIVABLE (created on first need) / CR BANK_RAIL_RECEIVABLE.
  * </ul>
+ *
+ * <p>The remaining card {@code MoneyMovementType} values (CARD_AUTH_REVERSAL,
+ * CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT, CARD_REFUND, CARD_CREDIT,
+ * CARD_CLEARING_PRESENTMENT) each get an explicit switch case below and park with
+ * {@link SettlementExceptionReason#MOVEMENT_TYPE_NOT_IMPLEMENTED} rather than falling
+ * into the generic {@code default} case, so each gap is individually visible instead
+ * of collapsing into one "unhandled movement type" bucket. Their intended posting
+ * shape (where a posting is expected at all) is defined as a stub in
+ * {@link com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule} —
+ * implement there first, then wire the corresponding case here to call it. CARD_AUTH
+ * is also explicit but is not expected to arrive here at all: VA authorizes
+ * synchronously via {@code CardAuthorizationService}, not through this async path.
  *
  * <p>Idempotency: {@link LedgerFacade#postAllIfNew} uses the event envelope ID as the
  * idempotency key. A duplicate Kafka delivery produces no second journal entry.
@@ -101,6 +113,31 @@ public class CardRailSettlementHandler {
                 case CARD_REVERSAL -> handleCardReversal(event, eventId);
                 case BANK_CREDIT_TRANSFER -> handleBankTransferSettled(event, eventId);
                 case BANK_RETURN   -> handleBankReturn(event, eventId);
+
+                // CARD_AUTH is authorized synchronously via CardAuthorizationService and
+                // should never reach this async rail-settlement path. If it does, that's
+                // a routing bug upstream (rail-service/simulator), not a missing posting rule.
+                case CARD_AUTH -> park(event, eventId, SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED,
+                        "CARD_AUTH should not arrive as a rail settlement event — it is authorized "
+                                + "synchronously via CardAuthorizationService; check upstream routing");
+
+                // Defined MoneyMovementType values with a stub posting rule in
+                // CardSettlementPostingRule, not yet wired here. See that class for the
+                // intended DR/CR shape and open design questions per type.
+                case CARD_AUTH_REVERSAL, CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT,
+                     CARD_REFUND, CARD_CREDIT ->
+                        park(event, eventId, SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED,
+                                "No posting rule implemented yet for " + type
+                                        + " — see the matching stub in CardSettlementPostingRule");
+
+                // Matching/reconciliation input, not expected to move value — see
+                // MoneyMovementType.CARD_CLEARING_PRESENTMENT javadoc. No posting rule is
+                // planned for this one; it needs a separate matching hook when implemented.
+                case CARD_CLEARING_PRESENTMENT ->
+                        park(event, eventId, SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED,
+                                "CARD_CLEARING_PRESENTMENT is a matching/reconciliation input; "
+                                        + "no ledger posting is expected, and no matching hook exists yet");
+
                 default -> park(event, eventId, SettlementExceptionReason.MISSING_EVENT_FIELD,
                         "Unhandled rail movement type: " + type);
             }
