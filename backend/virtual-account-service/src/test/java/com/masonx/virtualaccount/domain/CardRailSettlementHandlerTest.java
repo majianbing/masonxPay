@@ -20,6 +20,8 @@ import com.masonx.virtualaccount.inbound.InboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -491,5 +493,27 @@ class CardRailSettlementHandlerTest {
                     assertThat(e.direction()).isEqualTo(Direction.CREDIT);
                     assertThat(e.amount()).isEqualByComparingTo("120.00");
                 });
+    }
+
+    // ── Defined-but-not-yet-implemented movement types ───────────────────────
+    // CARD_SALE and CARD_REVERSAL post journals (covered above); CARD_AUTH is
+    // handled synchronously via CardAuthorizationService and should never reach
+    // this handler. These eight unsupported/out-of-band card MoneyMovementType
+    // values each have an explicit switch case that parks immediately, before
+    // any card/account lookup, so a defined-but-unbuilt type is distinguishable
+    // in the settlement exception queue from a genuinely unexpected one.
+
+    @ParameterizedTest
+    @EnumSource(value = MoneyMovementType.class, names = {
+            "CARD_AUTH", "CARD_AUTH_REVERSAL", "CARD_SALE_REVERSAL", "CARD_CAPTURE",
+            "CARD_SETTLEMENT", "CARD_REFUND", "CARD_CREDIT", "CARD_CLEARING_PRESENTMENT"
+    })
+    void unimplemented_movement_types_park_with_movement_type_not_implemented_reason(MoneyMovementType type) {
+        handler.handle(event(type, CARD_TOKEN_ID, MERCHANT_ID));
+
+        verify(settlementExceptions).park(
+                eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_test_001"), anyString(),
+                eq(SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED), anyString(), any());
+        verifyNoInteractions(virtualCardRepo, accountRepo, ledger);
     }
 }
