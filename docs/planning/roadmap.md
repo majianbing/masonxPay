@@ -57,6 +57,22 @@ The core value-add of an orchestration layer over direct provider integration.
 | 3.4 | **More connectors** | ✅ | Mollie (EU) added: REST API v2, hosted redirect checkout via existing `redirect_url` overlay, HMAC-free webhook verified by API fetch, `test_`/`live_` API key. Razorpay (India) skipped — sandbox requires full KYC onboarding with no bypass; revisit if a test account becomes available. |
 | 3.5 | **Cost-aware routing** | ✅ | Option A + Approach 2: `fixed_fee_cents` + `rate_bps` on `provider_accounts` (V35); optional `max_cost_bps` ceiling on `routing_rules` (V36). `ConnectorFeeService` computes effectiveCost = fixedFee + (amount × rateBps / 10000). `RoutingEngine.resolve()` filters the healthy pool by cost ceiling before weighted selection; falls back to unconstrained pool if all candidates exceed budget. Dashboard: fee fields on connector form, cost ceiling field on routing rule form with green badge. |
 
+### Phase PF - Paystack and Flutterwave Connectors
+
+MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Paystack and Flutterwave are planned connectors, not currently implemented. If any public website copy describes them as available today, that copy is ahead of the repository and should be corrected until the connector path is complete.
+
+See [Paystack and Flutterwave provider plan](paystack-flutterwave-provider-plan.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| PF0 | **Readiness and copy alignment** | [ ] | Correct public docs/site language, distinguish core-service design intent from adopter-owned production hardening, and clarify current connector support. |
+| PF1 | **Provider model and credentials** | [ ] | Add provider enum values, credential records, codec support, create-request fields, and credential visibility tests. |
+| PF2 | **Paystack sandbox connector** | [ ] | Add hosted/provider-side checkout charge flow, refund, sync, signed webhooks, event dedupe, and sandbox tests without raw card handling. |
+| PF3 | **Flutterwave sandbox connector** | [ ] | Add hosted/provider-side checkout charge flow, refund, sync, signed webhooks, TEST-mode scenarios, event dedupe, and sandbox tests without raw card handling. |
+| PF4 | **Dashboard and browser SDK** | [ ] | Add connector form fields, branding, checkout handlers in `sdk/browser/src/index.ts`, preview support, and bundled SDK rebuild. |
+| PF5 | **Routing, capabilities, and operations** | [ ] | Seed capabilities, map failure codes, expose operational limitations, and verify route policy participation. |
+| PF6 | **Documentation and lab verification** | [ ] | Add sandbox walkthroughs and manually verify Docker self-host, connector creation, preview payments, refunds, webhooks, and TEST/LIVE isolation. |
+
 ---
 
 ## Phase 4 — Merchant operations
