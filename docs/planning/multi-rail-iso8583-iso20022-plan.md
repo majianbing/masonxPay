@@ -18,7 +18,7 @@ This phase does not connect to real Visa, Mastercard, SWIFT, SEPA, or FedNow pro
 
 ## Scope Boundary
 
-Phase MR runs alongside the existing gateway (Phases 0–4, H, O, S) without replacing it. Merchants using Stripe, Square, Braintree, and Mollie continue using the existing `gateway-service` path unchanged. The rail service exposes its own API namespace and its own Maven modules.
+Phase MR runs alongside the existing gateway (Phases 0–4, H, O, S) without replacing it. Merchants using Stripe, Square, Braintree, Mollie, and Flutterwave continue using the existing `gateway-service` path unchanged. The rail service exposes its own API namespace and its own Maven modules.
 
 ## Positioning in the Full System
 
@@ -26,7 +26,7 @@ Phase MR runs alongside the existing gateway (Phases 0–4, H, O, S) without rep
 Existing path:
   Merchant API / Checkout
     -> gateway-service (PaymentIntentService)
-    -> PSP adapters (Stripe, Square, Braintree, Mollie, MasonSimulator)
+    -> PSP adapters (Stripe, Square, Braintree, Mollie, Flutterwave, MasonSimulator)
 
 New Phase MR path (parallel, separate entry points):
   rail-service APIs

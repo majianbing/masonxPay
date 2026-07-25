@@ -59,19 +59,19 @@ The core value-add of an orchestration layer over direct provider integration.
 
 ### Phase PF - Paystack and Flutterwave Connectors
 
-MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Paystack and Flutterwave are planned connectors, not currently implemented. If any public website copy describes them as available today, that copy is ahead of the repository and should be corrected until the connector path is complete.
+MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Flutterwave sandbox hosted checkout is implemented for self-host evaluation; Paystack remains planned.
 
 See [Paystack and Flutterwave provider plan](paystack-flutterwave-provider-plan.md).
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| PF0 | **Readiness and copy alignment** | [ ] | Correct public docs/site language, distinguish core-service design intent from adopter-owned production hardening, and clarify current connector support. |
-| PF1 | **Provider model and credentials** | [ ] | Add provider enum values, credential records, codec support, create-request fields, and credential visibility tests. |
+| PF0 | **Readiness and copy alignment** | [x] | Public docs now distinguish implemented Flutterwave sandbox support from planned Paystack support and keep production readiness tied to adopter-owned hardening. |
+| PF1 | **Provider model and credentials** | [x] | Flutterwave provider enum, credential record, codec support, create-request fields, and credential visibility tests are implemented. Paystack remains planned. |
 | PF2 | **Paystack sandbox connector** | [ ] | Add hosted/provider-side checkout charge flow, refund, sync, signed webhooks, event dedupe, and sandbox tests without raw card handling. |
-| PF3 | **Flutterwave sandbox connector** | [ ] | Add hosted/provider-side checkout charge flow, refund, sync, signed webhooks, TEST-mode scenarios, event dedupe, and sandbox tests without raw card handling. |
-| PF4 | **Dashboard and browser SDK** | [ ] | Add connector form fields, branding, checkout handlers in `sdk/browser/src/index.ts`, preview support, and bundled SDK rebuild. |
-| PF5 | **Routing, capabilities, and operations** | [ ] | Seed capabilities, map failure codes, expose operational limitations, and verify route policy participation. |
-| PF6 | **Documentation and lab verification** | [ ] | Add sandbox walkthroughs and manually verify Docker self-host, connector creation, preview payments, refunds, webhooks, and TEST/LIVE isolation. |
+| PF3 | **Flutterwave sandbox connector** | [x] | Hosted checkout, refund, sync, webhook verification/dedupe, capability seed, provider tests, and manual sandbox callback flow are verified. |
+| PF4 | **Dashboard and browser SDK** | [x] | Flutterwave connector form fields, branding, checkout handler, preview path, public callback middleware, test-card helper, and SDK bundle are implemented. Paystack remains planned. |
+| PF5 | **Routing, capabilities, and operations** | [x] | Flutterwave default capabilities and failure-code mappings are implemented. Unsupported capture/cancel return explicitly unsupported for hosted checkout. |
+| PF6 | **Documentation and lab verification** | [~] | Flutterwave sandbox guide and support matrix are documented; Paystack walkthrough and live-mode production gates remain pending. |
 
 ---
 
@@ -271,7 +271,7 @@ Settlement file reconciliation and real-time dual-stream monitoring at 1–10M t
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| R1 | **Settlement file ingestion** | [ ] | Per-PSP CSV/JSON settlement file parsers (Stripe, Square, Braintree, Mollie). Store raw settlement records in a separate reconciliation table. Schedule daily ingestion jobs. |
+| R1 | **Settlement file ingestion** | [ ] | Per-PSP CSV/JSON settlement file parsers (Stripe, Square, Braintree, Mollie, Flutterwave). Store raw settlement records in a separate reconciliation table. Schedule daily ingestion jobs. |
 | R2 | **Batch matching engine** | [ ] | Match each settlement line against `payment_requests` by provider payment ID. Detect: unmatched charges, over/under-settled amounts, fee discrepancies, currency conversion gaps. Write discrepancy records. |
 | R3 | **Real-time dual-stream comparison** | [ ] | Kafka Streams job comparing Stream A (internal payment lifecycle events) against Stream B (PSP webhooks). Flag gaps beyond configurable tolerance windows (e.g. succeeded internally but no PSP webhook within 5 min). |
 | R4 | **Reconciliation dashboard** | [ ] | Merchant-facing: unmatched transactions, settlement status per PSP, fee variance report, discrepancy drill-down. Ops: real-time stream divergence alerts. |

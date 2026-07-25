@@ -21,7 +21,14 @@ interface ProviderAccount {
 }
 
 // Test card reference per provider — shown as a read-only helper panel
-const TEST_CARDS: Record<string, { label: string; value: string }[]> = {
+const TEST_CARDS: Record<string, {
+  label: string;
+  value: string;
+  expiry?: string;
+  cvv?: string;
+  pin?: string;
+  otp?: string;
+}[]> = {
   STRIPE: [
     { label: 'Visa (success)', value: '4242 4242 4242 4242' },
     { label: 'Mastercard (success)', value: '5555 5555 5555 4444' },
@@ -36,6 +43,64 @@ const TEST_CARDS: Record<string, { label: string; value: string }[]> = {
     { label: 'Visa (success)', value: '4111 1111 1111 1111' },
     { label: 'Mastercard (success)', value: '5431 1111 1111 1111' },
     { label: 'Declined', value: '4000 1111 1111 1115' },
+  ],
+  FLUTTERWAVE: [
+    {
+      label: 'Mastercard PIN success',
+      value: '5531 8866 5214 2950',
+      expiry: '09/32',
+      cvv: '564',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Mastercard 3DS success',
+      value: '5438 8980 1456 0229',
+      expiry: '10/31',
+      cvv: '564',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Visa 3DS success',
+      value: '4187 4274 1556 4246',
+      expiry: '09/32',
+      cvv: '828',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Visa AVS success',
+      value: '4556 0527 0417 2643',
+      expiry: '09/32',
+      cvv: '899',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Do Not Honour',
+      value: '5143 0105 2233 9965',
+      expiry: '08/32',
+      cvv: '276',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Insufficient funds',
+      value: '5258 5859 2266 6506',
+      expiry: '09/31',
+      cvv: '883',
+      pin: '3310',
+      otp: '12345',
+    },
+    {
+      label: 'Incorrect PIN',
+      value: '5399 8346 9789 4723',
+      expiry: '09/31',
+      cvv: '883',
+      pin: '3310',
+      otp: '12345',
+    },
   ],
 };
 
@@ -359,13 +424,29 @@ export default function PreviewPage() {
               </h2>
               <div className="bg-white border rounded-lg divide-y text-sm">
                 {testCards.map((card) => (
-                  <div key={card.value} className="flex justify-between items-center px-3 py-2">
-                    <span className="text-muted-foreground">{card.label}</span>
-                    <span className="font-mono text-xs">{card.value}</span>
+                  <div key={`${card.label}-${card.value}`} className="px-3 py-2.5 space-y-1.5">
+                    <div className="flex justify-between items-center gap-3">
+                      <span className="text-muted-foreground">{card.label}</span>
+                      <span className="font-mono text-xs text-right">{card.value}</span>
+                    </div>
+                    {(card.expiry || card.cvv || card.pin || card.otp) && (
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        {card.expiry && <span>Expiry <span className="font-mono text-foreground">{card.expiry}</span></span>}
+                        {card.cvv && <span>CVV <span className="font-mono text-foreground">{card.cvv}</span></span>}
+                        {card.pin && <span>PIN <span className="font-mono text-foreground">{card.pin}</span></span>}
+                        {card.otp && <span>OTP <span className="font-mono text-foreground">{card.otp}</span></span>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground">Use any future expiry · any 3-digit CVC</p>
+              {connector?.provider === 'FLUTTERWAVE' ? (
+                <p className="text-xs text-muted-foreground">
+                  Flutterwave test cards only work with TEST-mode Flutterwave credentials.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Use any future expiry · any 3-digit CVC</p>
+              )}
             </div>
           )}
 

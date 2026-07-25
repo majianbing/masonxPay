@@ -255,6 +255,9 @@ export default function PaymentsPage() {
             <SelectItem value="STRIPE">Stripe</SelectItem>
             <SelectItem value="SQUARE">Square</SelectItem>
             <SelectItem value="BRAINTREE">Braintree</SelectItem>
+            <SelectItem value="MOLLIE">Mollie</SelectItem>
+            <SelectItem value="FLUTTERWAVE">Flutterwave</SelectItem>
+            <SelectItem value="SIMULATOR">Mason Simulator</SelectItem>
           </SelectContent>
         </Select>
         <Button

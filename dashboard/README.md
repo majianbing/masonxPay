@@ -10,7 +10,7 @@ Next.js 15 merchant portal for the MasonXPay payment gateway.
 | `/payments` | Paginated payment list — filter by status, provider, method, date, connector label |
 | `/payments/[id]` | Payment detail — attempts, metadata, refund actions |
 | `/refunds` | Refunds list with search and date filters |
-| `/connectors` | Add/manage payment provider accounts (Stripe, Square, Braintree) |
+| `/connectors` | Add/manage payment provider accounts (Stripe, Square, Braintree, Mollie, Flutterwave, Mason Simulator) |
 | `/connectors/[id]/preview` | Live TEST checkout preview for a single connector |
 | `/routing/policies` | Versioned route-policy list, publish/archive actions |
 | `/routing/policies/new` | Create a route-policy draft |

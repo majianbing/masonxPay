@@ -19,7 +19,7 @@ Hosted on Vercel + Render + Neon free tier. The first request may take around 30
 
 ## What It Includes
 
-- Multi-provider connector management: Stripe, Square, Braintree, Mollie, and TEST-only Mason Simulator.
+- Multi-provider connector management: Stripe, Square, Braintree, Mollie, Flutterwave sandbox, and TEST-only Mason Simulator.
 - Payment lifecycle: create, confirm, capture, cancel, refund, idempotency, and webhook delivery.
 - Checkout options: hosted payment links and embedded browser SDK checkout.
 - Payment orchestration: route policies, capability-aware routing, and outcome-aware retry/fallback.
@@ -95,6 +95,18 @@ First build can take several minutes because Maven and Next.js dependencies are 
 3. Add a TEST connector, or enable Mason Simulator for benchmark/provider-flow testing.
 4. Create a payment link or use the integration demo at http://localhost:3000/demo.html.
 5. Watch metrics in Grafana at http://localhost:3001.
+
+## Connector Support
+
+| Provider | Status | Required credentials |
+|---|---|---|
+| Stripe | TEST/LIVE connector implemented | Secret key; publishable key for browser checkout |
+| Square | TEST/LIVE connector implemented | Access token, application ID, location ID |
+| Braintree | TEST/LIVE connector implemented | Merchant ID, public key, private key |
+| Mollie | TEST/LIVE hosted checkout implemented | API key |
+| Flutterwave | TEST hosted checkout implemented and manually verified | Secret key; optional public key; webhook hash for webhooks |
+| Mason Simulator | TEST-only local simulator | No external credentials |
+| Paystack | Planned | Not implemented |
 
 ## Useful Commands
 

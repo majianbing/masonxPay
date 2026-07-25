@@ -47,6 +47,7 @@ public class ProviderFailureCodeMapper {
         maps.put(PaymentProvider.SQUARE,    squareMap());
         maps.put(PaymentProvider.BRAINTREE, braintreeMap());
         maps.put(PaymentProvider.MOLLIE,    mollieMap());
+        maps.put(PaymentProvider.FLUTTERWAVE, flutterwaveMap());
         maps.put(PaymentProvider.SIMULATOR, simulatorMap());
         PROVIDER_MAPS = Collections.unmodifiableMap(maps);
     }
@@ -146,6 +147,23 @@ public class ProviderFailureCodeMapper {
                 "simulator_declined",     HARD_DECLINE,
                 "simulator_timeout",      PROVIDER_TIMEOUT,
                 "simulator_setup_failed", PROVIDER_UNAVAILABLE
+        );
+    }
+
+    private static Map<String, String> flutterwaveMap() {
+        return Map.ofEntries(
+                Map.entry("card_declined", HARD_DECLINE),
+                Map.entry("declined", HARD_DECLINE),
+                Map.entry("do_not_honor", HARD_DECLINE),
+                Map.entry("insufficient_funds", INSUFFICIENT_FUNDS),
+                Map.entry("invalid_card", INVALID_PAYMENT_METHOD),
+                Map.entry("invalid_card_number", INVALID_PAYMENT_METHOD),
+                Map.entry("invalid_cvv", INVALID_PAYMENT_METHOD),
+                Map.entry("expired_card", INVALID_PAYMENT_METHOD),
+                Map.entry("authentication_required", AUTHENTICATION_REQUIRED),
+                Map.entry("suspected_fraud", RISK_DECLINE),
+                Map.entry("checkout_link_failed", PROVIDER_ERROR),
+                Map.entry("flutterwave_error", PROVIDER_ERROR)
         );
     }
 }

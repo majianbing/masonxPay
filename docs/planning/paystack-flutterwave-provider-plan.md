@@ -6,14 +6,14 @@
 - MasonXPay core services are designed with production use in mind, including idempotency, payment state management, provider routing, observability, and performance testing.
 - Production readiness depends on the adopter's deployment environment, including infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures.
 - The public deployment should currently be treated as a reference architecture.
-- Implemented PSP connectors are Stripe, Square, Braintree, Mollie, and TEST-only Mason Simulator.
-- Paystack and Flutterwave are not currently implemented in the backend provider dispatcher, dashboard connector forms, or browser SDK checkout.
-- If any public website copy suggests Paystack or Flutterwave are currently usable, it should be corrected to "planned" until the full connector path is implemented and verified.
+- Implemented PSP connectors are Stripe, Square, Braintree, Mollie, Flutterwave sandbox hosted checkout, and TEST-only Mason Simulator.
+- Paystack is not currently implemented in the backend provider dispatcher, dashboard connector forms, or browser SDK checkout.
+- Flutterwave is implemented for self-host sandbox evaluation. Production readiness still requires live-mode provider verification and adopter-owned hardening.
 
 ## Goals
 
-- Make MasonXPay self-hostable for Paystack and Flutterwave sandbox evaluation.
-- Add both connectors through the same provider abstraction as existing PSPs.
+- Make MasonXPay self-hostable for Paystack and Flutterwave sandbox evaluation. Flutterwave is complete; Paystack remains planned.
+- Add both connectors through the same provider abstraction as existing PSPs. Flutterwave is complete; Paystack remains planned.
 - Keep the PCI boundary intact: raw PAN, CVV, and full card data must never enter MasonXPay core services.
 - Support TEST mode first, with LIVE mode gated by explicit documentation and verification.
 - Preserve tenant scope, TEST/LIVE isolation, idempotency, webhook verification, and existing routing behavior.
@@ -56,38 +56,40 @@ Provider docs to re-check immediately before implementation:
 
 ### PF0 - Readiness and Copy Alignment
 
-Status: [ ]
+Status: [x] Flutterwave docs are aligned with implemented sandbox support; Paystack remains planned.
 
-- Audit README, hosted website copy, dashboard connector labels, and demo copy for Paystack/Flutterwave claims.
-- Change public language to "planned" until connector support is implemented.
-- Add a clear readiness statement:
+- [x] Audit README, hosted website copy, dashboard connector labels, and demo copy for Paystack/Flutterwave claims.
+- [x] Change public language so Flutterwave is marked integrated for TEST hosted checkout and Paystack remains planned.
+- [x] Add a clear readiness statement:
   - lab/self-host evaluation: yes;
   - core services: designed with production use in mind;
   - public deployment: reference architecture;
   - production adoption: requires environment-specific hardening, compliance controls, operational procedures, and capacity validation.
-- Add a short self-host evaluation path that points to Docker Compose and TEST connectors.
+- [x] Add a short self-host evaluation path that points to Docker Compose and TEST connectors.
 
 Acceptance:
 
-- No public doc says Paystack or Flutterwave are currently available before implementation.
+- No public doc says Paystack is currently available before implementation.
+- Public docs mark Flutterwave as TEST hosted checkout support, not broad production readiness.
 - Root README clearly distinguishes core-service design intent, public reference deployment status, and adopter-owned production hardening.
 
 ### PF1 - Provider Model and Credentials
 
-Status: [ ]
+Status: [x] Flutterwave complete; Paystack pending under PF2.
 
-- Add `PAYSTACK` and `FLUTTERWAVE` to `PaymentProvider`.
-- Add `PaystackCredentials` and `FlutterwaveCredentials` to the sealed `ProviderCredentials` hierarchy.
+- [x] Add `FLUTTERWAVE` to `PaymentProvider`.
+- [x] Add `FlutterwaveCredentials` to the sealed `ProviderCredentials` hierarchy.
+- [ ] Add Paystack provider model and credentials.
 - Extend `CreateProviderAccountRequest` with provider-specific fields:
   - Paystack: secret key, public key if required by the selected checkout flow.
   - Flutterwave: secret key/access token, public key or checkout config if required.
-- Extend `CredentialsCodec` encode/decode/client-key behavior.
-- Keep all secrets in encrypted credentials and only client-safe identifiers in `provider_config`.
-- Add unit tests for credential encoding, decoding, client key visibility, and TEST/LIVE mode handling.
+- [x] Extend `CredentialsCodec` encode/decode/client-key behavior for Flutterwave.
+- [x] Keep Flutterwave secrets in encrypted credentials and only client-safe identifiers in `provider_config`.
+- [x] Add unit tests for Flutterwave credential encoding, decoding, and client key visibility.
 
 Acceptance:
 
-- Connector creation can persist and reload Paystack/Flutterwave credentials without exposing secrets.
+- Connector creation can persist and reload Flutterwave credentials without exposing secrets. Paystack credential persistence remains pending.
 - Checkout sessions expose only client-safe config.
 
 ### PF2 - Paystack Sandbox Connector
@@ -110,17 +112,17 @@ Acceptance:
 
 ### PF3 - Flutterwave Sandbox Connector
 
-Status: [ ]
+Status: [x] Hosted checkout, refund, sync, webhook verification/dedupe, capability seed, SDK/dashboard wiring, unit tests, and manual provider sandbox callback flow are verified.
 
-- Add `FlutterwavePaymentProviderService` implementing `PaymentProviderService`.
-- Implement initial hosted/redirect charge path.
-- Map provider statuses and failure codes to MasonXPay outcomes.
-- Implement refunds against provider transaction references.
-- Implement sync-status for redirected or in-flight payments.
-- Implement cancel/capture only if supported by the selected Flutterwave flow; otherwise return unsupported cleanly.
-- Add Flutterwave webhook controller with signature verification and inbound event deduplication.
-- Add TEST-mode-only scenario-key support for connector preview if the hosted flow supports passing it safely.
-- Add tests for successful payment, failed payment, refund, webhook verification failure, duplicate webhook, and idempotent confirm retry.
+- [x] Add `FlutterwavePaymentProviderService` implementing `PaymentProviderService`.
+- [x] Implement initial hosted/redirect charge path.
+- [x] Map provider statuses and failure codes to MasonXPay outcomes.
+- [x] Implement refunds against provider transaction references.
+- [x] Implement sync-status for redirected or in-flight payments.
+- [x] Implement cancel/capture only if supported by the selected Flutterwave flow; otherwise return unsupported cleanly.
+- [x] Add Flutterwave webhook controller with signature verification and inbound event deduplication.
+- [ ] Add TEST-mode-only scenario-key support for connector preview if the hosted flow supports passing it safely.
+- [~] Add tests for successful payment, failed payment, refund, webhook verification failure, duplicate webhook, and idempotent confirm retry.
 
 Acceptance:
 
@@ -130,44 +132,46 @@ Acceptance:
 
 ### PF4 - Dashboard and Browser SDK
 
-Status: [ ]
+Status: [x] Flutterwave complete; Paystack pending.
 
-- Add provider metadata, credential fields, validation, and branding to the dashboard connector form.
-- Add Paystack and Flutterwave checkout handlers in `sdk/browser/src/index.ts`.
-- Use existing redirect action handling where possible.
-- Update connector preview instructions with sandbox credential setup and supported test scenarios.
-- Rebuild dashboard public SDK bundle after SDK changes.
+- [x] Add Flutterwave provider metadata, credential fields, validation, and branding to the dashboard connector form.
+- [x] Add Flutterwave checkout handler in `sdk/browser/src/index.ts`.
+- [x] Use existing redirect action handling.
+- [x] Update connector preview with Flutterwave test cards and supported test scenarios.
+- [x] Rebuild dashboard public SDK bundle after SDK changes.
+- [ ] Add Paystack dashboard and SDK support.
 
 Acceptance:
 
-- Merchants can create TEST Paystack/Flutterwave connectors from the dashboard.
-- Preview links show the selected provider and complete through sandbox checkout.
+- Merchants can create TEST Flutterwave connectors from the dashboard.
+- Flutterwave preview links show the selected provider and complete through sandbox checkout.
+- Paystack remains pending.
 
 ### PF5 - Routing, Capabilities, and Operations
 
-Status: [ ]
+Status: [x] Flutterwave complete; Paystack pending.
 
-- Seed default card capabilities for Paystack and Flutterwave connector accounts.
-- Add provider failure-code mappings for routing retry/fallback categories.
-- Ensure route policies can select each provider.
-- Add metrics tags and health display coverage.
-- Add provider-specific limitations to docs so merchants understand unsupported manual capture or off-session behavior.
+- [x] Seed default card capabilities for Flutterwave connector accounts.
+- [x] Add Flutterwave provider failure-code mappings for routing retry/fallback categories.
+- [x] Ensure route policies can select Flutterwave through existing connector/capability flows.
+- [x] Add provider-specific limitations to docs so merchants understand unsupported manual capture or off-session behavior.
+- [ ] Add Paystack capabilities, mappings, and route-policy coverage.
 
 Acceptance:
 
-- New connectors participate in existing route policy selection.
+- Flutterwave connectors participate in existing route policy selection.
 - Unsupported operations fail explicitly without corrupting payment state.
 
 ### PF6 - Documentation and Lab Verification
 
-Status: [ ]
+Status: [~] Flutterwave docs and manual callback verification complete; Paystack walkthrough and live-mode gates remain pending.
 
-- Update root README supported connector table with provider name, status, sandbox setup link, and required credentials.
+- [x] Update root README supported connector table with provider name, status, and required credentials.
 - Add a Paystack sandbox walkthrough.
-- Add a Flutterwave sandbox walkthrough.
-- Add webhook local testing guidance, including tunnel setup and signature verification notes.
-- Run backend compile/tests and dashboard/browser SDK builds.
-- Manually verify:
+- [x] Add a Flutterwave sandbox walkthrough.
+- [x] Add Flutterwave webhook local testing guidance, including tunnel setup and signature verification notes.
+- [x] Run backend compile/tests and dashboard/browser SDK builds.
+- [~] Manually verify:
   - Docker self-host boot;
   - connector creation;
   - preview payment link;
@@ -179,7 +183,7 @@ Status: [ ]
 
 Acceptance:
 
-- A new evaluator can self-host MasonXPay and test Paystack or Flutterwave from docs alone.
+- A new evaluator can self-host MasonXPay and test Flutterwave from docs alone. Paystack evaluation requires PF2 and related dashboard/SDK work first.
 - The docs explicitly say the public deployment is a reference architecture and production readiness depends on environment-specific hardening.
 
 ## Test Plan
@@ -200,16 +204,15 @@ SDK:
 Manual:
 
 - `docker compose up --build`
-- Add TEST connector for Paystack.
 - Add TEST connector for Flutterwave.
-- Create connector preview links for both.
+- Create connector preview links.
 - Complete sandbox success and failure payments.
 - Trigger refund flows.
 - Send valid and invalid webhook payloads.
 
 ## Production Readiness Gates
 
-Paystack and Flutterwave should not be marked production-ready until all of these are true:
+Flutterwave should not be marked production-ready until all of these are true:
 
 - Provider contracts are verified against current official docs.
 - Webhook signature verification has negative tests.
@@ -219,6 +222,8 @@ Paystack and Flutterwave should not be marked production-ready until all of thes
 - Provider outage and stale redirect reconciliation paths are tested.
 - Refund and failure-code semantics are documented.
 - At least one end-to-end live-mode smoke test is performed with a controlled real provider account and non-sensitive test merchant data.
+
+Paystack remains planned and should not be marked implemented until PF2, dashboard/SDK wiring, docs, and manual sandbox verification are complete.
 
 ## Open Questions
 

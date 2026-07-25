@@ -220,10 +220,12 @@ public class PublicPaymentController {
             @PathVariable String token,
             @RequestParam UUID piId) {
 
-        PaymentLink link = findActiveLink(token);
+        PaymentLink link = findLinkForChallenge(token);
         PaymentIntent intent = paymentIntentRepository.findById(piId)
                 .filter(pi -> pi.getMerchantId().equals(link.getMerchantId()))
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found"));
+
+        reconcileProviderStatus(intent);
 
         boolean success = intent.getStatus() == PaymentIntentStatus.SUCCEEDED;
 
@@ -246,6 +248,9 @@ public class PublicPaymentController {
                     PaymentIntentStatus.SUCCEEDED.name(),
                     null);
         }
+        if (intent.getStatus() == PaymentIntentStatus.FAILED || intent.getStatus() == PaymentIntentStatus.CANCELED) {
+            paymentLinkRepository.releaseLink(token);
+        }
 
         return ResponseEntity.ok(new PublicCheckoutResponse(
                 success, intent.getStatus().name(), intent.getId(),
@@ -263,7 +268,7 @@ public class PublicPaymentController {
             @PathVariable String token,
             @RequestParam UUID piId) {
 
-        PaymentLink link = findActiveLink(token);
+        PaymentLink link = findLinkForChallenge(token);
         PaymentIntent intent = paymentIntentRepository.findById(piId)
                 .filter(pi -> pi.getMerchantId().equals(link.getMerchantId()))
                 .filter(pi -> pi.getStatus() == PaymentIntentStatus.REQUIRES_ACTION)
@@ -533,6 +538,36 @@ public class PublicPaymentController {
             throw new IllegalStateException("This payment link is no longer active");
         }
         return link;
+    }
+
+    private PaymentLink findLinkForChallenge(String token) {
+        PaymentLink link = paymentLinkRepository.findByToken(token)
+                .orElseThrow(() -> new IllegalArgumentException("Payment link not found"));
+        if (link.isExpired()) {
+            throw new IllegalStateException("This payment link is expired");
+        }
+        return link;
+    }
+
+    private void reconcileProviderStatus(PaymentIntent intent) {
+        if (isTerminal(intent.getStatus())
+                || intent.getProviderPaymentId() == null
+                || intent.getConnectorAccountId() == null
+                || intent.getResolvedProvider() == null) {
+            return;
+        }
+        try {
+            ProviderAccount account = providerAccountRepository.findById(intent.getConnectorAccountId())
+                    .orElseThrow(() -> new IllegalStateException("Connector account not found"));
+            ProviderCredentials creds = credentialsCodec.decode(account);
+            dispatcher.syncStatus(intent.getResolvedProvider(), intent.getProviderPaymentId(), creds)
+                    .ifPresent(status -> {
+                        intent.setStatus(status);
+                        paymentIntentRepository.save(intent);
+                    });
+        } catch (Exception e) {
+            log.warn("Payment status sync failed for intent {}: {}", intent.getId(), e.getMessage());
+        }
     }
 
     private ProviderAccount stripeAccountForLink(PaymentLink link) {

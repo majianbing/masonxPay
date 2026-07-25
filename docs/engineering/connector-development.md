@@ -69,6 +69,8 @@ Builders receive a pre-attached hidden slot and populate it. They must not manag
 | Stripe | `publishableKey` | `Stripe(clientKey)` then `stripe.elements({ clientSecret })` |
 | Square | `applicationId` | `Square.payments(clientKey, locationId)` |
 | Braintree | `merchantId` | Fetch `/pub/braintree-client-token` first |
+| Mollie | `mollie` sentinel | Backend returns hosted checkout URL |
+| Flutterwave | public key or `flutterwave` sentinel | Backend returns hosted checkout URL |
 
 ## Connector Preview
 
@@ -88,4 +90,5 @@ Update the root README supported connector list with:
 - [x] Square
 - [x] Braintree
 - [x] Mollie
+- [x] Flutterwave sandbox hosted checkout
 - [ ] Razorpay, skipped for now because sandbox access requires full KYC onboarding with no bypass

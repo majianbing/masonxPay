@@ -7,6 +7,7 @@ Engineering docs explain how to build, test, and extend MasonXPay.
 - [Backend guide](backend-guide.md)
 - [Database and migrations](database-migrations.md)
 - [Connector development](connector-development.md)
+- [Flutterwave sandbox guide](flutterwave-sandbox.md)
 - [SDK guide](sdk-guide.md)
 - [Auth and security implementation](auth-security.md)
 - [Testing strategy](testing-strategy.md)

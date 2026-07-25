@@ -70,7 +70,7 @@ interface ProviderCapability {
   enabled: boolean;
 }
 
-const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'SIMULATOR'] as const;
+const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'SIMULATOR'] as const;
 type Provider = typeof PROVIDERS[number];
 const SIMULATOR_PROVIDER_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER === 'true';
 const PAYMENT_METHOD_OPTIONS = [
@@ -124,6 +124,13 @@ const PROVIDER_META: Record<Provider, {
     methods: ['iDEAL', 'Cards', 'Klarna', 'Bancontact', 'PayPal'],
     docsUrl: 'https://docs.mollie.com',
   },
+  FLUTTERWAVE: {
+    label: 'Flutterwave',
+    tagline: 'Hosted checkout for African and global payments',
+    description: 'Hosted redirect checkout for cards and local payment methods. TEST mode supports Flutterwave sandbox credentials.',
+    methods: ['Cards', 'Mobile money', 'Bank transfer', 'USSD'],
+    docsUrl: 'https://developer.flutterwave.com/docs',
+  },
   SIMULATOR: {
     label: 'Mason Simulator',
     tagline: 'Synthetic PSP for benchmark and preview testing',
@@ -136,7 +143,7 @@ const PROVIDER_META: Record<Provider, {
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'SIMULATOR'] as const),
+  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'SIMULATOR'] as const),
   mode: z.enum(['TEST', 'LIVE']),
   label: z.string().min(1, 'Label required'),
   primary: z.boolean(),
@@ -151,6 +158,10 @@ const createSchema = z.object({
   btPrivateKey: z.string().optional(),
   // Mollie
   mollieApiKey: z.string().optional(),
+  // Flutterwave
+  flutterwaveSecretKey: z.string().optional(),
+  flutterwavePublicKey: z.string().optional(),
+  flutterwaveWebhookHash: z.string().optional(),
   // Mason Simulator
   simulatorSuccessRatePercent: z.coerce.number().min(0).max(100).default(100),
   // Phase 3.5: fee configuration
@@ -172,6 +183,9 @@ const createSchema = z.object({
   }
   if (data.provider === 'MOLLIE') {
     if (!data.mollieApiKey) ctx.addIssue({ code: 'custom', path: ['mollieApiKey'], message: 'API key required' });
+  }
+  if (data.provider === 'FLUTTERWAVE') {
+    if (!data.flutterwaveSecretKey) ctx.addIssue({ code: 'custom', path: ['flutterwaveSecretKey'], message: 'Secret key required' });
   }
   if (data.provider === 'SIMULATOR' && data.mode !== 'TEST') {
     ctx.addIssue({ code: 'custom', path: ['provider'], message: 'Mason Simulator is only available in TEST mode' });
@@ -999,6 +1013,43 @@ export default function ConnectorsPage() {
                     Found in Mollie Dashboard → Developers → API keys. AES-256 encrypted at rest.
                   </p>
                 </div>
+              )}
+
+              {/* ── Flutterwave fields ── */}
+              {selectedProvider === 'FLUTTERWAVE' && (
+                <>
+                  <div className="space-y-1">
+                    <Label>Secret Key</Label>
+                    <Input
+                      type="password"
+                      placeholder={currentMode === 'TEST' ? 'FLWSECK_TEST-…' : 'FLWSECK-…'}
+                      {...register('flutterwaveSecretKey')}
+                    />
+                    {errors.flutterwaveSecretKey && <p className="text-xs text-red-500">{errors.flutterwaveSecretKey.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Server-side API key from Flutterwave. AES-256 encrypted at rest.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Public Key <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                    <Input
+                      placeholder={currentMode === 'TEST' ? 'FLWPUBK_TEST-…' : 'FLWPUBK-…'}
+                      {...register('flutterwavePublicKey')}
+                    />
+                    {errors.flutterwavePublicKey && <p className="text-xs text-red-500">{errors.flutterwavePublicKey.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Client-safe key reserved for future inline flows. Hosted checkout works without it.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Webhook Hash <span className="text-xs text-muted-foreground">(recommended)</span></Label>
+                    <Input type="password" placeholder="verif-hash secret" {...register('flutterwaveWebhookHash')} />
+                    {errors.flutterwaveWebhookHash && <p className="text-xs text-red-500">{errors.flutterwaveWebhookHash.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Flutterwave sends this as the verif-hash header. Required before webhooks are accepted.
+                    </p>
+                  </div>
+                </>
               )}
 
               {/* ── Mason Simulator fields ── */}
