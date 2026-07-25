@@ -102,6 +102,50 @@ const TEST_CARDS: Record<string, {
       otp: '12345',
     },
   ],
+  PAYSTACK: [
+    {
+      label: 'Visa success',
+      value: '4084 0840 8408 4081',
+      expiry: '07/27',
+      cvv: '408',
+    },
+    {
+      label: 'Verve success',
+      value: '5078 5078 5078 5078 12',
+      expiry: '07/27',
+      cvv: '081',
+      pin: '1111',
+    },
+    {
+      label: 'Verve PIN + OTP success',
+      value: '5060 6666 6666 6666 666',
+      expiry: '07/27',
+      cvv: '123',
+      pin: '1234',
+      otp: '123456',
+    },
+    {
+      label: 'Verve OTP success',
+      value: '5078 5078 5078 5078 04',
+      expiry: '07/27',
+      cvv: '884',
+      pin: '0000',
+      otp: '123456',
+    },
+    {
+      label: 'Declined',
+      value: '4084 0800 0000 5408',
+      expiry: '07/27',
+      cvv: '001',
+    },
+    {
+      label: 'Token not generated',
+      value: '5078 5078 5078 5078 53',
+      expiry: '07/27',
+      cvv: '082',
+      pin: '0000',
+    },
+  ],
 };
 
 // 3DS / SCA test cards — only Stripe supports server-side 3DS challenge in our current integration
@@ -443,6 +487,10 @@ export default function PreviewPage() {
               {connector?.provider === 'FLUTTERWAVE' ? (
                 <p className="text-xs text-muted-foreground">
                   Flutterwave test cards only work with TEST-mode Flutterwave credentials.
+                </p>
+              ) : connector?.provider === 'PAYSTACK' ? (
+                <p className="text-xs text-muted-foreground">
+                  Paystack test cards only work with TEST-mode Paystack credentials.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">Use any future expiry · any 3-digit CVC</p>

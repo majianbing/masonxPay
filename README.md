@@ -105,8 +105,8 @@ First build can take several minutes because Maven and Next.js dependencies are 
 | Braintree | TEST/LIVE connector implemented | Merchant ID, public key, private key |
 | Mollie | TEST/LIVE hosted checkout implemented | API key |
 | Flutterwave | TEST hosted checkout implemented and manually verified | Secret key; optional public key; webhook hash for webhooks |
+| Paystack | TEST hosted checkout implemented; manual sandbox verification blocked until Paystack account/entity activation | Secret key; optional public key |
 | Mason Simulator | TEST-only local simulator | No external credentials |
-| Paystack | Planned | Not implemented |
 
 ## Useful Commands
 

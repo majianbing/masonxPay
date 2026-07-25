@@ -70,7 +70,7 @@ interface ProviderCapability {
   enabled: boolean;
 }
 
-const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'SIMULATOR'] as const;
+const PROVIDERS = ['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'PAYSTACK', 'SIMULATOR'] as const;
 type Provider = typeof PROVIDERS[number];
 const SIMULATOR_PROVIDER_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SIMULATOR_PROVIDER === 'true';
 const PAYMENT_METHOD_OPTIONS = [
@@ -131,6 +131,13 @@ const PROVIDER_META: Record<Provider, {
     methods: ['Cards', 'Mobile money', 'Bank transfer', 'USSD'],
     docsUrl: 'https://developer.flutterwave.com/docs',
   },
+  PAYSTACK: {
+    label: 'Paystack',
+    tagline: 'Hosted checkout for African card and local payments',
+    description: 'Hosted redirect checkout with Paystack transaction initialization, verification, refunds, and signed webhooks.',
+    methods: ['Cards', 'Bank transfer', 'USSD', 'Mobile money'],
+    docsUrl: 'https://paystack.com/docs',
+  },
   SIMULATOR: {
     label: 'Mason Simulator',
     tagline: 'Synthetic PSP for benchmark and preview testing',
@@ -143,7 +150,7 @@ const PROVIDER_META: Record<Provider, {
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'SIMULATOR'] as const),
+  provider: z.enum(['STRIPE', 'SQUARE', 'BRAINTREE', 'MOLLIE', 'FLUTTERWAVE', 'PAYSTACK', 'SIMULATOR'] as const),
   mode: z.enum(['TEST', 'LIVE']),
   label: z.string().min(1, 'Label required'),
   primary: z.boolean(),
@@ -162,6 +169,9 @@ const createSchema = z.object({
   flutterwaveSecretKey: z.string().optional(),
   flutterwavePublicKey: z.string().optional(),
   flutterwaveWebhookHash: z.string().optional(),
+  // Paystack
+  paystackSecretKey: z.string().optional(),
+  paystackPublicKey: z.string().optional(),
   // Mason Simulator
   simulatorSuccessRatePercent: z.coerce.number().min(0).max(100).default(100),
   // Phase 3.5: fee configuration
@@ -186,6 +196,9 @@ const createSchema = z.object({
   }
   if (data.provider === 'FLUTTERWAVE') {
     if (!data.flutterwaveSecretKey) ctx.addIssue({ code: 'custom', path: ['flutterwaveSecretKey'], message: 'Secret key required' });
+  }
+  if (data.provider === 'PAYSTACK') {
+    if (!data.paystackSecretKey) ctx.addIssue({ code: 'custom', path: ['paystackSecretKey'], message: 'Secret key required' });
   }
   if (data.provider === 'SIMULATOR' && data.mode !== 'TEST') {
     ctx.addIssue({ code: 'custom', path: ['provider'], message: 'Mason Simulator is only available in TEST mode' });
@@ -1049,6 +1062,39 @@ export default function ConnectorsPage() {
                       Flutterwave sends this as the verif-hash header. Required before webhooks are accepted.
                     </p>
                   </div>
+                </>
+              )}
+
+              {/* ── Paystack fields ── */}
+              {selectedProvider === 'PAYSTACK' && (
+                <>
+                  <div className="space-y-1">
+                    <Label>Secret Key</Label>
+                    <Input
+                      type="password"
+                      placeholder={currentMode === 'TEST' ? 'sk_test_…' : 'sk_live_…'}
+                      {...register('paystackSecretKey')}
+                    />
+                    {errors.paystackSecretKey && <p className="text-xs text-red-500">{errors.paystackSecretKey.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Server-side API key from Paystack. AES-256 encrypted at rest.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Public Key <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                    <Input
+                      placeholder={currentMode === 'TEST' ? 'pk_test_…' : 'pk_live_…'}
+                      {...register('paystackPublicKey')}
+                    />
+                    {errors.paystackPublicKey && <p className="text-xs text-red-500">{errors.paystackPublicKey.message}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Client-safe key reserved for future inline flows. Hosted checkout works without it.
+                    </p>
+                  </div>
+                  <p className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-900">
+                    Register <span className="font-mono">/api/v1/providers/paystack/webhook</span> in Paystack.
+                    Webhooks are verified with the <span className="font-mono">x-paystack-signature</span> HMAC header.
+                  </p>
                 </>
               )}
 

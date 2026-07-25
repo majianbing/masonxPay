@@ -71,6 +71,7 @@ Builders receive a pre-attached hidden slot and populate it. They must not manag
 | Braintree | `merchantId` | Fetch `/pub/braintree-client-token` first |
 | Mollie | `mollie` sentinel | Backend returns hosted checkout URL |
 | Flutterwave | public key or `flutterwave` sentinel | Backend returns hosted checkout URL |
+| Paystack | public key or `paystack` sentinel | Backend returns hosted checkout URL |
 
 ## Connector Preview
 
@@ -91,4 +92,5 @@ Update the root README supported connector list with:
 - [x] Braintree
 - [x] Mollie
 - [x] Flutterwave sandbox hosted checkout
+- [x] Paystack sandbox hosted checkout
 - [ ] Razorpay, skipped for now because sandbox access requires full KYC onboarding with no bypass

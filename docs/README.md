@@ -12,6 +12,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Development guide](engineering/development-guide.md): engineering docs index — connector, SDK, auth, testing, database, and anti-pattern guides.
 - [Connector development](engineering/connector-development.md): provider onboarding across backend, dashboard, SDK, and docs.
 - [Flutterwave sandbox guide](engineering/flutterwave-sandbox.md): TEST connector setup, preview flow, callback behavior, and test cards.
+- [Paystack sandbox guide](engineering/paystack-sandbox.md): TEST connector setup, preview flow, webhook behavior, and test cards.
 - [Testing strategy](engineering/testing-strategy.md): expected coverage layers and test placement.
 - [RAG assistant operations](engineering/rag-operations.md): Qdrant runtime, indexing freshness, backup/retention, and security guidance.
 - [Roadmap](planning/roadmap.md): product phases, current status, and future tracks.

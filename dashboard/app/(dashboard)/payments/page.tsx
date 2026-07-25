@@ -257,6 +257,7 @@ export default function PaymentsPage() {
             <SelectItem value="BRAINTREE">Braintree</SelectItem>
             <SelectItem value="MOLLIE">Mollie</SelectItem>
             <SelectItem value="FLUTTERWAVE">Flutterwave</SelectItem>
+            <SelectItem value="PAYSTACK">Paystack</SelectItem>
             <SelectItem value="SIMULATOR">Mason Simulator</SelectItem>
           </SelectContent>
         </Select>

@@ -59,19 +59,19 @@ The core value-add of an orchestration layer over direct provider integration.
 
 ### Phase PF - Paystack and Flutterwave Connectors
 
-MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Flutterwave sandbox hosted checkout is implemented for self-host evaluation; Paystack remains planned.
+MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Flutterwave sandbox hosted checkout is implemented and manually verified; Paystack hosted checkout is implemented, with manual sandbox verification blocked until account/entity activation.
 
 See [Paystack and Flutterwave provider plan](paystack-flutterwave-provider-plan.md).
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| PF0 | **Readiness and copy alignment** | [x] | Public docs now distinguish implemented Flutterwave sandbox support from planned Paystack support and keep production readiness tied to adopter-owned hardening. |
-| PF1 | **Provider model and credentials** | [x] | Flutterwave provider enum, credential record, codec support, create-request fields, and credential visibility tests are implemented. Paystack remains planned. |
-| PF2 | **Paystack sandbox connector** | [ ] | Add hosted/provider-side checkout charge flow, refund, sync, signed webhooks, event dedupe, and sandbox tests without raw card handling. |
+| PF0 | **Readiness and copy alignment** | [x] | Public docs distinguish provider sandbox support from production readiness and keep production readiness tied to adopter-owned hardening. |
+| PF1 | **Provider model and credentials** | [x] | Flutterwave and Paystack provider enums, credential records, codec support, create-request fields, and credential visibility tests are implemented. |
+| PF2 | **Paystack sandbox connector** | [x] | Hosted checkout initialization, refund, sync, signed webhook verification, event dedupe, capability seed, SDK/dashboard wiring, and sandbox tests are implemented. Manual sandbox verification is blocked by Paystack account/entity activation. |
 | PF3 | **Flutterwave sandbox connector** | [x] | Hosted checkout, refund, sync, webhook verification/dedupe, capability seed, provider tests, and manual sandbox callback flow are verified. |
-| PF4 | **Dashboard and browser SDK** | [x] | Flutterwave connector form fields, branding, checkout handler, preview path, public callback middleware, test-card helper, and SDK bundle are implemented. Paystack remains planned. |
-| PF5 | **Routing, capabilities, and operations** | [x] | Flutterwave default capabilities and failure-code mappings are implemented. Unsupported capture/cancel return explicitly unsupported for hosted checkout. |
-| PF6 | **Documentation and lab verification** | [~] | Flutterwave sandbox guide and support matrix are documented; Paystack walkthrough and live-mode production gates remain pending. |
+| PF4 | **Dashboard and browser SDK** | [x] | Flutterwave and Paystack connector form fields, branding, checkout handlers, preview path, public callback middleware, test-card helpers, and SDK bundle are implemented. |
+| PF5 | **Routing, capabilities, and operations** | [x] | Flutterwave and Paystack default capabilities and failure-code mappings are implemented. Unsupported capture/cancel return explicitly unsupported for hosted checkout. |
+| PF6 | **Documentation and lab verification** | [~] | Flutterwave and Paystack sandbox guides and support matrix are documented; Paystack manual sandbox verification is blocked by account/entity activation, and live-mode production gates remain pending. |
 
 ---
 

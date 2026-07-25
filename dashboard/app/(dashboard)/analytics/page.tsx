@@ -89,6 +89,7 @@ const CONNECTOR_COLORS: Record<string, string> = {
   BRAINTREE: '#009CDE',
   MOLLIE: '#0069FF',
   FLUTTERWAVE: '#F5A623',
+  PAYSTACK: '#0BA4DB',
   SIMULATOR: '#6366f1',
   Unknown: '#94a3b8',
 };

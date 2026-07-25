@@ -78,6 +78,15 @@ public class CredentialsCodec {
                 )));
                 account.setSecretKeyHint(hint(f.secretKey()));
             }
+            case PaystackCredentials p -> {
+                account.setEncryptedCredentials(encryption.encrypt(toJson(nonNullSecrets(Map.ofEntries(
+                        Map.entry("secretKey", nullToBlank(p.secretKey()))
+                )))));
+                account.setProviderConfig(toJson(Map.of(
+                        "clientKey", p.clientKey()
+                )));
+                account.setSecretKeyHint(hint(p.secretKey()));
+            }
             case SimulatorCredentials s -> {
                 account.setEncryptedCredentials(null);
                 account.setProviderConfig(toJson(Map.of(
@@ -104,6 +113,8 @@ public class CredentialsCodec {
             case FLUTTERWAVE -> new FlutterwaveCredentials(
                     req.flutterwaveSecretKey(), req.flutterwavePublicKey(),
                     req.flutterwaveWebhookHash(), mode == ApiKeyMode.TEST);
+            case PAYSTACK -> new PaystackCredentials(
+                    req.paystackSecretKey(), req.paystackPublicKey(), mode == ApiKeyMode.TEST);
             case SIMULATOR -> new SimulatorCredentials(
                     mode == ApiKeyMode.TEST,
                     percentToRate(req.simulatorSuccessRatePercent()));
@@ -150,6 +161,10 @@ public class CredentialsCodec {
                         clientKeyToPublicKey(config.get("clientKey")),
                         secrets.get("webhookHash"),
                         sandbox);
+                case PAYSTACK -> new PaystackCredentials(
+                        secrets.get("secretKey"),
+                        clientKeyToPublicKey(config.get("clientKey"), "paystack"),
+                        sandbox);
                 case SIMULATOR -> new SimulatorCredentials(sandbox, 1.0);
                 default -> throw new IllegalStateException(
                         "No credential decoder for provider: " + account.getProvider());
@@ -177,6 +192,7 @@ public class CredentialsCodec {
                 case BRAINTREE -> config.get("merchantId");
                 case MOLLIE    -> config.get("clientKey"); // "mollie" sentinel
                 case FLUTTERWAVE -> config.get("clientKey");
+                case PAYSTACK -> config.get("clientKey");
                 case SIMULATOR -> config.get("clientKey");
                 default        -> null;
             };
@@ -233,7 +249,11 @@ public class CredentialsCodec {
     }
 
     private String clientKeyToPublicKey(String clientKey) {
-        if (clientKey == null || clientKey.isBlank() || "flutterwave".equals(clientKey)) return null;
+        return clientKeyToPublicKey(clientKey, "flutterwave");
+    }
+
+    private String clientKeyToPublicKey(String clientKey, String sentinel) {
+        if (clientKey == null || clientKey.isBlank() || sentinel.equals(clientKey)) return null;
         return clientKey;
     }
 

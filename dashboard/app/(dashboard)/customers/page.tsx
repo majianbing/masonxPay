@@ -443,7 +443,7 @@ function cardLabel(method: CustomerPaymentMethod): string {
 function providerLabel(provider: string | null): string {
   const labels: Record<string, string> = {
     STRIPE: 'Stripe', SQUARE: 'Square', BRAINTREE: 'Braintree',
-    MOLLIE: 'Mollie', FLUTTERWAVE: 'Flutterwave', SIMULATOR: 'Mason Simulator',
+    MOLLIE: 'Mollie', FLUTTERWAVE: 'Flutterwave', PAYSTACK: 'Paystack', SIMULATOR: 'Mason Simulator',
   };
   return provider ? (labels[provider] ?? provider) : 'Unknown provider';
 }

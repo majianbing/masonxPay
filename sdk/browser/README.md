@@ -201,6 +201,9 @@ Tears down provider SDK instances (Stripe Elements, Square card, Braintree Drop-
 | Stripe | ✓ | ✓ (via Payment Element) | ✓ | ✓ | iDEAL, Amazon Pay, Sofort, Link |
 | Square | ✓ | ✓ | ✓ | Cash App | — |
 | Braintree | ✓ (Drop-in) | — | — | — | — |
+| Mollie | Hosted checkout | — | — | PayPal, Klarna | iDEAL, Bancontact, Sofort |
+| Flutterwave | Hosted checkout | — | — | Mobile money | Bank transfer, USSD |
+| Paystack | Hosted checkout | — | — | Mobile money | Bank transfer, USSD |
 
 ---
 

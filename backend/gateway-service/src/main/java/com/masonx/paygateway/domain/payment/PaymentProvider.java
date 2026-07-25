@@ -1,5 +1,5 @@
 package com.masonx.paygateway.domain.payment;
 
 public enum PaymentProvider {
-    STRIPE, SQUARE, PAYPAL, BRAINTREE, MOLLIE, FLUTTERWAVE, SIMULATOR
+    STRIPE, SQUARE, PAYPAL, BRAINTREE, MOLLIE, FLUTTERWAVE, PAYSTACK, SIMULATOR
 }

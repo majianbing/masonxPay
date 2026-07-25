@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 public record CreateProviderAccountRequest(
-        @NotNull  String provider,       // STRIPE | SQUARE | BRAINTREE | MOLLIE | FLUTTERWAVE | SIMULATOR
+        @NotNull  String provider,       // STRIPE | SQUARE | BRAINTREE | MOLLIE | FLUTTERWAVE | PAYSTACK | SIMULATOR
         @NotBlank String mode,           // TEST | LIVE
         @NotBlank String label,
         boolean primary,
@@ -33,6 +33,10 @@ public record CreateProviderAccountRequest(
         String flutterwaveSecretKey,      // FLWSECK_TEST... / FLWSECK... — server-side only, encrypted at rest
         String flutterwavePublicKey,      // optional FLWPUBK_TEST... / FLWPUBK... — client-safe
         String flutterwaveWebhookHash,    // optional verif-hash secret — encrypted at rest
+
+        // ── Paystack ─────────────────────────────────────────────────────────
+        String paystackSecretKey,         // sk_test_xxx / sk_live_xxx — server-side only, encrypted at rest
+        String paystackPublicKey,         // optional pk_test_xxx / pk_live_xxx — client-safe
 
         // ── Mason Simulator ──────────────────────────────────────────────────
         Double simulatorSuccessRatePercent // 0-100 synthetic PSP success rate. TEST-only, no secrets.

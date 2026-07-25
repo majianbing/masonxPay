@@ -66,6 +66,16 @@ export const PROVIDER_BRAND: Record<string, { name: string; icon: React.ReactNod
     ),
     color: 'border-[#F5A623] bg-[#F5A623]/10 text-gray-950',
   },
+  PAYSTACK: {
+    name: 'Paystack',
+    icon: (
+      <svg viewBox="0 0 28 28" className="size-5" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#0BA4DB" />
+        <path d="M7 8h13.5v2.4H7V8Zm0 4.3h11.5v2.4H7v-2.4Zm0 4.3h13.5V19H7v-2.4Z" fill="#fff" />
+      </svg>
+    ),
+    color: 'border-[#0BA4DB] bg-[#0BA4DB]/10 text-[#075E7C]',
+  },
   SIMULATOR: {
     name: 'Mason Simulator',
     icon: (
