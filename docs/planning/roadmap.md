@@ -57,6 +57,22 @@ The core value-add of an orchestration layer over direct provider integration.
 | 3.4 | **More connectors** | ✅ | Mollie (EU) added: REST API v2, hosted redirect checkout via existing `redirect_url` overlay, HMAC-free webhook verified by API fetch, `test_`/`live_` API key. Razorpay (India) skipped — sandbox requires full KYC onboarding with no bypass; revisit if a test account becomes available. |
 | 3.5 | **Cost-aware routing** | ✅ | Option A + Approach 2: `fixed_fee_cents` + `rate_bps` on `provider_accounts` (V35); optional `max_cost_bps` ceiling on `routing_rules` (V36). `ConnectorFeeService` computes effectiveCost = fixedFee + (amount × rateBps / 10000). `RoutingEngine.resolve()` filters the healthy pool by cost ceiling before weighted selection; falls back to unconstrained pool if all candidates exceed budget. Dashboard: fee fields on connector form, cost ceiling field on routing rule form with green badge. |
 
+### Phase PF - Paystack and Flutterwave Connectors
+
+MasonXPay is lab/self-host evaluation ready, and its core services are designed with production use in mind. Production readiness also depends on the adopter's deployment environment: infrastructure hardening, network and permission isolation, secret management, compliance controls, capacity validation, and operational procedures. Flutterwave sandbox hosted checkout is implemented and manually verified; Paystack hosted checkout is implemented, with manual sandbox verification blocked until account/entity activation.
+
+See [Paystack and Flutterwave provider plan](paystack-flutterwave-provider-plan.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| PF0 | **Readiness and copy alignment** | [x] | Public docs distinguish provider sandbox support from production readiness and keep production readiness tied to adopter-owned hardening. |
+| PF1 | **Provider model and credentials** | [x] | Flutterwave and Paystack provider enums, credential records, codec support, create-request fields, and credential visibility tests are implemented. |
+| PF2 | **Paystack sandbox connector** | [x] | Hosted checkout initialization, refund, sync, signed webhook verification, event dedupe, capability seed, SDK/dashboard wiring, and sandbox tests are implemented. Manual sandbox verification is blocked by Paystack account/entity activation. |
+| PF3 | **Flutterwave sandbox connector** | [x] | Hosted checkout, refund, sync, webhook verification/dedupe, capability seed, provider tests, and manual sandbox callback flow are verified. |
+| PF4 | **Dashboard and browser SDK** | [x] | Flutterwave and Paystack connector form fields, branding, checkout handlers, preview path, public callback middleware, test-card helpers, and SDK bundle are implemented. |
+| PF5 | **Routing, capabilities, and operations** | [x] | Flutterwave and Paystack default capabilities and failure-code mappings are implemented. Unsupported capture/cancel return explicitly unsupported for hosted checkout. |
+| PF6 | **Documentation and lab verification** | [~] | Flutterwave and Paystack sandbox guides and support matrix are documented; Paystack manual sandbox verification is blocked by account/entity activation, and live-mode production gates remain pending. |
+
 ---
 
 ## Phase 4 — Merchant operations
@@ -255,7 +271,7 @@ Settlement file reconciliation and real-time dual-stream monitoring at 1–10M t
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| R1 | **Settlement file ingestion** | [ ] | Per-PSP CSV/JSON settlement file parsers (Stripe, Square, Braintree, Mollie). Store raw settlement records in a separate reconciliation table. Schedule daily ingestion jobs. |
+| R1 | **Settlement file ingestion** | [ ] | Per-PSP CSV/JSON settlement file parsers (Stripe, Square, Braintree, Mollie, Flutterwave). Store raw settlement records in a separate reconciliation table. Schedule daily ingestion jobs. |
 | R2 | **Batch matching engine** | [ ] | Match each settlement line against `payment_requests` by provider payment ID. Detect: unmatched charges, over/under-settled amounts, fee discrepancies, currency conversion gaps. Write discrepancy records. |
 | R3 | **Real-time dual-stream comparison** | [ ] | Kafka Streams job comparing Stream A (internal payment lifecycle events) against Stream B (PSP webhooks). Flag gaps beyond configurable tolerance windows (e.g. succeeded internally but no PSP webhook within 5 min). |
 | R4 | **Reconciliation dashboard** | [ ] | Merchant-facing: unmatched transactions, settlement status per PSP, fee variance report, discrepancy drill-down. Ops: real-time stream divergence alerts. |

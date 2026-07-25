@@ -425,6 +425,8 @@ export class GatewayEmbedded {
       else if (provider === 'SQUARE') await this.buildSquareForm(opt, slot);
       else if (provider === 'BRAINTREE') await this.buildBraintreeForm(slot, opt);
       else if (provider === 'MOLLIE') this.buildMollieForm(slot);
+      else if (provider === 'FLUTTERWAVE') this.buildFlutterwaveForm(slot);
+      else if (provider === 'PAYSTACK') this.buildPaystackForm(slot);
       else if (provider === 'SIMULATOR') this.buildSimulatorForm(slot);
     } catch (e) {
       slot.remove();
@@ -612,6 +614,8 @@ export class GatewayEmbedded {
       else if (this.selectedProvider === 'SQUARE') await this.submitSquare();
       else if (this.selectedProvider === 'BRAINTREE') await this.submitBraintree();
       else if (this.selectedProvider === 'MOLLIE') await this.submitMollie();
+      else if (this.selectedProvider === 'FLUTTERWAVE') await this.submitFlutterwave();
+      else if (this.selectedProvider === 'PAYSTACK') await this.submitPaystack();
       else if (this.selectedProvider === 'SIMULATOR') await this.submitSimulator();
     } catch (e) {
       const msg = (e as Error).message ?? 'Payment error';
@@ -706,6 +710,51 @@ export class GatewayEmbedded {
   private async submitMollie(): Promise<void> {
     // Tokenize with empty providerPmId — Mollie doesn't use a client-side token
     await this.tokenizeAndSubmit('MOLLIE', '');
+  }
+
+  // ── Flutterwave ────────────────────────────────────────────────────────────
+  // Hosted redirect flow. Card data is collected by Flutterwave, not MasonXPay.
+
+  private buildFlutterwaveForm(container: HTMLElement): void {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 0;text-align:center;">
+        <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="6" fill="#F5A623"/>
+          <path d="M7 8h4.3l1.7 7.4L15.4 8H19l-4.1 12h-3.6L9.7 13l-2.2 7H4l3-12Z" fill="#111827"/>
+          <path d="M18.5 12.5 24 8l-2.1 7.2L25 20h-4.2l-2.3-7.5Z" fill="#111827"/>
+        </svg>
+        <p style="font-size:14px;color:#374151;font-weight:500;margin:0;">Pay with Flutterwave</p>
+        <p style="font-size:12px;color:#6b7280;margin:0;max-width:260px;line-height:1.5;">
+          You'll be redirected to Flutterwave's secure checkout to complete your payment.
+        </p>
+      </div>`;
+    if (this.submitBtn) this.submitBtn.disabled = false;
+  }
+
+  private async submitFlutterwave(): Promise<void> {
+    await this.tokenizeAndSubmit('FLUTTERWAVE', '');
+  }
+
+  // ── Paystack ───────────────────────────────────────────────────────────────
+  // Hosted redirect flow. Card data is collected by Paystack, not MasonXPay.
+
+  private buildPaystackForm(container: HTMLElement): void {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 0;text-align:center;">
+        <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true">
+          <rect width="28" height="28" rx="6" fill="#0BA4DB"/>
+          <path d="M7 8h13.5v2.4H7V8Zm0 4.3h11.5v2.4H7v-2.4Zm0 4.3h13.5V19H7v-2.4Z" fill="#fff"/>
+        </svg>
+        <p style="font-size:14px;color:#374151;font-weight:500;margin:0;">Pay with Paystack</p>
+        <p style="font-size:12px;color:#6b7280;margin:0;max-width:260px;line-height:1.5;">
+          You'll be redirected to Paystack's secure checkout to complete your payment.
+        </p>
+      </div>`;
+    if (this.submitBtn) this.submitBtn.disabled = false;
+  }
+
+  private async submitPaystack(): Promise<void> {
+    await this.tokenizeAndSubmit('PAYSTACK', '');
   }
 
   // ── Mason Simulator ────────────────────────────────────────────────────────
@@ -1083,7 +1132,7 @@ export class GatewayEmbedded {
   }
 
   private brandName(provider: string): string {
-    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree', MOLLIE: 'Mollie', SIMULATOR: 'Mason Simulator' } as Record<string, string>)[provider] ?? provider;
+    return ({ STRIPE: 'Stripe', SQUARE: 'Square', ADYEN: 'Adyen', BRAINTREE: 'Braintree', MOLLIE: 'Mollie', FLUTTERWAVE: 'Flutterwave', PAYSTACK: 'Paystack', SIMULATOR: 'Mason Simulator' } as Record<string, string>)[provider] ?? provider;
   }
 
   private loadScript(src: string): Promise<void> {

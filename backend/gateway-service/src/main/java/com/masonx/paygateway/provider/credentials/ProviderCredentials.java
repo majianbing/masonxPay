@@ -7,7 +7,8 @@ import java.util.Map;
  * Each provider implements this sealed interface with its own fields.
  */
 public sealed interface ProviderCredentials
-        permits StripeCredentials, SquareCredentials, BraintreeCredentials, MollieCredentials, SimulatorCredentials {
+        permits StripeCredentials, SquareCredentials, BraintreeCredentials, MollieCredentials, FlutterwaveCredentials,
+        PaystackCredentials, SimulatorCredentials {
 
     /** Public identifier sent to the browser to bootstrap the provider's JS SDK. */
     String clientKey();

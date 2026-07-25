@@ -180,10 +180,16 @@ public class ProviderAccountService {
         card.setSupportsProviderToken(true);
         card.setSupportsVaultToken(false);
         card.setSupportsNetworkToken(false);
-        card.setSupportsManualCapture(account.getProvider() != PaymentProvider.MOLLIE);
-        card.setSupportsRedirect(account.getProvider() == PaymentProvider.MOLLIE);
+        card.setSupportsManualCapture(account.getProvider() != PaymentProvider.MOLLIE
+                && account.getProvider() != PaymentProvider.FLUTTERWAVE
+                && account.getProvider() != PaymentProvider.PAYSTACK);
+        card.setSupportsRedirect(account.getProvider() == PaymentProvider.MOLLIE
+                || account.getProvider() == PaymentProvider.FLUTTERWAVE
+                || account.getProvider() == PaymentProvider.PAYSTACK);
         card.setSupports3ds(account.getProvider() == PaymentProvider.STRIPE
                 || account.getProvider() == PaymentProvider.MOLLIE
+                || account.getProvider() == PaymentProvider.FLUTTERWAVE
+                || account.getProvider() == PaymentProvider.PAYSTACK
                 || account.getProvider() == PaymentProvider.SIMULATOR);
         card.setEnabled(true);
         capabilityRepository.save(card);

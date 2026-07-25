@@ -11,6 +11,8 @@ This directory separates durable architecture, engineering guidance, active plan
 - [ID generation](architecture/id-generation.md): Snowflake usage, clock rollback decision, node-id requirements, and future allocator direction.
 - [Development guide](engineering/development-guide.md): engineering docs index — connector, SDK, auth, testing, database, and anti-pattern guides.
 - [Connector development](engineering/connector-development.md): provider onboarding across backend, dashboard, SDK, and docs.
+- [Flutterwave sandbox guide](engineering/flutterwave-sandbox.md): TEST connector setup, preview flow, callback behavior, and test cards.
+- [Paystack sandbox guide](engineering/paystack-sandbox.md): TEST connector setup, preview flow, webhook behavior, and test cards.
 - [Testing strategy](engineering/testing-strategy.md): expected coverage layers and test placement.
 - [RAG assistant operations](engineering/rag-operations.md): Qdrant runtime, indexing freshness, backup/retention, and security guidance.
 - [Roadmap](planning/roadmap.md): product phases, current status, and future tracks.
@@ -29,6 +31,7 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Subscription and recurring billing plan](planning/subscription-recurring-billing-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](planning/multi-rail-iso8583-iso20022-plan.md)
 - [Ledger completeness plan](planning/ledger-completeness-plan.md)
+- [Paystack and Flutterwave provider plan](planning/paystack-flutterwave-provider-plan.md)
 - [RAG support assistant plan](planning/rag-assistant-plan.md)
 - [Payment operations agent plan](planning/payment-operations-agent-plan.md)
 

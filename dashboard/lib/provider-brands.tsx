@@ -55,6 +55,27 @@ export const PROVIDER_BRAND: Record<string, { name: string; icon: React.ReactNod
     ),
     color: 'border-gray-900 bg-gray-900/5 text-gray-900',
   },
+  FLUTTERWAVE: {
+    name: 'Flutterwave',
+    icon: (
+      <svg viewBox="0 0 28 28" className="size-5" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#F5A623" />
+        <path d="M7 8h4.3l1.7 7.4L15.4 8H19l-4.1 12h-3.6L9.7 13l-2.2 7H4l3-12Z" fill="#111827" />
+        <path d="M18.5 12.5 24 8l-2.1 7.2L25 20h-4.2l-2.3-7.5Z" fill="#111827" />
+      </svg>
+    ),
+    color: 'border-[#F5A623] bg-[#F5A623]/10 text-gray-950',
+  },
+  PAYSTACK: {
+    name: 'Paystack',
+    icon: (
+      <svg viewBox="0 0 28 28" className="size-5" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#0BA4DB" />
+        <path d="M7 8h13.5v2.4H7V8Zm0 4.3h11.5v2.4H7v-2.4Zm0 4.3h13.5V19H7v-2.4Z" fill="#fff" />
+      </svg>
+    ),
+    color: 'border-[#0BA4DB] bg-[#0BA4DB]/10 text-[#075E7C]',
+  },
   SIMULATOR: {
     name: 'Mason Simulator',
     icon: (
