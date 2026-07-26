@@ -265,6 +265,27 @@ See [multi-rail ISO8583 ISO 20022 plan](multi-rail-iso8583-iso20022-plan.md).
 
 ---
 
+## Phase PPC — Prepaid Card Program Platform
+
+Phase PPC extends the existing ledger-backed VCC foundation into a sponsor-bank-compatible prepaid card platform. MasonXPay acts as the program manager/card platform layer, not the licensed issuer bank. The first issuer adapter is the existing rail simulator path; future issuer-bank or issuer-processor partners plug in behind the same adapter boundary.
+
+See [prepaid card program platform plan](prepaid-card-program-platform-plan.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| PPC0 | **Baseline audit and naming** | [ ] | Align docs and naming around funded prepaid cards, issuer adapters, card programs, and program-manager boundaries. |
+| PPC1 | **Program and cardholder model** | [ ] | Add issuer partner, card program, and cardholder models with tenant/mode scope and card-creation gates. |
+| PPC2 | **Issuer adapter abstraction** | [ ] | Add issuer-card provider interface and `RAIL_SIM` adapter so simulator and future issuer processors share one boundary. |
+| PPC3 | **Lifecycle APIs** | [ ] | Add withdraw, lock, unlock, logical close, terminate, expanded card statuses, and transition guards. |
+| PPC4 | **Controls and authorization policy** | [ ] | Add card/program controls and deterministic decline reasons before balance checks. |
+| PPC5 | **Authorization reversal and hold expiry** | [ ] | Add reversal endpoint, hold release postings, and stale hold expiry worker. |
+| PPC6 | **Clearing and refund ingestion** | [ ] | Add clearing/refund ingestion, match to auths, post journals, and park exceptions. |
+| PPC7 | **Settlement and reconciliation** | [ ] | Reconcile card program settlement reports against auth, clearing, and ledger records. |
+| PPC8 | **Dashboard and operations** | [ ] | Add merchant/operator UI for programs, cardholders, cards, controls, auths, and exceptions. |
+| PPC9 | **Fee schedules and economics** | [ ] | Add versioned fee schedules, expression-based rule matching, fee assessment snapshots, visible/hidden fee outputs, and ledger posting hooks. |
+
+---
+
 ## Phase R — Financial Reconciliation
 
 Settlement file reconciliation and real-time dual-stream monitoring at 1–10M transactions/day. Phase R is entirely additive — it builds on the existing Kafka event stream, `payment_requests` table, and provider response storage without touching the authorization path. It is also the foundation that Phase N settlement processing will extend.
