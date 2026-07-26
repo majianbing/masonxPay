@@ -280,8 +280,8 @@ See [prepaid card program platform plan](prepaid-card-program-platform-plan.md).
 | PPC4 | **Controls and authorization policy** | [x] | Program/card JSON controls are evaluated before balance checks with deterministic decline reasons and daily velocity checks; MCC/category controls wait for richer issuer auth payload fields. |
 | PPC5 | **Authorization reversal and hold expiry** | [x] | Added internal auth-reversal endpoint, idempotent hold-release postings, cumulative release tracking, and disabled-by-default stale hold expiry worker. |
 | PPC6 | **Clearing and refund ingestion** | [x] | Clearing presentment matches linked issuer authorizations or conservative simulator exact holds, posts settlement journals, records clearing events, parks no-auth/mismatch/missing-original cases, and supports refund/original-credit posting with cumulative refund protection. |
-| PPC7 | **Settlement and reconciliation** | [~] | Issuer settlement report ingestion now reconciles report lines against clearing events and exposes matched/exception statuses by merchant/mode/program; ledger-total and EXTERNAL system-of-record reconciliation remain. |
-| PPC8 | **Dashboard and operations** | [ ] | Add merchant/operator UI for programs, cardholders, cards, controls, auths, and exceptions. |
+| PPC7 | **Settlement and reconciliation** | [~] | Issuer settlement report ingestion now reconciles report lines against clearing events and exposes report-vs-clearing-vs-ledger-posted summary deltas by merchant/mode/program/date/currency; EXTERNAL system-of-record balance reconciliation remains. |
+| PPC8 | **Dashboard and operations** | [~] | Dashboard navigation now has product/domain groups and an `Issuing` shell; Programs, Cardholders, and Cards are operational for create/list and core simulator operations. Controls/auth/settlement operation pages remain. |
 | PPC9 | **Fee schedules and economics** | [ ] | Add versioned fee schedules, expression-based rule matching, fee assessment snapshots, visible/hidden fee outputs, and ledger posting hooks. |
 
 ---

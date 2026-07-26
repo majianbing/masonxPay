@@ -4,6 +4,7 @@ import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.cardprogram.dto.CardSettlementReportLineResponse;
+import com.masonx.virtualaccount.cardprogram.dto.CardSettlementReconciliationSummaryResponse;
 import com.masonx.virtualaccount.cardprogram.dto.CardSettlementReportResponse;
 import com.masonx.virtualaccount.cardprogram.dto.IngestCardSettlementReportRequest;
 import com.masonx.virtualaccount.domain.CardClearingEventRepository;
@@ -25,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -131,6 +133,38 @@ public class CardSettlementReportService {
                 .map(CardSettlementReportLineResponse::from)
                 .toList();
         return CardSettlementReportResponse.from(report, lines);
+    }
+
+    public CardSettlementReconciliationSummaryResponse summarize(String merchantId, Mode mode, String programId,
+                                                                 LocalDate settlementDate, String currency) {
+        cardPrograms.findByIdForMerchant(programId, merchantId, mode)
+                .orElseThrow(() -> notFound("Card program not found"));
+        String normalizedCurrency = currency.toUpperCase();
+        CardSettlementReportRepository.CardSettlementSummaryAmounts amounts = reports
+                .summarizeProgramDate(merchantId, mode, programId, settlementDate, normalizedCurrency);
+        BigDecimal clearingDelta = amounts.issuerReportAmount().subtract(amounts.clearingAmount());
+        BigDecimal ledgerDelta = amounts.issuerReportAmount().subtract(amounts.ledgerPostedAmount());
+        String status = amounts.exceptionCount() == 0
+                && clearingDelta.compareTo(BigDecimal.ZERO) == 0
+                && ledgerDelta.compareTo(BigDecimal.ZERO) == 0
+                ? "MATCHED"
+                : "EXCEPTION";
+        return new CardSettlementReconciliationSummaryResponse(
+                merchantId,
+                mode,
+                programId,
+                settlementDate,
+                normalizedCurrency,
+                amounts.issuerReportAmount(),
+                amounts.matchedReportAmount(),
+                amounts.clearingAmount(),
+                amounts.ledgerPostedAmount(),
+                amounts.exceptionAmount(),
+                clearingDelta,
+                ledgerDelta,
+                amounts.lineCount(),
+                amounts.exceptionCount(),
+                status);
     }
 
     private CardSettlementReportLine reconcileLine(String reportId, String merchantId, Mode mode,

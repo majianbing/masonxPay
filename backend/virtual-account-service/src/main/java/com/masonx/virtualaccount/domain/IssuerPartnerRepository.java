@@ -62,6 +62,34 @@ public class IssuerPartnerRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    public Optional<IssuerPartner> findActiveByMerchantAndType(String merchantId, Mode mode, IssuerPartnerType adapterType) {
+        var rows = jdbc.query("""
+                SELECT * FROM issuer_partner
+                WHERE merchant_id = ?
+                  AND mode = ?::va_mode
+                  AND adapter_type = ?::issuer_partner_type
+                  AND status = 'ACTIVE'::issuer_partner_status
+                ORDER BY created_at ASC
+                LIMIT 1
+                """, ROW_MAPPER, merchantId, mode.name(), adapterType.name());
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public void insertDefaultRailSimIfAbsent(String issuerPartnerId, String merchantId, Mode mode) {
+        jdbc.update("""
+                INSERT INTO issuer_partner (
+                    issuer_partner_id, merchant_id, mode, name, adapter_type, status,
+                    credentials_ref, config_json, webhook_secret_ref,
+                    external_program_id, external_funding_source_id
+                ) VALUES (
+                    ?, ?, ?::va_mode, 'Rail Simulator', 'RAIL_SIM'::issuer_partner_type, 'ACTIVE'::issuer_partner_status,
+                    NULL, '{"source":"platform_default"}'::jsonb, NULL,
+                    'RAIL_SIM_DEFAULT', 'RAIL_SIM_DEFAULT'
+                )
+                ON CONFLICT (issuer_partner_id) DO NOTHING
+                """, issuerPartnerId, merchantId, mode.name());
+    }
+
     public List<IssuerPartner> findByMerchant(String merchantId, Mode mode, int page, int size) {
         return jdbc.query("""
                 SELECT * FROM issuer_partner

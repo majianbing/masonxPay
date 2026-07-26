@@ -111,4 +111,15 @@ public class CardProgramController {
             @RequestParam(defaultValue = "TEST") Mode mode) {
         return ResponseEntity.ok(settlementReports.get(reportId, merchantId, mode));
     }
+
+    @GetMapping("/v1/card-programs/{programId}/settlement-reconciliation-summary")
+    public ResponseEntity<CardSettlementReconciliationSummaryResponse> getSettlementReconciliationSummary(
+            @PathVariable String programId,
+            @RequestParam String merchantId,
+            @RequestParam(defaultValue = "TEST") Mode mode,
+            @RequestParam java.time.LocalDate settlementDate,
+            @RequestParam String currency) {
+        return ResponseEntity.ok(settlementReports.summarize(
+                merchantId, mode, programId, settlementDate, currency));
+    }
 }

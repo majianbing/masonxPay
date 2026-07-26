@@ -135,6 +135,53 @@ class CardSettlementReportServiceTest {
         verifyNoInteractions(clearingEvents, virtualCards);
     }
 
+    @Test
+    void summarize_returns_exception_when_ledger_posted_amount_differs_from_issuer_total() {
+        when(cardPrograms.findByIdForMerchant("cprog_1", "mer_1", Mode.TEST))
+                .thenReturn(Optional.of(program()));
+        when(reports.summarizeProgramDate(
+                "mer_1", Mode.TEST, "cprog_1", LocalDate.of(2026, 7, 26), "USD"))
+                .thenReturn(new CardSettlementReportRepository.CardSettlementSummaryAmounts(
+                        new BigDecimal("100.00"),
+                        new BigDecimal("100.00"),
+                        BigDecimal.ZERO,
+                        1,
+                        0,
+                        new BigDecimal("100.00"),
+                        new BigDecimal("90.00")));
+
+        var response = service.summarize(
+                "mer_1", Mode.TEST, "cprog_1", LocalDate.of(2026, 7, 26), "usd");
+
+        assertThat(response.status()).isEqualTo("EXCEPTION");
+        assertThat(response.currency()).isEqualTo("USD");
+        assertThat(response.clearingDelta()).isEqualByComparingTo("0.00");
+        assertThat(response.ledgerDelta()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    void summarize_returns_matched_when_report_clearing_and_ledger_totals_align() {
+        when(cardPrograms.findByIdForMerchant("cprog_1", "mer_1", Mode.TEST))
+                .thenReturn(Optional.of(program()));
+        when(reports.summarizeProgramDate(
+                "mer_1", Mode.TEST, "cprog_1", LocalDate.of(2026, 7, 26), "USD"))
+                .thenReturn(new CardSettlementReportRepository.CardSettlementSummaryAmounts(
+                        new BigDecimal("100.00"),
+                        new BigDecimal("100.00"),
+                        BigDecimal.ZERO,
+                        1,
+                        0,
+                        new BigDecimal("100.00"),
+                        new BigDecimal("100.00")));
+
+        var response = service.summarize(
+                "mer_1", Mode.TEST, "cprog_1", LocalDate.of(2026, 7, 26), "USD");
+
+        assertThat(response.status()).isEqualTo("MATCHED");
+        assertThat(response.issuerReportAmount()).isEqualByComparingTo("100.00");
+        assertThat(response.ledgerDelta()).isEqualByComparingTo("0.00");
+    }
+
     private IngestCardSettlementReportRequest request(IngestCardSettlementReportRequest.Line line) {
         return new IngestCardSettlementReportRequest(
                 "mer_1", Mode.TEST, "cprog_1", "report_2026_07_26",

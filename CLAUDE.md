@@ -117,6 +117,7 @@ Keep tests modular:
 
 - Java: 4-space indent, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common` (common), `com.masonx.contracts` (contracts).
 - TypeScript/React: 2-space indent, PascalCase components, camelCase functions, `@/` imports.
+- Frontend display: never use raw internal IDs as the primary label for human-facing controls, tables, cards, or selections when a name, description, masked identifier, provider label, email, reference, or other human-readable field is available. IDs may appear as secondary monospace metadata, detail copy, or debug/admin context.
 - Business logic out of controllers. Comments only when intent is non-obvious. No broad `catch (Exception)` without a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
 

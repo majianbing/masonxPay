@@ -16,8 +16,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class CardProgramManagementService {
@@ -65,6 +67,7 @@ public class CardProgramManagementService {
     }
 
     public PagedResult<IssuerPartnerResponse> listIssuerPartners(String merchantId, Mode mode, int page, int size) {
+        ensureDefaultRailSimPartner(merchantId, mode);
         long total = issuerPartners.countByMerchant(merchantId, mode);
         List<IssuerPartnerResponse> content = issuerPartners.findByMerchant(merchantId, mode, page, size)
                 .stream().map(this::toResponse).toList();
@@ -157,6 +160,25 @@ public class CardProgramManagementService {
 
     private static String jsonOrEmpty(String json) {
         return json != null ? json : "{}";
+    }
+
+    private void ensureDefaultRailSimPartner(String merchantId, Mode mode) {
+        if (mode != Mode.TEST) {
+            return;
+        }
+        if (issuerPartners.findActiveByMerchantAndType(merchantId, mode, IssuerPartnerType.RAIL_SIM).isPresent()) {
+            return;
+        }
+        issuerPartners.insertDefaultRailSimIfAbsent(defaultRailSimPartnerId(merchantId, mode), merchantId, mode);
+    }
+
+    private static String defaultRailSimPartnerId(String merchantId, Mode mode) {
+        String seed = merchantId + ":" + mode.name() + ":RAIL_SIM";
+        String hash = UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8))
+                .toString()
+                .replace("-", "")
+                .substring(0, 16);
+        return "ip_railsim_" + hash;
     }
 
     private static <T> PagedResult<T> page(List<T> content, int page, int size, long total) {

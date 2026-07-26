@@ -6,7 +6,7 @@ import { useState } from 'react';
 import {
   LayoutDashboard, CreditCard, RotateCcw, GitBranch, UserRound,
   Key, Webhook, FileText, Users, Settings, ChevronRight, Plug, Link2, Zap, ShieldCheck, TimerReset, CalendarClock, Receipt, CircleDollarSign, BarChart2, AlertTriangle, ClipboardList, Bot,
-  Landmark,
+  Landmark, WalletCards, ListChecks,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import OrgMerchantSwitcher from './OrgMerchantSwitcher';
@@ -14,8 +14,15 @@ import OrgMerchantSwitcher from './OrgMerchantSwitcher';
 const nav = [
   { href: '/overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/analytics', label: 'Analytics', icon: BarChart2 },
-  { href: '/payments', label: 'Payments', icon: CreditCard },
-  { href: '/refunds', label: 'Refunds', icon: RotateCcw },
+  {
+    label: 'Payments', icon: CreditCard,
+    children: [
+      { href: '/payments', label: 'Payments', icon: CreditCard },
+      { href: '/refunds', label: 'Refunds', icon: RotateCcw },
+      { href: '/disputes', label: 'Disputes', icon: AlertTriangle },
+      { href: '/payment-links', label: 'Payment Links', icon: Link2 },
+    ],
+  },
   {
     label: 'Billing', icon: CircleDollarSign,
     children: [
@@ -24,13 +31,36 @@ const nav = [
       { href: '/invoices', label: 'Invoices', icon: Receipt },
     ],
   },
-  { href: '/disputes', label: 'Disputes', icon: AlertTriangle },
-  { href: '/scheduled-retries', label: 'Retries', icon: TimerReset },
-  { href: '/routing/policies', label: 'Routing', icon: GitBranch },
-  { href: '/virtual-account', label: 'Virtual Account', icon: Landmark },
-  { href: '/connectors', label: 'Connectors', icon: Plug },
-  { href: '/payment-links', label: 'Payment Links', icon: Link2 },
-  { href: '/assistant', label: 'Assistant', icon: Bot },
+  {
+    label: 'Issuing', icon: WalletCards,
+    children: [
+      { href: '/issuing/programs', label: 'Programs', icon: WalletCards },
+      { href: '/issuing/cardholders', label: 'Cardholders', icon: Users },
+      { href: '/issuing/cards', label: 'Cards', icon: CreditCard },
+      { href: '/issuing/authorizations', label: 'Authorizations', icon: ShieldCheck },
+      { href: '/issuing/settlement', label: 'Settlement', icon: ListChecks },
+    ],
+  },
+  {
+    label: 'Treasury', icon: Landmark,
+    children: [
+      { href: '/virtual-account', label: 'Virtual Accounts', icon: Landmark },
+    ],
+  },
+  {
+    label: 'Operations', icon: ClipboardList,
+    children: [
+      { href: '/scheduled-retries', label: 'Retries', icon: TimerReset },
+      { href: '/assistant', label: 'Assistant', icon: Bot },
+    ],
+  },
+  {
+    label: 'Platform', icon: Plug,
+    children: [
+      { href: '/connectors', label: 'Connectors', icon: Plug },
+      { href: '/routing/policies', label: 'Routing', icon: GitBranch },
+    ],
+  },
   {
     label: 'Developers', icon: Key,
     children: [
@@ -54,7 +84,12 @@ const nav = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState<Record<string, boolean>>({
+    Payments: pathname.startsWith('/payments') || pathname.startsWith('/refunds') || pathname.startsWith('/disputes') || pathname.startsWith('/payment-links'),
     Billing: pathname.startsWith('/customers') || pathname.startsWith('/subscriptions') || pathname.startsWith('/invoices'),
+    Issuing: pathname.startsWith('/issuing'),
+    Treasury: pathname.startsWith('/virtual-account'),
+    Operations: pathname.startsWith('/scheduled-retries') || pathname.startsWith('/assistant'),
+    Platform: pathname.startsWith('/connectors') || pathname.startsWith('/routing'),
     Developers: pathname.startsWith('/developers'),
     Settings: pathname.startsWith('/settings') || pathname.startsWith('/team'),
   });

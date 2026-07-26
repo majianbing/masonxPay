@@ -10,6 +10,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Date;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -127,6 +129,105 @@ public class CardSettlementReportRepository {
                   AND program_id = ?
                 """, Long.class, merchantId, mode.name(), programId);
         return count != null ? count : 0L;
+    }
+
+    public CardSettlementSummaryAmounts summarizeProgramDate(String merchantId, Mode mode, String programId,
+                                                             LocalDate settlementDate, String currency) {
+        return jdbc.queryForObject("""
+                WITH report_totals AS (
+                    SELECT
+                        COALESCE(SUM(total_amount), 0) AS issuer_report_amount,
+                        COALESCE(SUM(matched_amount), 0) AS matched_report_amount,
+                        COALESCE(SUM(exception_amount), 0) AS exception_amount,
+                        COALESCE(SUM(line_count), 0) AS line_count,
+                        COALESCE(SUM(exception_count), 0) AS exception_count
+                    FROM card_settlement_report
+                    WHERE merchant_id = ?
+                      AND mode = ?::va_mode
+                      AND program_id = ?
+                      AND settlement_date = ?
+                      AND currency = ?
+                ),
+                clearing_totals AS (
+                    SELECT COALESCE(SUM(ce.amount), 0) AS clearing_amount
+                    FROM card_settlement_report_line line
+                    JOIN card_clearing_event ce
+                      ON ce.clearing_event_id = line.matched_clearing_event_id
+                    WHERE line.merchant_id = ?
+                      AND line.mode = ?::va_mode
+                      AND line.program_id = ?
+                      AND line.status = 'MATCHED'
+                      AND line.currency = ?
+                      AND line.report_id IN (
+                          SELECT report_id
+                          FROM card_settlement_report
+                          WHERE merchant_id = ?
+                            AND mode = ?::va_mode
+                            AND program_id = ?
+                            AND settlement_date = ?
+                            AND currency = ?
+                      )
+                ),
+                ledger_totals AS (
+                    SELECT COALESCE(SUM(line.amount), 0) AS ledger_posted_amount
+                    FROM card_settlement_report_line line
+                    WHERE line.merchant_id = ?
+                      AND line.mode = ?::va_mode
+                      AND line.program_id = ?
+                      AND line.status = 'MATCHED'
+                      AND line.currency = ?
+                      AND line.report_id IN (
+                          SELECT report_id
+                          FROM card_settlement_report
+                          WHERE merchant_id = ?
+                            AND mode = ?::va_mode
+                            AND program_id = ?
+                            AND settlement_date = ?
+                            AND currency = ?
+                      )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM va_transaction tx
+                          WHERE tx.payment_reference_id = line.rail_payment_id
+                            AND tx.mode = line.mode
+                            AND tx.status = 'POSTED'
+                      )
+                )
+                SELECT
+                    rt.issuer_report_amount,
+                    rt.matched_report_amount,
+                    rt.exception_amount,
+                    rt.line_count,
+                    rt.exception_count,
+                    ct.clearing_amount,
+                    lt.ledger_posted_amount
+                FROM report_totals rt
+                CROSS JOIN clearing_totals ct
+                CROSS JOIN ledger_totals lt
+                """, (rs, __) -> new CardSettlementSummaryAmounts(
+                        rs.getBigDecimal("issuer_report_amount"),
+                        rs.getBigDecimal("matched_report_amount"),
+                        rs.getBigDecimal("exception_amount"),
+                        rs.getInt("line_count"),
+                        rs.getInt("exception_count"),
+                        rs.getBigDecimal("clearing_amount"),
+                        rs.getBigDecimal("ledger_posted_amount")),
+                merchantId, mode.name(), programId, settlementDate, currency,
+                merchantId, mode.name(), programId, currency,
+                merchantId, mode.name(), programId, settlementDate, currency,
+                merchantId, mode.name(), programId, currency,
+                merchantId, mode.name(), programId, settlementDate, currency);
+    }
+
+    public record CardSettlementSummaryAmounts(
+            BigDecimal issuerReportAmount,
+            BigDecimal matchedReportAmount,
+            BigDecimal exceptionAmount,
+            int lineCount,
+            int exceptionCount,
+            BigDecimal clearingAmount,
+            BigDecimal ledgerPostedAmount
+    ) {
     }
 
     private static final RowMapper<CardSettlementReport> REPORT_MAPPER = (rs, __) -> new CardSettlementReport(

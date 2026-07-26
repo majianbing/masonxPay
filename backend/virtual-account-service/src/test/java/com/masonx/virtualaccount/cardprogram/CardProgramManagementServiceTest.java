@@ -22,11 +22,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -95,6 +97,38 @@ class CardProgramManagementServiceTest {
         assertThat(captor.getValue().merchantId()).isEqualTo("mer_1");
         assertThat(captor.getValue().issuerPartnerId()).isEqualTo("ip_1");
         assertThat(captor.getValue().currency()).isEqualTo("USD");
+    }
+
+    @Test
+    void listIssuerPartners_auto_provisions_test_rail_sim_partner_when_missing() {
+        var service = service();
+        when(issuerPartners.findActiveByMerchantAndType("mer_1", Mode.TEST, IssuerPartnerType.RAIL_SIM))
+                .thenReturn(Optional.empty());
+        when(issuerPartners.countByMerchant("mer_1", Mode.TEST)).thenReturn(1L);
+        when(issuerPartners.findByMerchant("mer_1", Mode.TEST, 0, 20))
+                .thenReturn(List.of(issuerPartner(IssuerPartnerStatus.ACTIVE)));
+
+        var response = service.listIssuerPartners("mer_1", Mode.TEST, 0, 20);
+
+        assertThat(response.totalElements()).isEqualTo(1);
+        assertThat(response.content()).hasSize(1);
+        verify(issuerPartners).insertDefaultRailSimIfAbsent(
+                "ip_railsim_1aefd9055d3b3eec", "mer_1", Mode.TEST);
+    }
+
+    @Test
+    void listIssuerPartners_does_not_auto_provision_live_rail_sim_partner() {
+        var service = service();
+        when(issuerPartners.countByMerchant("mer_1", Mode.LIVE)).thenReturn(0L);
+        when(issuerPartners.findByMerchant("mer_1", Mode.LIVE, 0, 20)).thenReturn(List.of());
+
+        var response = service.listIssuerPartners("mer_1", Mode.LIVE, 0, 20);
+
+        assertThat(response.totalElements()).isZero();
+        verify(issuerPartners, never()).insertDefaultRailSimIfAbsent(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

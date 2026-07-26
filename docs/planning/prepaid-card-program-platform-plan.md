@@ -545,24 +545,37 @@ Status: [~]
 - [x] Add issuer settlement report ingestion with report-level idempotency by merchant/mode/issuer/report reference.
 - [x] Reconcile issuer report lines to MasonXPay clearing events by `railPaymentId`, amount, currency, movement type, and card program.
 - [x] Surface card-program settlement report line statuses by merchant/mode/program.
-- [ ] Reconcile authorization, clearing, ledger postings, and issuer settlement totals as an end-to-end accounting view.
+- [x] Add a card-program settlement reconciliation summary with issuer report, matched clearing, ledger-posted, exception, and delta totals by settlement date/currency.
+- [ ] Reconcile authorization, clearing, ledger postings, and issuer settlement totals as a deeper line-to-journal accounting view.
 - [ ] Reconcile MasonXPay ledger balances against issuer processor accounts or program funding balances when `systemOfRecord = EXTERNAL`.
 
 Acceptance:
 
-- Operators can explain expected vs settled amounts for a card program. Current implementation explains issuer report lines against clearing events; ledger-balance and EXTERNAL system-of-record reconciliation remain pending.
+- Operators can explain expected vs settled amounts for a card program. Current implementation explains issuer report lines against clearing events and summarizes report-vs-clearing-vs-ledger-posted deltas; EXTERNAL system-of-record balance reconciliation remains pending.
 
 ### PPC8 - Dashboard and Operations
 
-Status: [ ]
+Status: [~]
 
-- Add dashboard pages for cardholders, programs, cards, controls, authorizations, and exceptions.
+- [x] Reorganize dashboard navigation around product/domain groups so prepaid issuing has a durable home.
+- [x] Add `Issuing` navigation shell for programs, cardholders, cards, authorizations, and settlement.
+- [x] Add operational Programs page for selecting configured issuer partners, card program creation, list, and pagination.
+- [x] Add operational Cardholders page for create/list/pagination and merchant-owned cardholder context.
+- [x] Add operational Cards page for card creation, masked-card listing, one-time simulator PAN display, funding, and lock/unlock.
+- [ ] Add dashboard pages for controls, authorizations, settlement, and exceptions.
 - Add card lifecycle actions with confirmation and audit log entries.
 - Add metrics for auth approval rate, decline reasons, open holds, clearing exceptions, and settlement exceptions.
 
 Acceptance:
 
-- Merchants can operate simulator-backed prepaid cards from the dashboard.
+- Merchants can operate simulator-backed prepaid cards from the dashboard. Current implementation provides product navigation, operational Programs management, Cardholders management, and Cards create/list/fund/lock/unlock flows; controls, authorizations, settlement, and exception pages remain pending.
+
+Dashboard API Boundary:
+
+- Merchant dashboard APIs for virtual-account-service-owned domains must follow the same route as Treasury Virtual Accounts: browser -> gateway-service authenticated merchant API -> virtual-account-service internal API.
+- Browser code must not call virtual-account-service directly. Gateway-service owns JWT auth, merchant membership, RBAC checks, and tenant route shape; virtual-account-service still enforces merchant/mode scope on its own reads and writes.
+- Gateway proxy paths live under `/api/v1/merchants/{merchantId}/va/...` until the product needs a separate gateway namespace such as `/api/v1/merchants/{merchantId}/issuing/...`.
+- Gateway RBAC actions must use the existing permission verbs (`READ`, `CREATE`, `UPDATE`, `DELETE`, `EXECUTE`), not ad hoc verbs such as `WRITE`.
 
 ### PPC9 - Fee Schedules and Economics
 
@@ -587,14 +600,20 @@ Acceptance:
 - Integration tests for ledger postings and tenant/mode isolation.
 - Simulator smoke tests through `rail-service` and `rail-simulator`.
 
+## Resolved Decisions
+
+- Cardholder KYC starts as local simulator/product state, with external KYC provider references added later when a real issuer/provider requires them.
+- Card programs are merchant-owned for the current PPC build. Merchant users manage their own programs, cardholders, cards, controls, and lifecycle. Platform-owned/shared programs are deferred.
+- Issuer partner onboarding is platform/ops-managed, not normal merchant self-service. Commercial relationship setup, credentials, endpoints, webhook secrets, BIN/program references, and LIVE enablement belong in platform/admin operations; merchant card-program creation selects from already-configured active issuer partners.
+- `RAIL_SIM` is MasonXPay's built-in default issuer for TEST prepaid-card programs. The merchant dashboard should be able to create TEST card programs without a separate issuer-partner onboarding workflow; the backend may auto-attach a merchant/mode-scoped active `RAIL_SIM` partner as platform default simulator configuration. This exception does not apply to LIVE or real issuer processors.
+- Merchant dashboard APIs for virtual-account-service-owned domains go through gateway-service's authenticated merchant route, then proxy to virtual-account-service. This applies to both Treasury Virtual Accounts and prepaid-card Issuing pages.
+- MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
+- Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
+
 ## Open Questions
 
-- Decision: cardholder KYC starts as local simulator/product state, with external KYC provider references added later when a real issuer/provider requires them.
-- Decision: card programs are merchant-owned for the current PPC build. Merchant users manage their own programs, cardholders, cards, controls, and lifecycle. Platform-owned/shared programs are deferred.
 - Should withdraw allow partial available-balance withdrawal while holds remain open?
 - Should single-use cards close immediately after authorization approval, after clearing, or after settlement?
-- Decision: MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
-- Decision: simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 - Which fee trigger should be implemented first: card creation fee, transaction fee, FX fee, or settlement-only fee assessment?
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?
