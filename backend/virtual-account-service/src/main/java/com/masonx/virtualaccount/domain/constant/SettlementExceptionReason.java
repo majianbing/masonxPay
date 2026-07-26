@@ -11,6 +11,9 @@ public enum SettlementExceptionReason {
     WALLET_ACCOUNT_NOT_FOUND,     // merchant WALLET account missing for mode/asset
     RECEIVABLE_ACCOUNT_NOT_FOUND, // EXTERNAL receivable account missing for network/asset
     LEDGER_ACCOUNT_NOT_FOUND,     // posting-time account lookup failed (VA_ACCOUNT_NOT_FOUND/NOT_ACTIVE)
+    AUTHORIZATION_NOT_FOUND,      // clearing/refund could not match an open authorization
+    ORIGINAL_TRANSACTION_NOT_FOUND, // refund/adjustment could not match its original clearing event
+    AMOUNT_MISMATCH,              // clearing amount did not match the remaining authorization hold
     INVALID_AMOUNT,               // non-positive amount
     INSUFFICIENT_BALANCE,         // posting would drive a balance negative (e.g. bank return after spend)
     POSTING_FAILED,               // other business rule rejected the journal

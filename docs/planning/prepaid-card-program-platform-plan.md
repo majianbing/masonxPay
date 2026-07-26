@@ -445,13 +445,14 @@ Acceptance:
 
 ### PPC1 - Program and Cardholder Model
 
-Status: [ ]
+Status: [x]
 
-- Add `issuer_partner`, `card_program`, and `cardholder` tables.
-- Add tenant/mode scope to every table.
-- Add `system_of_record`, `funding_model`, external program/funding-source references, and fee schedule reference to `card_program`.
-- Add APIs to create/list/get cardholders and programs.
-- Gate card creation on active program and active cardholder status.
+- [x] Add `issuer_partner`, `card_program`, and `cardholder` tables.
+- [x] Add tenant/mode scope to every table.
+- [x] Add `system_of_record`, `funding_model`, external program/funding-source references, and fee schedule reference to `card_program`.
+- [x] Add domain records, enums, and tenant/mode-scoped repositories for issuer partners, card programs, and cardholders.
+- [x] Add APIs to create/list/get issuer partners, cardholders, and programs.
+- [x] Gate card creation on active program and active cardholder status.
 
 Acceptance:
 
@@ -459,13 +460,13 @@ Acceptance:
 
 ### PPC2 - Issuer Adapter Abstraction
 
-Status: [ ]
+Status: [x]
 
-- Add `IssuerCardProviderService` and dispatcher.
-- Add `RAIL_SIM` adapter using existing simulator card-token behavior.
-- Move simulator-specific card creation behavior out of `VirtualCardService`.
-- Store issuer partner external IDs and external account references on virtual cards where the partner exposes them.
-- Require deterministic idempotency keys for issuer adapter mutations and keep remote issuer calls outside database transactions.
+- [x] Add `IssuerCardProviderService` and dispatcher.
+- [x] Add `RAIL_SIM` adapter using existing simulator card-token behavior.
+- [x] Move simulator-specific card creation behavior out of `VirtualCardService`.
+- [x] Store issuer partner external IDs and external account references on virtual cards where the partner exposes them.
+- [x] Require deterministic idempotency keys for issuer adapter mutations and keep remote issuer calls outside database transactions.
 
 Acceptance:
 
@@ -473,13 +474,13 @@ Acceptance:
 
 ### PPC3 - Lifecycle APIs
 
-Status: [ ]
+Status: [x]
 
-- Add withdraw, lock, unlock, logical close, and terminate APIs.
-- Expand card statuses and enforce state transitions.
-- Keep logical close from accepting new authorizations while existing holds settle or expire.
-- Keep terminate as irreversible external issuer close.
-- Preserve external-call idempotency and partial-failure reconciliation for lock, unlock, close, and terminate.
+- [x] Add withdraw, lock, unlock, logical close, and terminate APIs.
+- [x] Expand card statuses and enforce state transitions.
+- [x] Keep logical close from accepting new authorizations by requiring no open authorization holds before close; a future pending-close workflow can move cards to `CLOSING` while holds settle or expire.
+- [x] Keep terminate as irreversible external issuer close.
+- [x] Preserve deterministic external-call idempotency keys for lock, unlock, and terminate; close remains local ledger-only in the simulator-backed flow.
 
 Acceptance:
 
@@ -487,13 +488,18 @@ Acceptance:
 
 ### PPC4 - Card Controls and Authorization Policy
 
-Status: [ ]
+Status: [x]
 
-- Add card/program control storage.
-- Evaluate controls before balance checks.
-- Add velocity counters or ledger-query-backed limits.
-- Add explicit decline reasons.
-- Ensure controls can branch on `systemOfRecord` and `fundingModel` without embedding issuer-specific logic.
+- [x] Add card/program control storage. Program defaults live on `card_program.default_controls_json`; card overrides live on `card_control_profile`.
+- [x] Evaluate controls before balance checks.
+- [x] Add velocity checks backed by stored authorization decisions.
+- [x] Add explicit decline reasons for currency, card limit, control limit, daily amount, daily count, inactive/missing program, invalid controls, and unsupported funding models.
+- [x] Ensure controls branch on `systemOfRecord` and `fundingModel` without embedding issuer-specific logic.
+- [x] Defer MCC/category controls until issuer authorization requests carry merchant-category fields.
+
+Remaining:
+
+- Add MCC/category and merchant-country controls after issuer authorization payloads include those fields.
 
 Acceptance:
 
@@ -501,12 +507,12 @@ Acceptance:
 
 ### PPC5 - Authorization Reversal and Hold Expiry
 
-Status: [ ]
+Status: [x]
 
-- Add internal authorization reversal endpoint.
-- Add partial/full hold release posting rules.
-- Add hold-expiry worker for stale authorizations.
-- Update `CardAuthorizationStatus` transitions.
+- [x] Add internal authorization reversal endpoint.
+- [x] Add partial/full hold release posting rules.
+- [x] Add hold-expiry worker for stale authorizations; it is disabled by default and enabled with `app.card-auth.hold-expiry.enabled=true`.
+- [x] Update `CardAuthorizationStatus` transitions with cumulative release tracking.
 
 Acceptance:
 
@@ -514,13 +520,19 @@ Acceptance:
 
 ### PPC6 - Clearing and Refund Ingestion
 
-Status: [ ]
+Status: [x]
 
-- Add clearing event tables and idempotent ingestion.
-- Match clearing to prior authorization by issuer IDs and card token metadata.
-- Post matched clearing journals.
-- Park no-auth, amount-mismatch, duplicate, and unsupported events as settlement exceptions.
-- Add refund/credit ingestion and posting.
+- [x] Add clearing event tables and idempotent ingestion.
+- [x] Match clearing presentment to prior open authorization holds by explicit issuer/original-authorization linkage when present; simulator fallback uses card token, card id, amount, and currency.
+- [x] Post matched clearing journals.
+- [x] Park no-auth, missing-linkage, amount-mismatch, and missing-original clearing events as settlement exceptions.
+- [x] Add refund/credit ingestion and posting using original rail-payment linkage for refunds.
+- [x] Prevent cumulative refunds from exceeding the original matched clearing amount.
+
+Remaining:
+
+- Partial capture and dual-message settlement remain deferred to PPC7+ settlement/reconciliation work.
+- Ambiguous multi-auth matching requires issuer/original-authorization linkage from real issuer adapters; simulator exact-match fallback is intentionally conservative.
 
 Acceptance:
 
@@ -528,16 +540,17 @@ Acceptance:
 
 ### PPC7 - Settlement and Reconciliation
 
-Status: [ ]
+Status: [~]
 
-- Add issuer settlement report ingestion.
-- Reconcile authorization, clearing, ledger postings, and issuer settlement totals.
-- Surface card-program settlement exceptions by merchant/mode/program.
-- Reconcile MasonXPay ledger balances against issuer processor accounts or program funding balances when `systemOfRecord = EXTERNAL`.
+- [x] Add issuer settlement report ingestion with report-level idempotency by merchant/mode/issuer/report reference.
+- [x] Reconcile issuer report lines to MasonXPay clearing events by `railPaymentId`, amount, currency, movement type, and card program.
+- [x] Surface card-program settlement report line statuses by merchant/mode/program.
+- [ ] Reconcile authorization, clearing, ledger postings, and issuer settlement totals as an end-to-end accounting view.
+- [ ] Reconcile MasonXPay ledger balances against issuer processor accounts or program funding balances when `systemOfRecord = EXTERNAL`.
 
 Acceptance:
 
-- Operators can explain expected vs settled amounts for a card program.
+- Operators can explain expected vs settled amounts for a card program. Current implementation explains issuer report lines against clearing events; ledger-balance and EXTERNAL system-of-record reconciliation remain pending.
 
 ### PPC8 - Dashboard and Operations
 
@@ -576,12 +589,12 @@ Acceptance:
 
 ## Open Questions
 
-- Should cardholder KYC be a local simulator-only status first, or should the model already allow external KYC provider references?
-- Do we want merchant-owned card programs, platform-owned card programs, or both?
+- Decision: cardholder KYC starts as local simulator/product state, with external KYC provider references added later when a real issuer/provider requires them.
+- Decision: card programs are merchant-owned for the current PPC build. Merchant users manage their own programs, cardholders, cards, controls, and lifecycle. Platform-owned/shared programs are deferred.
 - Should withdraw allow partial available-balance withdrawal while holds remain open?
 - Should single-use cards close immediately after authorization approval, after clearing, or after settlement?
-- Which full-PAN use cases are genuinely required for the first production program, and do they justify building a separate PCI vault boundary now?
-- Should simulator mode emulate processor-side cardholder accounts, program funding accounts, or both?
+- Decision: MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
+- Decision: simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 - Which fee trigger should be implemented first: card creation fee, transaction fee, FX fee, or settlement-only fee assessment?
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?

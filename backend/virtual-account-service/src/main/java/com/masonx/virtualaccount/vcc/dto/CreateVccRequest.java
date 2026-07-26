@@ -15,6 +15,8 @@ import java.time.LocalDate;
 public record CreateVccRequest(
         @NotBlank String merchantId,
         @NotBlank String ownerAccountId,  // existing WALLET account that will fund the card
+        @NotBlank String programId,
+        @NotBlank String cardholderId,
         @NotBlank String currency,
         @DecimalMin("0.01") BigDecimal spendingLimit,  // optional per-transaction cap; null = no cap
         LocalDate expiry                               // optional; defaults to 1 year from now

@@ -24,8 +24,10 @@ public class VirtualCardRepository {
         jdbc.update("""
                 INSERT INTO virtual_card (
                     card_id, card_token_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
+                    program_id, issuer_partner_id, cardholder_id,
+                    external_issuer_card_id, external_card_token,
                     status, spending_limit, currency, expiry
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
                 """,
                 card.cardId(),
                 card.cardTokenId(),
@@ -34,6 +36,11 @@ public class VirtualCardRepository {
                 card.vccAccountId(),
                 card.holdAccountId(),
                 card.ownerAccountId(),
+                card.programId(),
+                card.issuerPartnerId(),
+                card.cardholderId(),
+                card.externalIssuerCardId(),
+                card.externalCardToken(),
                 card.status().name(),
                 card.spendingLimit(),
                 card.currency(),
@@ -108,6 +115,11 @@ public class VirtualCardRepository {
                 rs.getString("vcc_account_id"),
                 rs.getString("hold_account_id"),
                 rs.getString("owner_account_id"),
+                rs.getString("program_id"),
+                rs.getString("issuer_partner_id"),
+                rs.getString("cardholder_id"),
+                rs.getString("external_issuer_card_id"),
+                rs.getString("external_card_token"),
                 VirtualCardStatus.valueOf(rs.getString("status")),
                 rs.getBigDecimal("spending_limit"),
                 rs.getString("currency"),

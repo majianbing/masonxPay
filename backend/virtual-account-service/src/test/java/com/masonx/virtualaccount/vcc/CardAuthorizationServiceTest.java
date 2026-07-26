@@ -1,12 +1,18 @@
 package com.masonx.virtualaccount.vcc;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.CardAuthorizationRepository;
+import com.masonx.virtualaccount.domain.CardControlProfileRepository;
+import com.masonx.virtualaccount.domain.CardProgramRepository;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.AssetClass;
 import com.masonx.virtualaccount.domain.constant.CardAuthorizationStatus;
+import com.masonx.virtualaccount.domain.constant.CardProgramFundingModel;
+import com.masonx.virtualaccount.domain.constant.CardProgramStatus;
+import com.masonx.virtualaccount.domain.constant.CardProgramSystemOfRecord;
 import com.masonx.virtualaccount.domain.constant.Direction;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountRole;
 import com.masonx.virtualaccount.domain.constant.LedgerAccountStatus;
@@ -18,6 +24,8 @@ import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
 import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.ledger.posting.CardAuthHoldPostingRule;
 import com.masonx.virtualaccount.domain.po.CardAuthorization;
+import com.masonx.virtualaccount.domain.po.CardControlProfile;
+import com.masonx.virtualaccount.domain.po.CardProgram;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthRequest;
@@ -51,8 +59,13 @@ class CardAuthorizationServiceTest {
     private static final String MASKED_PAN = "999999****1234";
     private static final String CARD_ACCOUNT_ID = "ac_card";
     private static final String HOLD_ACCOUNT_ID = "ac_hold";
+    private static final String OWNER_ACCOUNT_ID = "ac_owner";
+    private static final String MERCHANT_ID = "mer_1";
+    private static final String PROGRAM_ID = "cprog_1";
 
     @Mock VirtualCardRepository virtualCardRepo;
+    @Mock CardProgramRepository cardProgramRepo;
+    @Mock CardControlProfileRepository cardControlProfileRepo;
     @Mock LedgerAccountRepository accountRepo;
     @Mock CardAuthorizationRepository authorizationRepo;
     @Mock LedgerFacade ledger;
@@ -62,8 +75,11 @@ class CardAuthorizationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CardAuthorizationService(virtualCardRepo, accountRepo, authorizationRepo,
-                ledger, new CardAuthHoldPostingRule(idGen), idGen);
+        var controlEvaluator = new CardAuthorizationControlEvaluator(
+                new ObjectMapper(), authorizationRepo);
+        service = new CardAuthorizationService(virtualCardRepo, cardProgramRepo, cardControlProfileRepo,
+                accountRepo, authorizationRepo, ledger, new CardAuthHoldPostingRule(idGen),
+                controlEvaluator, idGen);
     }
 
     @Test
@@ -71,6 +87,7 @@ class CardAuthorizationServiceTest {
         when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
                 .thenReturn(Optional.empty());
         when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID))
                 .thenReturn(Optional.of(cardAccount(new BigDecimal("100.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
@@ -150,6 +167,7 @@ class CardAuthorizationServiceTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(decision("APPROVED", null, CardAuthorizationStatus.AUTHORIZED)));
         when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID))
                 .thenReturn(Optional.of(cardAccount(new BigDecimal("100.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
@@ -166,6 +184,7 @@ class CardAuthorizationServiceTest {
         when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
                 .thenReturn(Optional.empty());
         when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID))
                 .thenReturn(Optional.of(cardAccount(new BigDecimal("10.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
@@ -190,6 +209,7 @@ class CardAuthorizationServiceTest {
         when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
                 .thenReturn(Optional.empty());
         when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID))
                 .thenReturn(Optional.of(cardAccount(new BigDecimal("100.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
@@ -216,6 +236,7 @@ class CardAuthorizationServiceTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(decision("APPROVED", null, CardAuthorizationStatus.AUTHORIZED)));
         when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
         when(accountRepo.findByIdForUpdate(CARD_ACCOUNT_ID))
                 .thenReturn(Optional.of(cardAccount(new BigDecimal("100.00"))));
         when(accountRepo.findByIdForUpdate(HOLD_ACCOUNT_ID)).thenReturn(Optional.of(holdAccount()));
@@ -245,6 +266,68 @@ class CardAuthorizationServiceTest {
     }
 
     @Test
+    void authorize_declines_and_records_when_currency_blocked_by_program_control() {
+        when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
+                .thenReturn(Optional.empty());
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{\"blockedCurrencies\":[\"USD\"]}");
+        when(idGen.generate(MasonXIdPrefix.CARD_AUTHORIZATION.prefix())).thenReturn("cauth_1");
+        when(authorizationRepo.insert(any())).thenReturn(true);
+
+        var response = service.authorize(ISSUER_ID, request());
+
+        assertThat(response.decision()).isEqualTo("DECLINED");
+        assertThat(response.reason()).isEqualTo(CardAuthorizationControlEvaluator.REASON_CURRENCY_NOT_ALLOWED);
+        verify(accountRepo, never()).findByIdForUpdate(any());
+        verify(ledger, never()).postAllIfNew(any(), any(), any());
+        assertThat(capturedDecision().declineReason())
+                .isEqualTo(CardAuthorizationControlEvaluator.REASON_CURRENCY_NOT_ALLOWED);
+    }
+
+    @Test
+    void authorize_declines_and_records_when_card_control_daily_amount_exceeded() {
+        when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
+                .thenReturn(Optional.empty());
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        mockProgramControls("{}");
+        when(cardControlProfileRepo.findByCardIdForMerchant(CARD_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(cardControls("{\"dailyAmountLimit\":\"30.00\"}")));
+        when(authorizationRepo.authorizedVelocitySince(eq(CARD_ID), eq("USD"), any()))
+                .thenReturn(new CardAuthorizationRepository.AuthorizationVelocity(new BigDecimal("10.00"), 1));
+        when(idGen.generate(MasonXIdPrefix.CARD_AUTHORIZATION.prefix())).thenReturn("cauth_1");
+        when(authorizationRepo.insert(any())).thenReturn(true);
+
+        var response = service.authorize(ISSUER_ID, request());
+
+        assertThat(response.decision()).isEqualTo("DECLINED");
+        assertThat(response.reason()).isEqualTo(CardAuthorizationControlEvaluator.REASON_DAILY_AMOUNT_LIMIT_EXCEEDED);
+        verify(accountRepo, never()).findByIdForUpdate(any());
+        verify(ledger, never()).postAllIfNew(any(), any(), any());
+    }
+
+    @Test
+    void authorize_declines_and_records_when_program_funding_model_not_local_decisioned() {
+        when(authorizationRepo.findByIssuerIdAndAuthorizationId(ISSUER_ID, AUTHORIZATION_ID))
+                .thenReturn(Optional.empty());
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(cardProgramRepo.findByIdForMerchant(PROGRAM_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(cardProgram("{}", CardProgramSystemOfRecord.EXTERNAL,
+                        CardProgramFundingModel.EXTERNAL_ISSUER_BALANCE)));
+        when(cardControlProfileRepo.findByCardIdForMerchant(CARD_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.empty());
+        when(idGen.generate(MasonXIdPrefix.CARD_AUTHORIZATION.prefix())).thenReturn("cauth_1");
+        when(authorizationRepo.insert(any())).thenReturn(true);
+
+        var response = service.authorize(ISSUER_ID, request());
+
+        assertThat(response.decision()).isEqualTo("DECLINED");
+        assertThat(response.reason()).isEqualTo(CardAuthorizationControlEvaluator.REASON_UNSUPPORTED_FUNDING_MODEL);
+        verify(accountRepo, never()).findByIdForUpdate(any());
+        verify(ledger, never()).postAllIfNew(any(), any(), any());
+    }
+
+    @Test
     void holdEventId_is_deterministic_and_scoped_by_issuer() {
         String first  = CardAuthorizationService.holdEventId(ISSUER_ID, AUTHORIZATION_ID);
         String second = CardAuthorizationService.holdEventId(ISSUER_ID, AUTHORIZATION_ID);
@@ -264,6 +347,15 @@ class CardAuthorizationServiceTest {
         return captor.getValue();
     }
 
+    private void mockProgramControls(String controlsJson) {
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(cardProgramRepo.findByIdForMerchant(PROGRAM_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(cardProgram(controlsJson, CardProgramSystemOfRecord.INTERNAL,
+                        CardProgramFundingModel.SIMULATED)));
+        when(cardControlProfileRepo.findByCardIdForMerchant(CARD_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.empty());
+    }
+
     private static IssuerAuthRequest request() {
         return new IssuerAuthRequest(
                 AUTHORIZATION_ID, CARD_TOKEN_ID, new BigDecimal("25.00"), "USD", "123456", "654321");
@@ -275,7 +367,13 @@ class CardAuthorizationServiceTest {
                 "cauth_1", ISSUER_ID, AUTHORIZATION_ID, CARD_ID, "123456", "654321",
                 new BigDecimal("25.00"), "USD", decision, reason,
                 "APPROVED".equals(decision) ? "card_auth_x" : null,
-                status, Instant.now());
+                status,
+                BigDecimal.ZERO,
+                null,
+                null,
+                BigDecimal.ZERO,
+                null,
+                Instant.now());
     }
 
     private static VirtualCard card() {
@@ -286,13 +384,69 @@ class CardAuthorizationServiceTest {
                 "999999",
                 CARD_ACCOUNT_ID,
                 HOLD_ACCOUNT_ID,
-                "ac_owner",
+                OWNER_ACCOUNT_ID,
+                PROGRAM_ID,
+                "ip_1",
+                "ch_1",
+                "railsim_" + CARD_TOKEN_ID,
+                CARD_TOKEN_ID,
                 VirtualCardStatus.ACTIVE,
                 null,
                 "USD",
                 LocalDate.of(2027, 1, 1),
                 Instant.now(),
                 Instant.now());
+    }
+
+    private static CardProgram cardProgram(String controlsJson,
+                                           CardProgramSystemOfRecord systemOfRecord,
+                                           CardProgramFundingModel fundingModel) {
+        return new CardProgram(
+                PROGRAM_ID,
+                MERCHANT_ID,
+                Mode.TEST,
+                "ip_1",
+                "Expense Cards",
+                "USD",
+                "{}",
+                CardProgramStatus.ACTIVE,
+                systemOfRecord,
+                fundingModel,
+                "{}",
+                controlsJson,
+                "{}",
+                null,
+                null,
+                null,
+                Instant.now(),
+                Instant.now());
+    }
+
+    private static CardControlProfile cardControls(String controlsJson) {
+        return new CardControlProfile(
+                CARD_ID,
+                MERCHANT_ID,
+                Mode.TEST,
+                controlsJson,
+                Instant.now(),
+                Instant.now());
+    }
+
+    private static LedgerAccount ownerAccount() {
+        return new LedgerAccount(
+                OWNER_ACCOUNT_ID,
+                Mode.TEST,
+                LedgerAccountRole.TENANT,
+                "org_1",
+                MERCHANT_ID,
+                null,
+                LedgerAccountType.WALLET,
+                "USD",
+                AssetClass.FIAT,
+                2,
+                NormalBalance.CREDIT,
+                BigDecimal.ZERO,
+                LedgerAccountStatus.ACTIVE);
     }
 
     private static LedgerAccount cardAccount(BigDecimal balance) {

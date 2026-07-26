@@ -22,6 +22,9 @@ import java.time.Instant;
  *                            raw PAN digits beyond first-6 + last-4.
  * @param cardTokenId         Simulator card identity (v3); non-null for VA-issued card payments.
  *                            VA uses this to look up the card, never maskedPan.
+ * @param issuerId            Issuer adapter identity (v4), e.g. RAIL_SIM; nullable on older events.
+ * @param originalAuthorizationId Original issuer authorization id (v4), used to match clearing to holds.
+ * @param originalRailPaymentId Original rail payment id (v4), used to match refunds/credits to prior clearing.
  */
 public record RailSettlementEvent(
         EventEnvelope envelope,
@@ -38,8 +41,31 @@ public record RailSettlementEvent(
         String merchantId,
         String maskedPan,
         // v3 addition — nullable on older producers
-        String cardTokenId
+        String cardTokenId,
+        // v4 additions — nullable on older producers
+        String issuerId,
+        String originalAuthorizationId,
+        String originalRailPaymentId
 ) {
     public static final String TYPE = "rail.settlement.recorded";
-    public static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 4;
+
+    public RailSettlementEvent(
+            EventEnvelope envelope,
+            String railPaymentId,
+            PaymentRail rail,
+            MoneyMovementType movementType,
+            String asset,
+            BigDecimal amount,
+            String vccAccountId,
+            String receivableAccountId,
+            String networkName,
+            Instant settledAt,
+            String merchantId,
+            String maskedPan,
+            String cardTokenId
+    ) {
+        this(envelope, railPaymentId, rail, movementType, asset, amount, vccAccountId, receivableAccountId,
+                networkName, settledAt, merchantId, maskedPan, cardTokenId, null, null, null);
+    }
 }

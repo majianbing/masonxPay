@@ -39,16 +39,17 @@ import java.math.BigDecimal;
  *       DR MERCHANT_RECEIVABLE (created on first need) / CR BANK_RAIL_RECEIVABLE.
  * </ul>
  *
- * <p>The remaining card {@code MoneyMovementType} values (CARD_AUTH_REVERSAL,
- * CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT, CARD_REFUND, CARD_CREDIT,
- * CARD_CLEARING_PRESENTMENT) each get an explicit switch case below and park with
+ * <p>Clearing presentment, refund, and original credit events are delegated to
+ * {@link CardClearingIngestionService} for authorization matching and event lineage.
+ * The remaining card {@code MoneyMovementType} values (CARD_AUTH_REVERSAL,
+ * CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT) each get an explicit switch case
+ * below and park with
  * {@link SettlementExceptionReason#MOVEMENT_TYPE_NOT_IMPLEMENTED} rather than falling
  * into the generic {@code default} case, so each gap is individually visible instead
  * of collapsing into one "unhandled movement type" bucket. Their intended posting
  * shape (where a posting is expected at all) is defined as a stub in
- * {@link com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule} —
- * implement there first, then wire the corresponding case here to call it. CARD_AUTH
- * is also explicit but is not expected to arrive here at all: VA authorizes
+ * {@link com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule}.
+ * CARD_AUTH is also explicit but is not expected to arrive here at all: VA authorizes
  * synchronously via {@code CardAuthorizationService}, not through this async path.
  *
  * <p>Idempotency: {@link LedgerFacade#postAllIfNew} uses the event envelope ID as the
@@ -70,6 +71,7 @@ public class CardRailSettlementHandler {
     private static final Mode   RAIL_MODE = Mode.TEST;
 
     private final VirtualCardRepository virtualCardRepo;
+    private final CardClearingIngestionService clearingIngestionService;
     private final LedgerAccountRepository     accountRepo;
     private final LedgerFacade          ledger;
     private final CardSettlementPostingRule cardSettlementPostingRule;
@@ -79,6 +81,7 @@ public class CardRailSettlementHandler {
     private final SnowflakeIdGenerator idGen;
 
     public CardRailSettlementHandler(VirtualCardRepository virtualCardRepo,
+                                     CardClearingIngestionService clearingIngestionService,
                                      LedgerAccountRepository accountRepo,
                                      LedgerFacade ledger,
                                      CardSettlementPostingRule cardSettlementPostingRule,
@@ -87,6 +90,7 @@ public class CardRailSettlementHandler {
                                      InboxRepository inbox,
                                      SnowflakeIdGenerator idGen) {
         this.virtualCardRepo = virtualCardRepo;
+        this.clearingIngestionService = clearingIngestionService;
         this.accountRepo     = accountRepo;
         this.ledger          = ledger;
         this.cardSettlementPostingRule = cardSettlementPostingRule;
@@ -121,22 +125,13 @@ public class CardRailSettlementHandler {
                         "CARD_AUTH should not arrive as a rail settlement event — it is authorized "
                                 + "synchronously via CardAuthorizationService; check upstream routing");
 
-                // Defined MoneyMovementType values with a stub posting rule in
-                // CardSettlementPostingRule, not yet wired here. See that class for the
-                // intended DR/CR shape and open design questions per type.
-                case CARD_AUTH_REVERSAL, CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT,
-                     CARD_REFUND, CARD_CREDIT ->
+                // Defined MoneyMovementType values with pending posting-rule work.
+                case CARD_AUTH_REVERSAL, CARD_SALE_REVERSAL, CARD_CAPTURE, CARD_SETTLEMENT ->
                         park(event, eventId, SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED,
                                 "No posting rule implemented yet for " + type
                                         + " — see the matching stub in CardSettlementPostingRule");
 
-                // Matching/reconciliation input, not expected to move value — see
-                // MoneyMovementType.CARD_CLEARING_PRESENTMENT javadoc. No posting rule is
-                // planned for this one; it needs a separate matching hook when implemented.
-                case CARD_CLEARING_PRESENTMENT ->
-                        park(event, eventId, SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED,
-                                "CARD_CLEARING_PRESENTMENT is a matching/reconciliation input; "
-                                        + "no ledger posting is expected, and no matching hook exists yet");
+                case CARD_CLEARING_PRESENTMENT, CARD_REFUND, CARD_CREDIT -> handleCardClearingPresentment(event, eventId);
 
                 default -> park(event, eventId, SettlementExceptionReason.MISSING_EVENT_FIELD,
                         "Unhandled rail movement type: " + type);
@@ -180,6 +175,22 @@ public class CardRailSettlementHandler {
                     eventId, card.cardId(), event.amount());
         } else {
             log.info("Card sale duplicate skipped: eventId={}", eventId);
+        }
+    }
+
+    private void handleCardClearingPresentment(RailSettlementEvent event, String eventId) {
+        if (event.cardTokenId() == null || event.cardTokenId().isBlank()) {
+            park(event, eventId, SettlementExceptionReason.MISSING_EVENT_FIELD,
+                    "Rail settlement event has no cardTokenId");
+            return;
+        }
+        CardClearingIngestionResult result = clearingIngestionService.ingest(event, eventId);
+        if (result.shouldPark()) {
+            park(event, eventId, result.parkReason(), result.parkDetail());
+        } else if (result.posted()) {
+            log.info("Card clearing matched and posted: eventId={} amount={}", eventId, event.amount());
+        } else {
+            log.info("Card clearing duplicate skipped: eventId={}", eventId);
         }
     }
 

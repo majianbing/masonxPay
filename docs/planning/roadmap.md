@@ -274,13 +274,13 @@ See [prepaid card program platform plan](prepaid-card-program-platform-plan.md).
 | # | Item | Status | Detail |
 |---|---|---|---|
 | PPC0 | **Baseline audit and naming** | [ ] | Align docs and naming around funded prepaid cards, issuer adapters, card programs, and program-manager boundaries. |
-| PPC1 | **Program and cardholder model** | [ ] | Add issuer partner, card program, and cardholder models with tenant/mode scope and card-creation gates. |
-| PPC2 | **Issuer adapter abstraction** | [ ] | Add issuer-card provider interface and `RAIL_SIM` adapter so simulator and future issuer processors share one boundary. |
-| PPC3 | **Lifecycle APIs** | [ ] | Add withdraw, lock, unlock, logical close, terminate, expanded card statuses, and transition guards. |
-| PPC4 | **Controls and authorization policy** | [ ] | Add card/program controls and deterministic decline reasons before balance checks. |
-| PPC5 | **Authorization reversal and hold expiry** | [ ] | Add reversal endpoint, hold release postings, and stale hold expiry worker. |
-| PPC6 | **Clearing and refund ingestion** | [ ] | Add clearing/refund ingestion, match to auths, post journals, and park exceptions. |
-| PPC7 | **Settlement and reconciliation** | [ ] | Reconcile card program settlement reports against auth, clearing, and ledger records. |
+| PPC1 | **Program and cardholder model** | [x] | Issuer partner, card program, and cardholder schema/domain/repository/API layers are complete; card creation now requires active program and active cardholder gates. |
+| PPC2 | **Issuer adapter abstraction** | [x] | Issuer-card provider interface, dispatcher, and `RAIL_SIM` adapter are implemented; simulator card-token/PAN behavior now lives behind the adapter boundary. |
+| PPC3 | **Lifecycle APIs** | [x] | Withdraw, lock, unlock, logical close, terminate, expanded statuses, and transition guards are implemented for simulator-backed cards; logical close currently rejects open holds instead of entering a pending close state. |
+| PPC4 | **Controls and authorization policy** | [x] | Program/card JSON controls are evaluated before balance checks with deterministic decline reasons and daily velocity checks; MCC/category controls wait for richer issuer auth payload fields. |
+| PPC5 | **Authorization reversal and hold expiry** | [x] | Added internal auth-reversal endpoint, idempotent hold-release postings, cumulative release tracking, and disabled-by-default stale hold expiry worker. |
+| PPC6 | **Clearing and refund ingestion** | [x] | Clearing presentment matches linked issuer authorizations or conservative simulator exact holds, posts settlement journals, records clearing events, parks no-auth/mismatch/missing-original cases, and supports refund/original-credit posting with cumulative refund protection. |
+| PPC7 | **Settlement and reconciliation** | [~] | Issuer settlement report ingestion now reconciles report lines against clearing events and exposes matched/exception statuses by merchant/mode/program; ledger-total and EXTERNAL system-of-record reconciliation remain. |
 | PPC8 | **Dashboard and operations** | [ ] | Add merchant/operator UI for programs, cardholders, cards, controls, auths, and exceptions. |
 | PPC9 | **Fee schedules and economics** | [ ] | Add versioned fee schedules, expression-based rule matching, fee assessment snapshots, visible/hidden fee outputs, and ledger posting hooks. |
 

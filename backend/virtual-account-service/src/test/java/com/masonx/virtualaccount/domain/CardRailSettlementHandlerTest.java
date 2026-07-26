@@ -39,6 +39,8 @@ import static org.mockito.Mockito.*;
 class CardRailSettlementHandlerTest {
 
     @Mock VirtualCardRepository virtualCardRepo;
+    @Mock CardAuthorizationRepository authorizationRepo;
+    @Mock CardClearingEventRepository clearingEventRepo;
     @Mock LedgerAccountRepository     accountRepo;
     @Mock LedgerFacade          ledger;
     @Mock SettlementExceptionService settlementExceptions;
@@ -58,8 +60,11 @@ class CardRailSettlementHandlerTest {
     @BeforeEach
     void setUp() {
         SnowflakeIdGenerator idGen = new SnowflakeIdGenerator(0);
+        CardClearingIngestionService clearingIngestionService = new CardClearingIngestionService(
+                virtualCardRepo, authorizationRepo, clearingEventRepo, accountRepo, ledger,
+                new CardSettlementPostingRule(idGen), idGen);
         handler = new CardRailSettlementHandler(
-                virtualCardRepo, accountRepo, ledger,
+                virtualCardRepo, clearingIngestionService, accountRepo, ledger,
                 new CardSettlementPostingRule(idGen), new RailSettlementPostingRule(idGen),
                 settlementExceptions, inbox, idGen);
     }
@@ -84,9 +89,23 @@ class CardRailSettlementHandlerTest {
                 null, null, "SEPA_SIM", Instant.now(), merchantId, null, null);
     }
 
+    private RailSettlementEvent cardEventWithLinkage(MoneyMovementType type, String railPaymentId,
+                                                     String originalAuthorizationId,
+                                                     String originalRailPaymentId) {
+        var envelope = new EventEnvelope(
+                "evt_test_001", RailSettlementEvent.TYPE, RailSettlementEvent.SCHEMA_VERSION, Instant.now(), "corr_1", null);
+        return new RailSettlementEvent(
+                envelope, railPaymentId, PaymentRail.CARD_ISO8583, type,
+                "USD", new BigDecimal("100.00"),
+                null, null, "VISA_SIM", Instant.now(), MERCHANT_ID, MASKED_PAN, CARD_TOKEN_ID,
+                "RAIL_SIM", originalAuthorizationId, originalRailPaymentId);
+    }
+
     private VirtualCard card() {
         return new VirtualCard(
                 "card_1", CARD_TOKEN_ID, MASKED_PAN, "999999", CARD_ACCT, HOLD_ACCT, WALLET_ACCT,
+                "cprog_1", "ip_1", "ch_1",
+                "railsim_" + CARD_TOKEN_ID, CARD_TOKEN_ID,
                 VirtualCardStatus.ACTIVE, new BigDecimal("500.00"), "USD",
                 null, Instant.now(), Instant.now());
     }
@@ -506,7 +525,7 @@ class CardRailSettlementHandlerTest {
     @ParameterizedTest
     @EnumSource(value = MoneyMovementType.class, names = {
             "CARD_AUTH", "CARD_AUTH_REVERSAL", "CARD_SALE_REVERSAL", "CARD_CAPTURE",
-            "CARD_SETTLEMENT", "CARD_REFUND", "CARD_CREDIT", "CARD_CLEARING_PRESENTMENT"
+            "CARD_SETTLEMENT"
     })
     void unimplemented_movement_types_park_with_movement_type_not_implemented_reason(MoneyMovementType type) {
         handler.handle(event(type, CARD_TOKEN_ID, MERCHANT_ID));
@@ -515,5 +534,207 @@ class CardRailSettlementHandlerTest {
                 eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_test_001"), anyString(),
                 eq(SettlementExceptionReason.MOVEMENT_TYPE_NOT_IMPLEMENTED), anyString(), any());
         verifyNoInteractions(virtualCardRepo, accountRepo, ledger);
+    }
+
+    @Test
+    void card_clearing_presentment_matches_open_hold_posts_journal_and_marks_settled() {
+        VirtualCard testCard = card();
+        LedgerAccount cardAcct = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct = receivableAccount(RECEIVABLE_CARD_ACCT,
+                LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(testCard));
+        when(authorizationRepo.findExactOpenHoldMatchForUpdate("card_1", "USD", new BigDecimal("100.00")))
+                .thenReturn(Optional.of(cardAuthorization()));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
+                .thenReturn(Optional.of(rcvAcct));
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-clearing"))).thenReturn(true);
+
+        handler.handle(event(MoneyMovementType.CARD_CLEARING_PRESENTMENT, CARD_TOKEN_ID, MERCHANT_ID));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-clearing"));
+        assertThat(txCaptor.getValue().get(0).entries())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(HOLD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.DEBIT);
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                });
+        verify(authorizationRepo).recordClearingSettlement(
+                eq("cauth_1"), eq(new BigDecimal("100.00")), eq(CardAuthorizationStatus.SETTLED), any());
+        verify(clearingEventRepo).insert(any());
+    }
+
+    @Test
+    void card_clearing_presentment_prefers_original_authorization_linkage() {
+        VirtualCard testCard = card();
+        LedgerAccount cardAcct = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct = receivableAccount(RECEIVABLE_CARD_ACCT,
+                LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(testCard));
+        when(authorizationRepo.findLinkedOpenHoldForUpdate("RAIL_SIM", "auth_1", "card_1"))
+                .thenReturn(Optional.of(cardAuthorization()));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
+                .thenReturn(Optional.of(rcvAcct));
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-clearing"))).thenReturn(true);
+
+        handler.handle(cardEventWithLinkage(
+                MoneyMovementType.CARD_CLEARING_PRESENTMENT, "pay_001", "auth_1", null));
+
+        verify(authorizationRepo).findLinkedOpenHoldForUpdate("RAIL_SIM", "auth_1", "card_1");
+        verify(authorizationRepo, never()).findExactOpenHoldMatchForUpdate(any(), any(), any());
+        verify(clearingEventRepo).insert(any());
+    }
+
+    @Test
+    void card_clearing_presentment_parks_amount_mismatch_when_open_hold_exists() {
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        when(authorizationRepo.findExactOpenHoldMatchForUpdate("card_1", "USD", new BigDecimal("100.00")))
+                .thenReturn(Optional.empty());
+        when(authorizationRepo.hasOpenHoldForCard("card_1", "USD")).thenReturn(true);
+
+        handler.handle(event(MoneyMovementType.CARD_CLEARING_PRESENTMENT, CARD_TOKEN_ID, MERCHANT_ID));
+
+        verify(settlementExceptions).park(
+                eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_test_001"), anyString(),
+                eq(SettlementExceptionReason.AMOUNT_MISMATCH), anyString(), any());
+        verifyNoInteractions(accountRepo, ledger, clearingEventRepo);
+    }
+
+    @Test
+    void card_refund_matches_original_clearing_and_posts_refund_journal() {
+        LedgerAccount cardAcct = cardAccount(new BigDecimal("200.00"));
+        LedgerAccount rcvAcct = receivableAccount(RECEIVABLE_CARD_ACCT,
+                LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        when(clearingEventRepo.findMatchedByRailPaymentIdForUpdate("pay_original"))
+                .thenReturn(Optional.of(clearingEvent("pay_original")));
+        when(clearingEventRepo.sumMatchedRefundAmountForOriginalRailPaymentId("pay_original"))
+                .thenReturn(BigDecimal.ZERO);
+        when(virtualCardRepo.findById("card_1")).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
+                .thenReturn(Optional.of(rcvAcct));
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-refund"))).thenReturn(true);
+
+        handler.handle(cardEventWithLinkage(MoneyMovementType.CARD_REFUND, "pay_refund", null, "pay_original"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-refund"));
+        assertThat(txCaptor.getValue().get(0).entries())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.DEBIT);
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(CARD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                });
+        verify(clearingEventRepo).insert(any());
+    }
+
+    @Test
+    void card_refund_parks_when_cumulative_refund_exceeds_original_amount() {
+        when(clearingEventRepo.findMatchedByRailPaymentIdForUpdate("pay_original"))
+                .thenReturn(Optional.of(clearingEvent("pay_original")));
+        when(clearingEventRepo.sumMatchedRefundAmountForOriginalRailPaymentId("pay_original"))
+                .thenReturn(new BigDecimal("25.00"));
+
+        handler.handle(cardEventWithLinkage(MoneyMovementType.CARD_REFUND, "pay_refund", null, "pay_original"));
+
+        verify(settlementExceptions).park(
+                eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_test_001"), anyString(),
+                eq(SettlementExceptionReason.AMOUNT_MISMATCH), anyString(), any());
+        verifyNoInteractions(virtualCardRepo, accountRepo, ledger);
+    }
+
+    @Test
+    void card_refund_parks_when_original_payment_id_missing() {
+        handler.handle(cardEventWithLinkage(MoneyMovementType.CARD_REFUND, "pay_refund", null, null));
+
+        verify(settlementExceptions).park(
+                eq(SettlementExceptionSource.RAIL_SETTLEMENT), eq("evt_test_001"), anyString(),
+                eq(SettlementExceptionReason.MISSING_EVENT_FIELD), anyString(), any());
+        verifyNoInteractions(virtualCardRepo, accountRepo, ledger);
+    }
+
+    @Test
+    void card_credit_posts_original_credit_to_card_balance() {
+        LedgerAccount cardAcct = cardAccount(new BigDecimal("200.00"));
+        LedgerAccount rcvAcct = receivableAccount(RECEIVABLE_CARD_ACCT,
+                LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
+                .thenReturn(Optional.of(rcvAcct));
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-credit"))).thenReturn(true);
+
+        handler.handle(cardEventWithLinkage(MoneyMovementType.CARD_CREDIT, "pay_credit", null, null));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LedgerPostingCommand>> txCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ledger).postAllIfNew(txCaptor.capture(), eq("evt_test_001"), eq("rail-card-credit"));
+        assertThat(txCaptor.getValue().get(0).entries())
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(RECEIVABLE_CARD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.DEBIT);
+                })
+                .anySatisfy(e -> {
+                    assertThat(e.ledgerAccountId()).isEqualTo(CARD_ACCT);
+                    assertThat(e.direction()).isEqualTo(Direction.CREDIT);
+                });
+        verify(clearingEventRepo).insert(any());
+    }
+
+    private com.masonx.virtualaccount.domain.po.CardAuthorization cardAuthorization() {
+        return new com.masonx.virtualaccount.domain.po.CardAuthorization(
+                "cauth_1",
+                "RAIL_SIM",
+                "auth_1",
+                "card_1",
+                "123456",
+                "654321",
+                new BigDecimal("100.00"),
+                "USD",
+                "APPROVED",
+                null,
+                "card_auth_1",
+                CardAuthorizationStatus.AUTHORIZED,
+                BigDecimal.ZERO,
+                null,
+                null,
+                BigDecimal.ZERO,
+                null,
+                Instant.now());
+    }
+
+    private com.masonx.virtualaccount.domain.po.CardClearingEvent clearingEvent(String railPaymentId) {
+        return new com.masonx.virtualaccount.domain.po.CardClearingEvent(
+                "cclr_1",
+                "evt_clear_1",
+                railPaymentId,
+                null,
+                "RAIL_SIM",
+                "auth_1",
+                MoneyMovementType.CARD_CLEARING_PRESENTMENT.name(),
+                "card_1",
+                "cauth_1",
+                MERCHANT_ID,
+                Mode.TEST,
+                new BigDecimal("100.00"),
+                "USD",
+                "MATCHED",
+                Instant.now());
     }
 }
