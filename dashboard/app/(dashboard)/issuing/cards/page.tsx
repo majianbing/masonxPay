@@ -1,14 +1,15 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Copy, CreditCard, Lock, Plus, RefreshCcw, Unlock } from 'lucide-react';
+import { Copy, CreditCard, Lock, Plus, RefreshCcw, Save, Settings2, Unlock } from 'lucide-react';
 import { ApiError, apiFetch } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -67,6 +68,13 @@ interface CreatedCard extends CardRecord {
   testPan: string | null;
 }
 
+interface CardControlResponse {
+  cardId: string;
+  merchantId: string;
+  mode: string;
+  controlsJson: string;
+}
+
 export default function IssuingCardsPage() {
   const queryClient = useQueryClient();
   const activeMerchantId = useAuthStore((s) => s.activeMerchantId);
@@ -80,6 +88,8 @@ export default function IssuingCardsPage() {
   const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
   const [createdCard, setCreatedCard] = useState<CreatedCard | null>(null);
+  const [controlsCardId, setControlsCardId] = useState('');
+  const [controlsDraft, setControlsDraft] = useState('{}');
 
   const accountsQuery = useQuery<PageResponse<LedgerAccount> & { enabled?: boolean }>({
     queryKey: ['va-accounts', activeMerchantId, mode],
@@ -105,6 +115,12 @@ export default function IssuingCardsPage() {
     queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards?page=${page}&size=20`),
   });
 
+  const controlsQuery = useQuery<CardControlResponse>({
+    queryKey: ['card-controls', activeMerchantId, controlsCardId],
+    enabled: !!activeMerchantId && !!controlsCardId,
+    queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards/${controlsCardId}/controls`),
+  });
+
   const walletAccounts = useMemo(
     () => (accountsQuery.data?.content ?? []).filter((account) => (
       account.ledgerAccountType === 'WALLET' && account.mode === mode && account.status === 'ACTIVE'
@@ -125,6 +141,13 @@ export default function IssuingCardsPage() {
   const selectedCardholderId = cardholderId || activeCardholders[0]?.cardholderId || '';
   const selectedOwnerAccountId = ownerAccountId || walletAccounts[0]?.ledgerAccountId || '';
   const selectedCurrency = selectedProgram?.currency ?? walletAccounts[0]?.asset ?? 'USD';
+  const selectedControlsCard = cardsQuery.data?.content.find((card) => card.cardId === controlsCardId);
+
+  useEffect(() => {
+    if (controlsQuery.data?.controlsJson != null) {
+      setControlsDraft(prettyJson(controlsQuery.data.controlsJson));
+    }
+  }, [controlsQuery.data?.controlsJson]);
 
   const createCard = useMutation({
     mutationFn: () => apiFetch<CreatedCard>(`/api/v1/merchants/${activeMerchantId}/va/cards`, {
@@ -203,6 +226,22 @@ export default function IssuingCardsPage() {
       toast.success('Card updated');
     },
     onError: (error) => toast.error(errorMessage(error, 'Could not update card')),
+  });
+
+  const updateControls = useMutation({
+    mutationFn: () => apiFetch<CardControlResponse>(
+      `/api/v1/merchants/${activeMerchantId}/va/cards/${controlsCardId}/controls`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ mode, controlsJson: normalizeJson(controlsDraft) }),
+      },
+    ),
+    onSuccess: (response) => {
+      setControlsDraft(prettyJson(response.controlsJson));
+      queryClient.invalidateQueries({ queryKey: ['card-controls', activeMerchantId, controlsCardId] });
+      toast.success('Card controls saved');
+    },
+    onError: (error) => toast.error(errorMessage(error, 'Could not save card controls')),
   });
 
   function submit(e: FormEvent) {
@@ -420,25 +459,37 @@ export default function IssuingCardsPage() {
                     </td>
                     <td className="px-4 py-3">
                       {card.status === 'LOCKED' ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={lifecycle.isPending}
-                          onClick={() => lifecycle.mutate({ cardId: card.cardId, action: 'unlock' })}
-                        >
-                          <Unlock className="mr-2 size-4" />
-                          Unlock
-                        </Button>
+                        <div className="flex min-w-52 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={lifecycle.isPending}
+                            onClick={() => lifecycle.mutate({ cardId: card.cardId, action: 'unlock' })}
+                          >
+                            <Unlock className="mr-2 size-4" />
+                            Unlock
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setControlsCardId(card.cardId)}>
+                            <Settings2 className="mr-2 size-4" />
+                            Controls
+                          </Button>
+                        </div>
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={lifecycle.isPending || card.status !== 'ACTIVE'}
-                          onClick={() => lifecycle.mutate({ cardId: card.cardId, action: 'lock' })}
-                        >
-                          <Lock className="mr-2 size-4" />
-                          Lock
-                        </Button>
+                        <div className="flex min-w-52 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={lifecycle.isPending || card.status !== 'ACTIVE'}
+                            onClick={() => lifecycle.mutate({ cardId: card.cardId, action: 'lock' })}
+                          >
+                            <Lock className="mr-2 size-4" />
+                            Lock
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setControlsCardId(card.cardId)}>
+                            <Settings2 className="mr-2 size-4" />
+                            Controls
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -465,6 +516,55 @@ export default function IssuingCardsPage() {
           </div>
         </div>
       </section>
+
+      <Dialog open={!!controlsCardId} onOpenChange={(open) => {
+        if (!open) setControlsCardId('');
+      }}>
+        <DialogContent className="w-[80vw] max-w-[80vw] max-h-[86vh] overflow-y-auto sm:max-w-[80vw]">
+          <DialogHeader>
+            <DialogTitle>
+              Controls for {selectedControlsCard?.maskedPan ?? 'selected card'}
+            </DialogTitle>
+            <DialogDescription>
+              Edit JSON controls used by authorization evaluation for this card.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-4">
+              <ControlHint label="Max transaction" value='"maxTransactionAmount": "100.00"' />
+              <ControlHint label="Daily amount" value='"dailyAmountLimit": "500.00"' />
+              <ControlHint label="Daily count" value='"dailyCountLimit": 5' />
+              <ControlHint label="Currencies" value='"allowedCurrencies": ["USD"]' />
+            </div>
+            <textarea
+              value={controlsDraft}
+              onChange={(e) => setControlsDraft(e.target.value)}
+              className="min-h-72 w-full rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-primary"
+              spellCheck={false}
+            />
+            <p className="text-xs text-muted-foreground">
+              Invalid JSON is rejected before saving. Empty controls should be saved as <span className="font-mono">{'{}'}</span>.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setControlsCardId('')}>Close</Button>
+            <Button
+              onClick={() => {
+                try {
+                  normalizeJson(controlsDraft);
+                  updateControls.mutate();
+                } catch {
+                  toast.error('Controls JSON is invalid');
+                }
+              }}
+              disabled={updateControls.isPending || controlsQuery.isFetching}
+            >
+              <Save className="mr-2 size-4" />
+              Save controls
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -515,6 +615,27 @@ function cardholderLabel(cardholder?: Cardholder) {
 
 function walletLabel(account?: LedgerAccount) {
   return account ? `${formatAmount(account.balance, account.asset)} wallet` : null;
+}
+
+function ControlHint({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-gray-50 px-3 py-2">
+      <div className="text-xs font-medium">{label}</div>
+      <div className="mt-1 font-mono text-xs text-muted-foreground">{value}</div>
+    </div>
+  );
+}
+
+function normalizeJson(value: string) {
+  return JSON.stringify(JSON.parse(value || '{}'));
+}
+
+function prettyJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value || '{}'), null, 2);
+  } catch {
+    return value || '{}';
+  }
 }
 
 function errorMessage(error: unknown, fallback: string) {

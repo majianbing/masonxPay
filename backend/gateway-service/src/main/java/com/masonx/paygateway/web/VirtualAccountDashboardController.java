@@ -12,6 +12,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -124,6 +125,55 @@ public class VirtualAccountDashboardController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return service.listCards(merchantId, page, size);
+    }
+
+    @GetMapping("/authorizations")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> listAuthorizations(
+            @PathVariable UUID merchantId,
+            @RequestParam(defaultValue = "TEST") String mode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.listAuthorizations(merchantId, mode, page, size);
+    }
+
+    @GetMapping("/cards/{cardId}/controls")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> getCardControls(
+            @PathVariable UUID merchantId,
+            @PathVariable String cardId) {
+        return service.getCardControls(merchantId, cardId);
+    }
+
+    @PutMapping("/cards/{cardId}/controls")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'EXECUTE')")
+    public ResponseEntity<Object> updateCardControls(
+            @PathVariable UUID merchantId,
+            @PathVariable String cardId,
+            @RequestBody Map<String, Object> body) {
+        return service.updateCardControls(merchantId, cardId, body);
+    }
+
+    @GetMapping("/card-programs/{programId}/settlement-reports")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> listSettlementReports(
+            @PathVariable UUID merchantId,
+            @PathVariable String programId,
+            @RequestParam(defaultValue = "TEST") String mode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.listSettlementReports(merchantId, programId, mode, page, size);
+    }
+
+    @GetMapping("/card-programs/{programId}/settlement-reconciliation-summary")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> getSettlementReconciliationSummary(
+            @PathVariable UUID merchantId,
+            @PathVariable String programId,
+            @RequestParam(defaultValue = "TEST") String mode,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate settlementDate,
+            @RequestParam String currency) {
+        return service.getSettlementReconciliationSummary(merchantId, programId, mode, settlementDate, currency);
     }
 
     @PostMapping("/cards")

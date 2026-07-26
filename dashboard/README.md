@@ -12,11 +12,11 @@ Next.js 15 merchant portal for the MasonXPay payment gateway.
 | `/refunds` | Refunds list with search and date filters |
 | `/disputes` | Dispute case list |
 | `/payment-links` | Create and share hosted payment links |
-| `/issuing/programs` | Prepaid card program operations shell |
-| `/issuing/cardholders` | Cardholder operations shell |
-| `/issuing/cards` | Prepaid card operations shell |
-| `/issuing/authorizations` | Card authorization operations shell |
-| `/issuing/settlement` | Issuer settlement and reconciliation shell |
+| `/issuing/programs` | Prepaid card program create/list operations |
+| `/issuing/cardholders` | Cardholder create/list operations |
+| `/issuing/cards` | Card create/list, fund/withdraw, lifecycle, and controls operations |
+| `/issuing/authorizations` | Merchant-scoped card authorization history |
+| `/issuing/settlement` | Issuer settlement reports and reconciliation summary |
 | `/virtual-account` | Merchant VA ledger balances |
 | `/connectors` | Add/manage payment provider accounts (Stripe, Square, Braintree, Mollie, Flutterwave, Paystack, Mason Simulator) |
 | `/connectors/[id]/preview` | Live TEST checkout preview for a single connector |

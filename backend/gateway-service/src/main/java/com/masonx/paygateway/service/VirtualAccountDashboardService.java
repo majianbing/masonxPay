@@ -1,5 +1,7 @@
 package com.masonx.paygateway.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.web.dto.VirtualAccountAccountsResponse;
 import com.masonx.paygateway.web.dto.VirtualAccountLedgerEntryResponse;
 import com.masonx.paygateway.web.dto.VirtualAccountLedgerAccountResponse;
@@ -18,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -34,14 +37,17 @@ public class VirtualAccountDashboardService {
     private static final Logger log = LoggerFactory.getLogger(VirtualAccountDashboardService.class);
 
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
     private final String baseUrl;
     private final String internalToken;
 
     public VirtualAccountDashboardService(
             @Qualifier("virtualAccountRestTemplate") RestTemplate restTemplate,
+            ObjectMapper objectMapper,
             @Value("${app.virtual-account.base-url:http://localhost:8086}") String baseUrl,
             @Value("${app.virtual-account.internal-token:${INTERNAL_AUTH_TOKEN:internal-dev-secret}}") String internalToken) {
         this.restTemplate = restTemplate;
+        this.objectMapper = objectMapper;
         this.baseUrl = baseUrl;
         this.internalToken = internalToken;
     }
@@ -194,6 +200,62 @@ public class VirtualAccountDashboardService {
         return exchangeObject(uri, HttpMethod.GET, null);
     }
 
+    public ResponseEntity<Object> listAuthorizations(UUID merchantId, String mode, int page, int size) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/vcc/authorizations")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .queryParam("page", Math.max(page, 0))
+                .queryParam("size", Math.min(Math.max(size, 1), 100))
+                .build(true)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
+    public ResponseEntity<Object> getCardControls(UUID merchantId, String cardId) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/vcc/cards/{cardId}/controls")
+                .queryParam("merchantId", merchantId)
+                .buildAndExpand(cardId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
+    public ResponseEntity<Object> updateCardControls(UUID merchantId, String cardId, Map<String, Object> body) {
+        Map<String, Object> request = tenantScopedBody(merchantId, body);
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/vcc/cards/{cardId}/controls")
+                .buildAndExpand(cardId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.PUT, request);
+    }
+
+    public ResponseEntity<Object> listSettlementReports(
+            UUID merchantId, String programId, String mode, int page, int size) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/card-programs/{programId}/settlement-reports")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .queryParam("page", Math.max(page, 0))
+                .queryParam("size", Math.min(Math.max(size, 1), 100))
+                .buildAndExpand(programId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
+    public ResponseEntity<Object> getSettlementReconciliationSummary(
+            UUID merchantId, String programId, String mode, LocalDate settlementDate, String currency) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/card-programs/{programId}/settlement-reconciliation-summary")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .queryParam("settlementDate", settlementDate)
+                .queryParam("currency", currency)
+                .buildAndExpand(programId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
     public ResponseEntity<Object> createCard(UUID merchantId, Map<String, Object> body) {
         Map<String, Object> request = tenantScopedBody(merchantId, body);
         URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
@@ -235,6 +297,12 @@ public class VirtualAccountDashboardService {
             ResponseEntity<Object> response = restTemplate.exchange(
                     uri, method, new HttpEntity<>(body, headers()), Object.class);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (RestClientResponseException ex) {
+            log.info("Virtual Account issuing API returned error: method={} uri={} status={}",
+                    method, uri, ex.getStatusCode().value());
+            return ResponseEntity.status(ex.getStatusCode())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(errorBody(ex));
         } catch (RestClientException ex) {
             log.info("Virtual Account issuing API unavailable: method={} uri={} error={}",
                     method, uri, ex.getMessage());
@@ -242,6 +310,22 @@ public class VirtualAccountDashboardService {
                     .body(Map.of(
                             "title", "Virtual Account service unavailable",
                             "detail", "Virtual Account service is unavailable"));
+        }
+    }
+
+    private Object errorBody(RestClientResponseException ex) {
+        String body = ex.getResponseBodyAsString();
+        if (body == null || body.isBlank()) {
+            return Map.of(
+                    "title", ex.getStatusText(),
+                    "detail", ex.getMessage());
+        }
+        try {
+            return objectMapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ignored) {
+            return Map.of(
+                    "title", ex.getStatusText(),
+                    "detail", body);
         }
     }
 

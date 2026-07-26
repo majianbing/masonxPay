@@ -561,14 +561,15 @@ Status: [~]
 - [x] Add `Issuing` navigation shell for programs, cardholders, cards, authorizations, and settlement.
 - [x] Add operational Programs page for selecting configured issuer partners, card program creation, list, and pagination.
 - [x] Add operational Cardholders page for create/list/pagination and merchant-owned cardholder context.
-- [x] Add operational Cards page for card creation, masked-card listing, one-time simulator PAN display, funding, and lock/unlock.
-- [ ] Add dashboard pages for controls, authorizations, settlement, and exceptions.
+- [x] Add operational Cards page for card creation, masked-card listing, one-time simulator PAN display, funding, withdraw, lock/unlock, and card controls editing.
+- [x] Add dashboard pages for merchant-scoped authorization history and settlement report/reconciliation summary views.
+- [ ] Add merchant-safe exception visibility/actions after settlement exceptions have a merchant/mode-scoped external contract; current retry/discard API remains internal platform-ops only.
 - Add card lifecycle actions with confirmation and audit log entries.
 - Add metrics for auth approval rate, decline reasons, open holds, clearing exceptions, and settlement exceptions.
 
 Acceptance:
 
-- Merchants can operate simulator-backed prepaid cards from the dashboard. Current implementation provides product navigation, operational Programs management, Cardholders management, and Cards create/list/fund/lock/unlock flows; controls, authorizations, settlement, and exception pages remain pending.
+- Merchants can operate simulator-backed prepaid cards from the dashboard. Current implementation provides product navigation, operational Programs management, Cardholders management, Cards create/list/fund/withdraw/lock/unlock/controls flows, authorization history, and settlement report/reconciliation summary views. Merchant-safe exception operations remain pending.
 
 Dashboard API Boundary:
 

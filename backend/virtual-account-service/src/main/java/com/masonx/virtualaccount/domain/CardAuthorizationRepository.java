@@ -177,6 +177,32 @@ public class CardAuthorizationRepository {
                 rs.getLong("count")), cardId, currency, since);
     }
 
+    public List<CardAuthorization> findByMerchant(String merchantId, String mode, int page, int size) {
+        return jdbc.query("""
+                SELECT auth.*
+                FROM card_authorization auth
+                JOIN virtual_card card ON card.card_id = auth.card_id
+                JOIN ledger_account owner ON owner.ledger_account_id = card.owner_account_id
+                WHERE owner.merchant_id = ?
+                  AND owner.mode = ?::va_mode
+                ORDER BY auth.created_at DESC
+                LIMIT ?
+                OFFSET ?
+                """, ROW_MAPPER, merchantId, mode, size, (long) page * size);
+    }
+
+    public long countByMerchant(String merchantId, String mode) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM card_authorization auth
+                JOIN virtual_card card ON card.card_id = auth.card_id
+                JOIN ledger_account owner ON owner.ledger_account_id = card.owner_account_id
+                WHERE owner.merchant_id = ?
+                  AND owner.mode = ?::va_mode
+                """, Long.class, merchantId, mode);
+        return count != null ? count : 0;
+    }
+
     private static final RowMapper<CardAuthorization> ROW_MAPPER = (rs, __) -> new CardAuthorization(
             rs.getString("auth_id"),
             rs.getString("issuer_id"),
