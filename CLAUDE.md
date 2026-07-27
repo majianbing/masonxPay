@@ -16,6 +16,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `docs/planning/rag-assistant-plan.md`: RAG support assistant plan.
 - `docs/planning/payment-operations-agent-plan.md`: payment operations agent plan.
 - `docs/planning/multi-rail-iso8583-iso20022-plan.md`: Phase MR — ISO8583 card rail, ISO 20022 bank rail, VCC product, ledger integration milestone tracker.
+- `docs/planning/reusable-fee-engine-plan.md`: reusable PPC9/gateway fee engine boundary, rule model, snapshots, and FE roadmap.
 - `docs/engineering/development-guide.md`: engineering docs index.
 - `docs/engineering/connector-development.md`: connector implementation workflow.
 - `docs/engineering/testing-strategy.md`: test coverage and placement rules.
@@ -88,11 +89,11 @@ Phase PPC (Prepaid Card Program Platform) extends the ledger-backed VCC foundati
 - PPC7 (partial): issuer settlement-report ingestion + report-vs-clearing-vs-ledger reconciliation summaries; EXTERNAL system-of-record balance reconciliation still open.
 - PPC8 (partial): dashboard `Issuing` shell — Programs, Cardholders, Cards, Controls, Authorization history, Settlement views; merchant-safe exception actions still deferred.
 
-See `docs/planning/prepaid-card-program-platform-plan.md`.
+See `docs/planning/prepaid-card-program-platform-plan.md` and `docs/planning/reusable-fee-engine-plan.md`.
 
 Next likely work:
 
-- Phase PPC remainder: PPC9 fee schedules and economics (versioned rules, expression matching, assessment snapshots, visible/hidden fee outputs, ledger posting hooks); finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
+- Phase PPC remainder: PPC9 reusable fee-engine foundation for prepaid issuing and later gateway-service adoption (versioned rules, expression matching, assessment snapshots, visible/hidden fee outputs, ledger posting hooks); finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
 - Phase RAG: docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
 - Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.

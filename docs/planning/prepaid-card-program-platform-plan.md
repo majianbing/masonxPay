@@ -583,14 +583,17 @@ Dashboard API Boundary:
 
 Status: [ ]
 
-- Add fee schedule and fee rule model for merchant/program/BIN/channel-specific pricing.
-- Add quote and assessment services with deterministic rule-version selection.
-- Add ledger posting hooks for card creation, clearing, refund, settlement, and FX fees.
-- Split merchant-visible fees from platform-hidden economics.
+Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine-plan.md). PPC9 is the prepaid-card adoption path for that shared module; gateway-service can later reuse the same stateless compute engine with its own payment/refund/settlement persistence.
+
+- [ ] FE0: finalize reusable fee-engine boundary and expression-library decision.
+- [ ] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
+- [ ] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
+- [ ] FE5: add prepaid-card ledger posting hooks from persisted assessments using stable event-based idempotency keys.
+- [ ] FE6-FE7: defer gateway adoption and dashboard/admin preview until the prepaid foundation is proven.
 
 Acceptance:
 
-- A merchant/program can carry versioned fee rules, and card workflows can calculate auditable fee assessments without making fee implementation mandatory for every workflow.
+- A merchant/program can carry versioned fee rules, and card workflows can calculate auditable fee assessments through the reusable fee engine without making fee implementation mandatory for every workflow.
 
 ## Test Strategy
 
