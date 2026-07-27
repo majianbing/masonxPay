@@ -24,6 +24,11 @@ public class VaSecurityConfig {
                         .requestMatchers("/internal/**").hasRole("INTERNAL")
                         .requestMatchers("/v1/va/accounts/**").hasRole("INTERNAL")
                         .requestMatchers("/v1/ledger/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/vcc/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/card-programs/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/cardholders/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/issuer-partners/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/card-settlement-reports/**").hasRole("INTERNAL")
                         .anyRequest().permitAll()
                 )
                 .build();

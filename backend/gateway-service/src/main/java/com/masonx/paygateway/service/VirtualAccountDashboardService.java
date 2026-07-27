@@ -189,10 +189,11 @@ public class VirtualAccountDashboardService {
         return exchangeObject(uri, HttpMethod.POST, request);
     }
 
-    public ResponseEntity<Object> listCards(UUID merchantId, int page, int size) {
+    public ResponseEntity<Object> listCards(UUID merchantId, String mode, int page, int size) {
         URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
                 .path("/v1/vcc/cards")
                 .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
                 .queryParam("page", Math.max(page, 0))
                 .queryParam("size", Math.min(Math.max(size, 1), 100))
                 .build(true)
@@ -212,10 +213,11 @@ public class VirtualAccountDashboardService {
         return exchangeObject(uri, HttpMethod.GET, null);
     }
 
-    public ResponseEntity<Object> getCardControls(UUID merchantId, String cardId) {
+    public ResponseEntity<Object> getCardControls(UUID merchantId, String cardId, String mode) {
         URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
                 .path("/v1/vcc/cards/{cardId}/controls")
                 .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
                 .buildAndExpand(cardId)
                 .toUri();
         return exchangeObject(uri, HttpMethod.GET, null);

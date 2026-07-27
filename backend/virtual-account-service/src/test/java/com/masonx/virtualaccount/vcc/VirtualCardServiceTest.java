@@ -226,6 +226,32 @@ class VirtualCardServiceTest {
     }
 
     @Test
+    void getCard_rejects_same_merchant_wrong_mode() {
+        when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount(Mode.TEST)));
+
+        assertThatThrownBy(() -> service.getCard(CARD_ID, MERCHANT_ID, Mode.LIVE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("merchant/mode");
+
+        verify(accountRepo, never()).findById(VCC_ACCOUNT_ID);
+    }
+
+    @Test
+    void listCards_scopes_by_merchant_and_mode() {
+        when(virtualCardRepo.countByMerchantIdAndMode(MERCHANT_ID, Mode.LIVE)).thenReturn(0L);
+        when(virtualCardRepo.findByMerchantIdAndMode(MERCHANT_ID, Mode.LIVE, 0, 20))
+                .thenReturn(List.of());
+
+        var result = service.listCards(MERCHANT_ID, Mode.LIVE, 0, 20);
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        verify(virtualCardRepo).countByMerchantIdAndMode(MERCHANT_ID, Mode.LIVE);
+        verify(virtualCardRepo).findByMerchantIdAndMode(MERCHANT_ID, Mode.LIVE, 0, 20);
+    }
+
+    @Test
     void lockCard_calls_issuer_adapter_and_marks_locked() {
         when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()), Optional.of(card(VirtualCardStatus.LOCKED)));
         when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
@@ -538,9 +564,13 @@ class VirtualCardServiceTest {
     }
 
     private static LedgerAccount ownerAccount() {
+        return ownerAccount(Mode.TEST);
+    }
+
+    private static LedgerAccount ownerAccount(Mode mode) {
         return new LedgerAccount(
                 OWNER_ACCOUNT_ID,
-                Mode.TEST,
+                mode,
                 LedgerAccountRole.TENANT,
                 "org_1",
                 MERCHANT_ID,

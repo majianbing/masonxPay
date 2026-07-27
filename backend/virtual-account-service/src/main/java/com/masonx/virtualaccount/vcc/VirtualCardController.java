@@ -9,6 +9,7 @@ import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import com.masonx.virtualaccount.vcc.dto.UpdateCardControlsRequest;
 import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import com.masonx.virtualaccount.vcc.dto.WithdrawVccRequest;
+import com.masonx.common.tenant.Mode;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -60,52 +61,57 @@ public class VirtualCardController {
 
     @GetMapping("/{cardId}/controls")
     public ResponseEntity<CardControlResponse> getControls(@PathVariable String cardId,
-                                                           @RequestParam String merchantId) {
-        return ResponseEntity.ok(vccService.getCardControls(cardId, merchantId));
+                                                           @RequestParam String merchantId,
+                                                           @RequestParam(defaultValue = "TEST") Mode mode) {
+        return ResponseEntity.ok(vccService.getCardControls(cardId, merchantId, mode));
     }
 
     @GetMapping("/{cardId}")
-    public ResponseEntity<VccResponse> get(@PathVariable String cardId) {
-        return ResponseEntity.ok(vccService.getCard(cardId));
+    public ResponseEntity<VccResponse> get(@PathVariable String cardId,
+                                           @RequestParam String merchantId,
+                                           @RequestParam(defaultValue = "TEST") Mode mode) {
+        return ResponseEntity.ok(vccService.getCard(cardId, merchantId, mode));
     }
 
     @GetMapping
     public ResponseEntity<PagedResult<VccResponse>> list(
             @RequestParam String merchantId,
+            @RequestParam(defaultValue = "TEST") Mode mode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(vccService.listCards(merchantId, page, Math.min(size, 100)));
+        return ResponseEntity.ok(vccService.listCards(merchantId, mode, page, Math.min(size, 100)));
     }
 
     @DeleteMapping("/{cardId}")
     public ResponseEntity<Void> close(@PathVariable String cardId,
-                                       @RequestParam String merchantId) {
-        vccService.closeCard(cardId, merchantId);
+                                       @RequestParam String merchantId,
+                                       @RequestParam(defaultValue = "TEST") Mode mode) {
+        vccService.closeCard(cardId, merchantId, mode.name());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{cardId}/close")
     public ResponseEntity<Void> closePost(@PathVariable String cardId,
                                           @Valid @RequestBody CardLifecycleRequest req) {
-        vccService.closeCard(cardId, req.merchantId());
+        vccService.closeCard(cardId, req.merchantId(), req.mode());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{cardId}/lock")
     public ResponseEntity<VccResponse> lock(@PathVariable String cardId,
                                             @Valid @RequestBody CardLifecycleRequest req) {
-        return ResponseEntity.ok(vccService.lockCard(cardId, req.merchantId(), req.reason()));
+        return ResponseEntity.ok(vccService.lockCard(cardId, req.merchantId(), req.mode(), req.reason()));
     }
 
     @PostMapping("/{cardId}/unlock")
     public ResponseEntity<VccResponse> unlock(@PathVariable String cardId,
                                               @Valid @RequestBody CardLifecycleRequest req) {
-        return ResponseEntity.ok(vccService.unlockCard(cardId, req.merchantId()));
+        return ResponseEntity.ok(vccService.unlockCard(cardId, req.merchantId(), req.mode()));
     }
 
     @PostMapping("/{cardId}/terminate")
     public ResponseEntity<VccResponse> terminate(@PathVariable String cardId,
                                                  @Valid @RequestBody CardLifecycleRequest req) {
-        return ResponseEntity.ok(vccService.terminateCard(cardId, req.merchantId(), req.reason()));
+        return ResponseEntity.ok(vccService.terminateCard(cardId, req.merchantId(), req.mode(), req.reason()));
     }
 }

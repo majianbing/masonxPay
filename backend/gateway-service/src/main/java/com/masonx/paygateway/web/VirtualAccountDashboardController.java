@@ -122,9 +122,10 @@ public class VirtualAccountDashboardController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
     public ResponseEntity<Object> listCards(
             @PathVariable UUID merchantId,
+            @RequestParam(defaultValue = "TEST") String mode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return service.listCards(merchantId, page, size);
+        return service.listCards(merchantId, mode, page, size);
     }
 
     @GetMapping("/authorizations")
@@ -141,8 +142,9 @@ public class VirtualAccountDashboardController {
     @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
     public ResponseEntity<Object> getCardControls(
             @PathVariable UUID merchantId,
-            @PathVariable String cardId) {
-        return service.getCardControls(merchantId, cardId);
+            @PathVariable String cardId,
+            @RequestParam(defaultValue = "TEST") String mode) {
+        return service.getCardControls(merchantId, cardId, mode);
     }
 
     @PutMapping("/cards/{cardId}/controls")

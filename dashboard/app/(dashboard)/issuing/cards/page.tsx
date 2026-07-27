@@ -110,15 +110,15 @@ export default function IssuingCardsPage() {
   });
 
   const cardsQuery = useQuery<PageResponse<CardRecord>>({
-    queryKey: ['cards', activeMerchantId, page],
+    queryKey: ['cards', activeMerchantId, mode, page],
     enabled: !!activeMerchantId,
-    queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards?page=${page}&size=20`),
+    queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards?mode=${mode}&page=${page}&size=20`),
   });
 
   const controlsQuery = useQuery<CardControlResponse>({
-    queryKey: ['card-controls', activeMerchantId, controlsCardId],
+    queryKey: ['card-controls', activeMerchantId, mode, controlsCardId],
     enabled: !!activeMerchantId && !!controlsCardId,
-    queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards/${controlsCardId}/controls`),
+    queryFn: () => apiFetch(`/api/v1/merchants/${activeMerchantId}/va/cards/${controlsCardId}/controls?mode=${mode}`),
   });
 
   const walletAccounts = useMemo(
@@ -164,7 +164,7 @@ export default function IssuingCardsPage() {
     }),
     onSuccess: (card) => {
       setCreatedCard(card);
-      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId] });
+      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId, mode] });
       toast.success('Card created');
     },
     onError: (error) => {
@@ -186,7 +186,7 @@ export default function IssuingCardsPage() {
     ),
     onSuccess: (_, vars) => {
       setFundAmounts((current) => ({ ...current, [vars.cardId]: '' }));
-      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId] });
+      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId, mode] });
       toast.success('Card funded');
     },
     onError: (error) => toast.error(errorMessage(error, 'Could not fund card')),
@@ -206,7 +206,7 @@ export default function IssuingCardsPage() {
     ),
     onSuccess: (_, vars) => {
       setWithdrawAmounts((current) => ({ ...current, [vars.cardId]: '' }));
-      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId] });
+      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId, mode] });
       queryClient.invalidateQueries({ queryKey: ['va-accounts', activeMerchantId, mode] });
       toast.success('Card funds withdrawn');
     },
@@ -222,7 +222,7 @@ export default function IssuingCardsPage() {
       },
     ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId] });
+      queryClient.invalidateQueries({ queryKey: ['cards', activeMerchantId, mode] });
       toast.success('Card updated');
     },
     onError: (error) => toast.error(errorMessage(error, 'Could not update card')),
@@ -238,7 +238,7 @@ export default function IssuingCardsPage() {
     ),
     onSuccess: (response) => {
       setControlsDraft(prettyJson(response.controlsJson));
-      queryClient.invalidateQueries({ queryKey: ['card-controls', activeMerchantId, controlsCardId] });
+      queryClient.invalidateQueries({ queryKey: ['card-controls', activeMerchantId, mode, controlsCardId] });
       toast.success('Card controls saved');
     },
     onError: (error) => toast.error(errorMessage(error, 'Could not save card controls')),

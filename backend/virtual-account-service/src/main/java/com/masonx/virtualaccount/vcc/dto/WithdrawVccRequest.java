@@ -8,7 +8,11 @@ import java.math.BigDecimal;
 
 public record WithdrawVccRequest(
         @NotBlank String merchantId,
+        String mode,
         @NotBlank String idempotencyKey,
         @NotNull @DecimalMin("0.01") BigDecimal amount
 ) {
+    public WithdrawVccRequest(String merchantId, String idempotencyKey, BigDecimal amount) {
+        this(merchantId, null, idempotencyKey, amount);
+    }
 }

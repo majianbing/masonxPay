@@ -96,6 +96,7 @@ public class VirtualCardService {
                 .filter(a -> req.merchantId().equals(a.merchantId()))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "WALLET account not found or does not belong to merchant: " + req.ownerAccountId()));
+        assertRequestedMode(ownerAccount, req.mode());
         if (ownerAccount.ledgerAccountType() != LedgerAccountType.WALLET) {
             throw new IllegalArgumentException("Owner account must be a WALLET account: " + req.ownerAccountId());
         }
@@ -211,7 +212,7 @@ public class VirtualCardService {
      */
     @Transactional
     public VccResponse fundCard(String cardId, FundVccRequest req) {
-        OwnedCard owned = requireOwnedCard(cardId, req.merchantId());
+        OwnedCard owned = requireOwnedCard(cardId, req.merchantId(), req.mode());
         VirtualCard card = owned.card();
 
         if (card.status() != VirtualCardStatus.ACTIVE) {
@@ -225,12 +226,12 @@ public class VirtualCardService {
                 eventId,
                 "vcc-card-fund");
 
-        return getCard(cardId);
+        return toResponse(card, accountRepo.findById(card.vccAccountId()).orElse(null), findHoldAccount(card));
     }
 
     @Transactional
     public VccResponse withdrawCard(String cardId, WithdrawVccRequest req) {
-        OwnedCard owned = requireOwnedCard(cardId, req.merchantId());
+        OwnedCard owned = requireOwnedCard(cardId, req.merchantId(), req.mode());
         VirtualCard card = owned.card();
         if (card.status() != VirtualCardStatus.ACTIVE && card.status() != VirtualCardStatus.LOCKED) {
             throw new IllegalStateException("Cannot withdraw card funds in status: " + card.status());
@@ -249,12 +250,12 @@ public class VirtualCardService {
                         new VccWithdrawPostingRule.WithdrawEvent(card, owned.ownerAccount(), req.amount(), eventId)),
                 eventId,
                 "vcc-card-withdraw");
-        return getCard(cardId);
+        return toResponse(card, accountRepo.findById(card.vccAccountId()).orElse(null), findHoldAccount(card));
     }
 
-    public VccResponse getCard(String cardId) {
-        VirtualCard card = virtualCardRepo.findById(cardId)
-                .orElseThrow(() -> new IllegalArgumentException("Card not found: " + cardId));
+    public VccResponse getCard(String cardId, String merchantId, Mode mode) {
+        OwnedCard owned = requireOwnedCard(cardId, merchantId, mode != null ? mode.name() : null);
+        VirtualCard card = owned.card();
         LedgerAccount account = accountRepo.findById(card.vccAccountId())
                 .orElseThrow(() -> new IllegalStateException(
                         "PREPAID_CARD account not found for card: " + cardId));
@@ -262,9 +263,9 @@ public class VirtualCardService {
         return toResponse(card, account, holdAccount);
     }
 
-    public PagedResult<VccResponse> listCards(String merchantId, int page, int size) {
-        long total = virtualCardRepo.countByMerchantId(merchantId);
-        List<VccResponse> content = virtualCardRepo.findByMerchantId(merchantId, page, size).stream()
+    public PagedResult<VccResponse> listCards(String merchantId, Mode mode, int page, int size) {
+        long total = virtualCardRepo.countByMerchantIdAndMode(merchantId, mode);
+        List<VccResponse> content = virtualCardRepo.findByMerchantIdAndMode(merchantId, mode, page, size).stream()
                 .map(card -> {
                     LedgerAccount acct = accountRepo.findById(card.vccAccountId()).orElse(null);
                     LedgerAccount holdAcct = findHoldAccount(card);
@@ -281,6 +282,11 @@ public class VirtualCardService {
      */
     @Transactional
     public void closeCard(String cardId, String merchantId) {
+        closeCard(cardId, merchantId, null);
+    }
+
+    @Transactional
+    public void closeCard(String cardId, String merchantId, String mode) {
         VirtualCard card = virtualCardRepo.findById(cardId)
                 .orElseThrow(() -> new IllegalArgumentException("Card not found: " + cardId));
 
@@ -294,6 +300,7 @@ public class VirtualCardService {
                 .filter(a -> merchantId.equals(a.merchantId()))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card does not belong to merchant: " + merchantId));
+        assertRequestedMode(ownerAccount, mode);
 
         if (holdAccount != null && holdAccount.balance().compareTo(BigDecimal.ZERO) > 0) {
             throw new IllegalStateException("Cannot close card with open authorization hold: " + cardId);
@@ -317,10 +324,14 @@ public class VirtualCardService {
     }
 
     public VccResponse lockCard(String cardId, String merchantId, String reason) {
-        OwnedCard owned = requireOwnedCard(cardId, merchantId);
+        return lockCard(cardId, merchantId, null, reason);
+    }
+
+    public VccResponse lockCard(String cardId, String merchantId, String mode, String reason) {
+        OwnedCard owned = requireOwnedCard(cardId, merchantId, mode);
         VirtualCard card = owned.card();
         if (card.status() == VirtualCardStatus.LOCKED) {
-            return getCard(cardId);
+            return toResponse(card, accountRepo.findById(card.vccAccountId()).orElse(null), findHoldAccount(card));
         }
         if (card.status() != VirtualCardStatus.ACTIVE) {
             throw new IllegalStateException("Cannot lock card in status: " + card.status());
@@ -329,14 +340,18 @@ public class VirtualCardService {
         issuerCards.require(requireIssuerPartner(card, owned.ownerAccount()).adapterType())
                 .lockCard(requireExternalIssuerCardId(card), reason, "issuer_card_lock:" + cardId);
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.LOCKED);
-        return getCard(cardId);
+        return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
     public VccResponse unlockCard(String cardId, String merchantId) {
-        OwnedCard owned = requireOwnedCard(cardId, merchantId);
+        return unlockCard(cardId, merchantId, null);
+    }
+
+    public VccResponse unlockCard(String cardId, String merchantId, String mode) {
+        OwnedCard owned = requireOwnedCard(cardId, merchantId, mode);
         VirtualCard card = owned.card();
         if (card.status() == VirtualCardStatus.ACTIVE) {
-            return getCard(cardId);
+            return toResponse(card, accountRepo.findById(card.vccAccountId()).orElse(null), findHoldAccount(card));
         }
         if (card.status() != VirtualCardStatus.LOCKED) {
             throw new IllegalStateException("Cannot unlock card in status: " + card.status());
@@ -345,14 +360,18 @@ public class VirtualCardService {
         issuerCards.require(requireIssuerPartner(card, owned.ownerAccount()).adapterType())
                 .unlockCard(requireExternalIssuerCardId(card), "issuer_card_unlock:" + cardId);
         virtualCardRepo.updateStatus(cardId, VirtualCardStatus.ACTIVE);
-        return getCard(cardId);
+        return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
     public VccResponse terminateCard(String cardId, String merchantId, String reason) {
-        OwnedCard owned = requireOwnedCard(cardId, merchantId);
+        return terminateCard(cardId, merchantId, null, reason);
+    }
+
+    public VccResponse terminateCard(String cardId, String merchantId, String mode, String reason) {
+        OwnedCard owned = requireOwnedCard(cardId, merchantId, mode);
         VirtualCard card = owned.card();
         if (card.status() == VirtualCardStatus.TERMINATED) {
-            return getCard(cardId);
+            return toResponse(card, accountRepo.findById(card.vccAccountId()).orElse(null), findHoldAccount(card));
         }
         if (card.status() == VirtualCardStatus.CLOSED) {
             throw new IllegalStateException("Cannot terminate already closed card: " + cardId);
@@ -374,11 +393,11 @@ public class VirtualCardService {
         if (holdAccount != null) {
             accountRepo.updateStatus(holdAccount.ledgerAccountId(), LedgerAccountStatus.CLOSED);
         }
-        return getCard(cardId);
+        return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
     public CardControlResponse updateCardControls(String cardId, UpdateCardControlsRequest req) {
-        OwnedCard owned = requireOwnedCard(cardId, req.merchantId());
+        OwnedCard owned = requireOwnedCard(cardId, req.merchantId(), req.mode());
         CardControlProfile profile = new CardControlProfile(
                 cardId,
                 owned.ownerAccount().merchantId(),
@@ -395,7 +414,11 @@ public class VirtualCardService {
     }
 
     public CardControlResponse getCardControls(String cardId, String merchantId) {
-        OwnedCard owned = requireOwnedCard(cardId, merchantId);
+        return getCardControls(cardId, merchantId, null);
+    }
+
+    public CardControlResponse getCardControls(String cardId, String merchantId, Mode mode) {
+        OwnedCard owned = requireOwnedCard(cardId, merchantId, mode != null ? mode.name() : null);
         return cardControlProfileRepo
                 .findByCardIdForMerchant(cardId, owned.ownerAccount().merchantId(), owned.ownerAccount().mode())
                 .map(profile -> new CardControlResponse(
@@ -407,13 +430,29 @@ public class VirtualCardService {
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private OwnedCard requireOwnedCard(String cardId, String merchantId) {
+        return requireOwnedCard(cardId, merchantId, null);
+    }
+
+    private OwnedCard requireOwnedCard(String cardId, String merchantId, String mode) {
         VirtualCard card = virtualCardRepo.findById(cardId)
                 .orElseThrow(() -> new IllegalArgumentException("Card not found: " + cardId));
         LedgerAccount ownerAccount = accountRepo.findById(card.ownerAccountId())
                 .filter(a -> merchantId.equals(a.merchantId()))
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Card not found or not owned by merchant: " + cardId));
+        assertRequestedMode(ownerAccount, mode);
         return new OwnedCard(card, ownerAccount);
+    }
+
+    private void assertRequestedMode(LedgerAccount ownerAccount, String requestedMode) {
+        if (requestedMode == null || requestedMode.isBlank()) {
+            return;
+        }
+        Mode mode = Mode.valueOf(requestedMode.toUpperCase());
+        if (ownerAccount.mode() != mode) {
+            throw new IllegalArgumentException(
+                    "Card not found or not owned by merchant/mode: " + ownerAccount.merchantId());
+        }
     }
 
     private IssuerPartner requireIssuerPartner(VirtualCard card, LedgerAccount ownerAccount) {

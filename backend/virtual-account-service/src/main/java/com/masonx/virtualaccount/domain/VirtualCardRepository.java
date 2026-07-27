@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.domain;
 
+import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -78,25 +79,27 @@ public class VirtualCardRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    /** Returns the total number of cards linked to the given merchant. */
-    public long countByMerchantId(String merchantId) {
+    /** Returns the total number of cards linked to the given merchant and mode. */
+    public long countByMerchantIdAndMode(String merchantId, Mode mode) {
         Long count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM virtual_card vc
                 JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
-                """, Long.class, merchantId);
+                  AND a.mode = ?::va_mode
+                """, Long.class, merchantId, mode.name());
         return count != null ? count : 0L;
     }
 
-    /** Lists cards linked to the given merchant, paginated by LIMIT/OFFSET. */
-    public List<VirtualCard> findByMerchantId(String merchantId, int page, int size) {
+    /** Lists cards linked to the given merchant and mode, paginated by LIMIT/OFFSET. */
+    public List<VirtualCard> findByMerchantIdAndMode(String merchantId, Mode mode, int page, int size) {
         return jdbc.query("""
                 SELECT vc.* FROM virtual_card vc
                 JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
+                  AND a.mode = ?::va_mode
                 ORDER BY vc.created_at DESC
                 LIMIT ? OFFSET ?
-                """, ROW_MAPPER, merchantId, size, (long) page * size);
+                """, ROW_MAPPER, merchantId, mode.name(), size, (long) page * size);
     }
 
     public void updateStatus(String cardId, VirtualCardStatus status) {

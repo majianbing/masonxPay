@@ -608,6 +608,8 @@ Acceptance:
 - Issuer partner onboarding is platform/ops-managed, not normal merchant self-service. Commercial relationship setup, credentials, endpoints, webhook secrets, BIN/program references, and LIVE enablement belong in platform/admin operations; merchant card-program creation selects from already-configured active issuer partners.
 - `RAIL_SIM` is MasonXPay's built-in default issuer for TEST prepaid-card programs. The merchant dashboard should be able to create TEST card programs without a separate issuer-partner onboarding workflow; the backend may auto-attach a merchant/mode-scoped active `RAIL_SIM` partner as platform default simulator configuration. This exception does not apply to LIVE or real issuer processors.
 - Merchant dashboard APIs for virtual-account-service-owned domains go through gateway-service's authenticated merchant route, then proxy to virtual-account-service. This applies to both Treasury Virtual Accounts and prepaid-card Issuing pages.
+- VA-owned prepaid issuing `/v1` APIs are internal service APIs, not public merchant APIs. They must require `X-Internal-Token` like Treasury VA APIs; merchant browser traffic must enter through gateway-service.
+- Card reads, lists, controls, funding, withdrawal, and lifecycle mutations must be scoped by merchant and TEST/LIVE mode. Current card mode is derived from the linked owner ledger account until a future schema-hardening migration adds explicit card-mode composite constraints.
 - MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
 - Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 
@@ -618,5 +620,7 @@ Acceptance:
 - Which fee trigger should be implemented first: card creation fee, transaction fee, FX fee, or settlement-only fee assessment?
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?
+- Real issuer adapters require a create-card idempotency redesign: caller-supplied stable idempotency/client reference, atomic local persistence around account/card writes, and reconciliation handling for issuer-success/local-failure cases.
+- Real issuer lifecycle mutations require explicit partial-failure reconciliation when issuer state changes but local status persistence fails.
 - Should `CREATED` cards be closable locally before issuer activation, or should all post-issuer-create abandoned cards move through `TERMINATED`?
 - Should VCC-specific code names remain as legacy implementation names, or should a later phase rename packages and DTOs toward generic prepaid-card terminology?
