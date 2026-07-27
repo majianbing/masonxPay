@@ -186,6 +186,26 @@ Expected fields:
 - optional min/max amount.
 - `visibility`: `MERCHANT_VISIBLE`, `PLATFORM_HIDDEN`, or `INTERNAL_ONLY`.
 
+First-pass limits:
+
+- Component currency must match the selected fee currency. For prepaid-card PPC9, selected fee currency is the card/account currency. Fixed components in a different currency are invalid until the FX conversion abstraction exists.
+- Component-level min/max is supported first. Rule-level or assessment-level caps/floors, such as "1% with total fee min 0.50 and max 5.00", are deferred.
+
+## Rounding Policy
+
+Percentage fees must be deterministic across calculation, persistence, ledger posting, and reconciliation.
+
+First-pass policy:
+
+- Use `BigDecimal` for all monetary calculation.
+- Calculate percentage components from the declared `basisField`.
+- Preserve the raw calculated amount before rounding.
+- Round each component independently to the fee currency/account asset scale.
+- Default rounding mode is `HALF_UP`.
+- Persist rounding mode, rounding scale, basis amount, raw calculated amount, and rounded amount in the assessment snapshot line.
+
+Schedule-level or component-level rounding overrides are deferred until there is a real provider, issuer, or jurisdiction requirement.
+
 ## Expression Matching
 
 Use a mature expression parser rather than custom parsing. Aviator-style expressions are a good fit if dependency, Java 21, and sandbox behavior are acceptable.
@@ -198,6 +218,23 @@ Rules:
 - Function support must be explicit and small.
 - Missing fields must fail closed or evaluate predictably.
 - All expressions must be validated before activation.
+
+AviatorScript must be sealed before FE2 is considered complete:
+
+- Use a dedicated `AviatorEvaluatorInstance`; do not use a mutable global evaluator.
+- Disable method invocation, reflection-like access, and access to arbitrary object methods.
+- Do not expose domain objects to expressions; expose only normalized primitive/string/boolean/decimal values.
+- Do not expose clock, random, environment, system, IO, collection mutation, or side-effecting functions.
+- Register only a small allowlist of pure functions needed by fee rules.
+
+Each product integration must define a fee context schema:
+
+- allowed field names.
+- field types.
+- required fields per event type.
+- nullable fields and missing-field behavior.
+
+Expression validation must check both syntax and referenced field names against that schema before a rule can be activated. Unknown fields are configuration errors, not silent non-matches.
 
 Example match expressions:
 
@@ -307,6 +344,7 @@ Expected persisted fields in the owning service:
 - matched `ruleId` + `ruleVersion` list.
 - sanitized context snapshot.
 - fee lines with names, visibility, currency, amount, component ID, and calculation metadata.
+- per-line rounding metadata: rounding mode, rounding scale, basis amount, raw calculated amount, and rounded amount.
 - visible totals by currency.
 - hidden totals by currency.
 - created timestamp.
@@ -327,15 +365,21 @@ fee:{merchantId}:{mode}:{eventType}:{eventId}
 
 Do not include schedule version or rule version in the posting idempotency key. Those belong in the assessment snapshot.
 
+Prepaid FE5 must reuse the existing `LedgerFacade` and net-zero posting-rule pattern. It must not introduce an alternate ledger posting path.
+
+Credit-side account mapping should reuse existing platform fee account types where applicable, such as `PLATFORM_FEE_RECEIVABLE` and `FEE_INCOME`.
+
+Debit-side funding source is event-specific and must be decided before FE5 implementation. Candidate sources include merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account. The first implementation should explicitly document the debit source for `CARD_CREATE` and `CARD_CLEARING` before posting fees.
+
 ## Roadmap
 
 ### FE0 - Boundary and Documentation
 
-Status: [~]
+Status: [x]
 
 - [x] Define reusable fee-engine boundary and service ownership model.
 - [x] Link PPC9 to this dedicated plan.
-- [ ] Decide exact Java expression library after dependency review.
+- [x] Use Google AviatorScript as the first expression library, wrapped behind a fee-engine evaluator interface.
 
 ### FE1 - Module Skeleton
 
@@ -350,10 +394,12 @@ Status: [ ]
 Status: [ ]
 
 - Add expression evaluator behind an internal interface.
+- Use a sealed Aviator evaluator instance with method invocation/reflection-like access disabled and only allowlisted pure functions registered.
 - Support fixed and percentage components.
+- Apply deterministic `BigDecimal` rounding per component using persisted rounding mode and scale.
 - Support deterministic rule ordering.
 - Add tests for small-amount and FX examples.
-- Add validation for missing fields, invalid expressions, and unsupported component config.
+- Add validation for missing fields, invalid expressions, unknown context fields, cross-currency fixed components, and unsupported component config.
 
 ### FE3 - Prepaid Schedule Persistence
 
@@ -377,6 +423,8 @@ Status: [ ]
 
 - Post fee ledger entries from persisted assessments.
 - Use stable event-based idempotency keys.
+- Reuse `LedgerFacade` and PostingRule net-zero infrastructure; credit platform fee accounts such as `PLATFORM_FEE_RECEIVABLE` / `FEE_INCOME` where appropriate.
+- Decide and document debit funding source per trigger before implementation.
 - Start with one narrow trigger, preferably card creation or clearing, before auth-time balance-impacting fees.
 
 ### FE6 - Gateway-Service Adoption
@@ -401,10 +449,17 @@ Status: [ ]
 - Later gateway tests for payment/refund/capture fee contexts.
 - No E2E dashboard dependency for FE1-FE2.
 
+## Resolved Decisions
+
+- Expression library: use Google AviatorScript (`https://github.com/killme2008/aviatorscript`) first, wrapped behind a `FeeExpressionEvaluator` abstraction so the rest of the engine is not coupled to Aviator APIs.
+- First prepaid persisted triggers: start with `CARD_CREATE` and `CARD_CLEARING`.
+- Fee currency: use the prepaid-card account currency/card currency as the fee currency. If transaction currency differs and conversion is required, leave an FX abstraction cutpoint and fail explicitly in the current stage instead of silently calculating an incorrect fee.
+- Rounding: first-pass percentage fees round each component with `HALF_UP` to the fee currency/account asset scale, and snapshots persist the raw and rounded calculation details.
+- Initial seed fee examples: card creation fee is `1.00 USD` per card; authorization-style fee rule is `1% + 0.10 USD`. Actual auth-time charging can remain deferred until balance-impacting authorization behavior is intentionally designed.
+- Shared engine, local ownership first: the reusable `fee-engine` module owns computation only. Prepaid persistence starts in `virtual-account-service`; gateway persistence can adopt the same schema shape later without sharing payment/card workflow ownership.
+
 ## Open Questions
 
-- Which expression library should be selected: AviatorScript or another Java expression evaluator?
-- Should the first persisted prepaid trigger be card creation, clearing, or settlement-only assessment?
-- How should multi-currency percentage fees choose output currency when the basis and fee currency differ?
+- Once both prepaid issuing and gateway-service use cases are active, should fee schedule persistence remain service-local with a shared schema shape, or move to a centrally owned economics/fee persistence service?
 - Which fee categories need compliance disclosure controls before LIVE use?
-- Should gateway-service and virtual-account-service eventually share fee schedule persistence, or keep separate persistence with a shared compute module only?
+- For `CARD_CREATE` and `CARD_CLEARING`, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account?
