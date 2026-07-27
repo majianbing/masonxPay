@@ -7,6 +7,7 @@ WORKDIR /app
 COPY pom.xml .
 COPY common/pom.xml common/pom.xml
 COPY contracts/pom.xml contracts/pom.xml
+COPY fee-engine/pom.xml fee-engine/pom.xml
 COPY gateway-service/pom.xml gateway-service/pom.xml
 COPY virtual-account-service/pom.xml virtual-account-service/pom.xml
 COPY rail-service/pom.xml rail-service/pom.xml
