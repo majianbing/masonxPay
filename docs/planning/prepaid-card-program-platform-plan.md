@@ -581,12 +581,12 @@ Dashboard API Boundary:
 
 ### PPC9 - Fee Schedules and Economics
 
-Status: [ ]
+Status: [~]
 
 Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine-plan.md). PPC9 is the prepaid-card adoption path for that shared module; gateway-service can later reuse the same stateless compute engine with its own payment/refund/settlement persistence.
 
-- [ ] FE0: finalize reusable fee-engine boundary and expression-library decision.
-- [ ] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
+- [x] FE0: finalize reusable fee-engine boundary and expression-library decision.
+- [x] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
 - [ ] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
 - [ ] FE5: add prepaid-card ledger posting hooks from persisted assessments using stable event-based idempotency keys.
 - [ ] FE6-FE7: defer gateway adoption and dashboard/admin preview until the prepaid foundation is proven.

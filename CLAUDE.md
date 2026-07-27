@@ -27,6 +27,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
   - `common/`: shared utilities — error model, ID generation (`com.masonx.common`), tenant context.
   - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
+  - `fee-engine/`: reusable stateless fee calculation engine for prepaid issuing and gateway economics (`com.masonx.feeengine`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
   - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, prepaid card program platform (card programs, issuer partners/adapters, cardholders, card lifecycle, controls, clearing/settlement reconciliation), Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
@@ -93,7 +94,7 @@ See `docs/planning/prepaid-card-program-platform-plan.md` and `docs/planning/reu
 
 Next likely work:
 
-- Phase PPC remainder: PPC9 reusable fee-engine foundation for prepaid issuing and later gateway-service adoption (versioned rules, expression matching, assessment snapshots, visible/hidden fee outputs, ledger posting hooks); finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
+- Phase PPC remainder: PPC9 reusable fee-engine foundation has FE1-FE2 complete (stateless module, Aviator expression matching, fixed/percentage calculation, rounding, validation); next is prepaid schedule persistence and assessment snapshots. Also finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
 - Phase RAG: docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
 - Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
@@ -106,6 +107,7 @@ docker compose up --build
 docker compose -p masonxpay-preview --env-file .env.preview -f docker-compose.yml -f docker-compose.preview.yml up --build
 cd backend && mvn compile                                        # all modules
 cd backend && mvn test                                           # all modules
+cd backend && mvn -pl fee-engine test                            # fee engine only
 cd backend && mvn -pl gateway-service test                       # gateway only
 cd backend && mvn -pl virtual-account-service test               # VA only
 cd dashboard && npm run build
@@ -132,7 +134,7 @@ Keep tests modular:
 
 ## Engineering Style
 
-- Java: 4-space indent, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common` (common), `com.masonx.contracts` (contracts).
+- Java: 4-space indent, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.feeengine` (fee-engine), `com.masonx.common` (common), `com.masonx.contracts` (contracts).
 - TypeScript/React: 2-space indent, PascalCase components, camelCase functions, `@/` imports.
 - Frontend display: never use raw internal IDs as the primary label for human-facing controls, tables, cards, or selections when a name, description, masked identifier, provider label, email, reference, or other human-readable field is available. IDs may appear as secondary monospace metadata, detail copy, or debug/admin context.
 - Business logic out of controllers. Comments only when intent is non-obvious. No broad `catch (Exception)` without a clear fallback and logging strategy.

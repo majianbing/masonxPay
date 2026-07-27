@@ -7,6 +7,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
   - `common/`: shared error model, ID generation, tenant context (`com.masonx.common`).
   - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
+  - `fee-engine/`: reusable stateless fee calculation engine for prepaid issuing and gateway economics (`com.masonx.feeengine`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
   - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
@@ -43,7 +44,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Financial source of truth: Postgres payment tables and logical shards. Redis is a post-commit hot-path cache only, never authoritative.
 - Idempotency: DB-backed reservation/route records. Kafka, read projections, and optional future OpenSearch are supporting systems, not payment-state authorities.
 - Async propagation: transactional outbox in Postgres → Kafka publisher → worker consumers for webhook fan-out and projections.
-- Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger, VA accounts, and card issuance for VCCs; `rail-service` (Phase MR) owns the ISO 8583 and ISO 20022 acquirer-side clients; `rail-simulator` (Phase MR) owns the card-network and bank-rail simulators; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
+- Backend: Maven multi-module reactor. `gateway-service` owns the payment gateway; `virtual-account-service` owns the double-entry ledger, VA accounts, and card issuance for VCCs; `fee-engine` owns reusable stateless fee calculation only; `rail-service` (Phase MR) owns the ISO 8583 and ISO 20022 acquirer-side clients; `rail-simulator` (Phase MR) owns the card-network and bank-rail simulators; `common` and `contracts` are shared libraries. Cross-service calls go through Kafka events or explicit service interfaces — never direct package shortcuts across module boundaries.
 - AI service placement: `ai-service/` is a top-level Python service, not part of `backend/`. The Java gateway remains the policy gate for identity, tenant scope, TEST/LIVE mode scope, RBAC, approval state, and payment-domain mutation.
 - AI capabilities: advisory only. The RAG assistant answers from approved docs/help content and does not read operational payment data. The payment operations agent investigates and proposes; deterministic validators and human approval remain between AI output and any applied config change.
 
@@ -95,7 +96,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 
 ## Engineering Style
 
-- Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.rail` (rail-service), `com.masonx.railsim` (rail-simulator), `com.masonx.common`, `com.masonx.contracts`.
+- Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.feeengine` (fee-engine), `com.masonx.rail` (rail-service), `com.masonx.railsim` (rail-simulator), `com.masonx.common`, `com.masonx.contracts`.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
 - Frontend display: never use raw internal IDs as the primary label for human-facing controls, tables, cards, or selections when a name, description, masked identifier, provider label, email, reference, or other human-readable field is available. IDs may appear as secondary monospace metadata, detail copy, or debug/admin context.
 - Keep business logic out of controllers.

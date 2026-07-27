@@ -383,23 +383,23 @@ Status: [x]
 
 ### FE1 - Module Skeleton
 
-Status: [ ]
+Status: [x]
 
-- Add `backend/fee-engine` Maven module.
-- Define fee context, schedule, rule, component, assessment, line, visibility, and error types.
-- Add pure unit tests without Spring or DB.
+- [x] Add `backend/fee-engine` Maven module.
+- [x] Define fee context, schedule, rule, component, assessment, line, visibility, and error types.
+- [x] Add pure unit tests without Spring or DB.
 
 ### FE2 - Expression Matching and Calculation
 
-Status: [ ]
+Status: [x]
 
-- Add expression evaluator behind an internal interface.
-- Use a sealed Aviator evaluator instance with method invocation/reflection-like access disabled and only allowlisted pure functions registered.
-- Support fixed and percentage components.
-- Apply deterministic `BigDecimal` rounding per component using persisted rounding mode and scale.
-- Support deterministic rule ordering.
-- Add tests for small-amount and FX examples.
-- Add validation for missing fields, invalid expressions, unknown context fields, cross-currency fixed components, and unsupported component config.
+- [x] Add expression evaluator behind an internal interface.
+- [x] Use a sealed Aviator evaluator instance with sandbox mode, class allowlists closed, method/class features disabled, no domain objects, and no expression functions.
+- [x] Support fixed and percentage components.
+- [x] Apply deterministic `BigDecimal` rounding per component using persisted rounding mode and scale.
+- [x] Support deterministic rule ordering.
+- [x] Add tests for small-amount and FX examples.
+- [x] Add validation for missing fields, invalid expressions, unknown context fields, cross-currency fixed components, and unsupported component config.
 
 ### FE3 - Prepaid Schedule Persistence
 
