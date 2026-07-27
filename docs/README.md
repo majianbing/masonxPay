@@ -31,6 +31,8 @@ This directory separates durable architecture, engineering guidance, active plan
 - [Subscription and recurring billing plan](planning/subscription-recurring-billing-plan.md)
 - [Multi-rail ISO 8583 / ISO 20022 plan](planning/multi-rail-iso8583-iso20022-plan.md)
 - [Ledger completeness plan](planning/ledger-completeness-plan.md)
+- [Prepaid card program platform plan](planning/prepaid-card-program-platform-plan.md)
+- [Reusable fee engine plan](planning/reusable-fee-engine-plan.md)
 - [Paystack and Flutterwave provider plan](planning/paystack-flutterwave-provider-plan.md)
 - [RAG support assistant plan](planning/rag-assistant-plan.md)
 - [Payment operations agent plan](planning/payment-operations-agent-plan.md)

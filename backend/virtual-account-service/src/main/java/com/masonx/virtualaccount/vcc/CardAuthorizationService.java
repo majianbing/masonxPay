@@ -2,12 +2,16 @@ package com.masonx.virtualaccount.vcc;
 
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
+import com.masonx.virtualaccount.domain.CardControlProfileRepository;
 import com.masonx.virtualaccount.domain.CardAuthorizationRepository;
+import com.masonx.virtualaccount.domain.CardProgramRepository;
 import com.masonx.virtualaccount.domain.VirtualCardRepository;
 import com.masonx.virtualaccount.domain.constant.CardAuthorizationStatus;
+import com.masonx.virtualaccount.domain.constant.CardProgramStatus;
 import com.masonx.virtualaccount.domain.ledger.LedgerAccountRepository;
 import com.masonx.virtualaccount.domain.ledger.LedgerFacade;
 import com.masonx.virtualaccount.domain.ledger.posting.CardAuthHoldPostingRule;
+import com.masonx.virtualaccount.domain.po.CardProgram;
 import com.masonx.virtualaccount.domain.po.CardAuthorization;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
@@ -58,25 +62,36 @@ public class CardAuthorizationService {
     public static final String REASON_CARD_NOT_FOUND     = "CARD_NOT_FOUND";
     public static final String REASON_INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS";
     public static final String REASON_AUTH_STATE_ANOMALY = "AUTH_STATE_ANOMALY";
+    public static final String REASON_CARD_PROGRAM_NOT_FOUND = "CARD_PROGRAM_NOT_FOUND";
+    public static final String REASON_CARD_PROGRAM_NOT_ACTIVE = "CARD_PROGRAM_NOT_ACTIVE";
 
     private final VirtualCardRepository       virtualCardRepo;
+    private final CardProgramRepository       cardProgramRepo;
+    private final CardControlProfileRepository cardControlProfileRepo;
     private final LedgerAccountRepository     accountRepo;
     private final CardAuthorizationRepository authorizationRepo;
     private final LedgerFacade                ledger;
     private final CardAuthHoldPostingRule     authHoldPostingRule;
+    private final CardAuthorizationControlEvaluator controlEvaluator;
     private final SnowflakeIdGenerator        idGen;
 
     public CardAuthorizationService(VirtualCardRepository virtualCardRepo,
+                                    CardProgramRepository cardProgramRepo,
+                                    CardControlProfileRepository cardControlProfileRepo,
                                     LedgerAccountRepository accountRepo,
                                     CardAuthorizationRepository authorizationRepo,
                                     LedgerFacade ledger,
                                     CardAuthHoldPostingRule authHoldPostingRule,
+                                    CardAuthorizationControlEvaluator controlEvaluator,
                                     SnowflakeIdGenerator idGen) {
         this.virtualCardRepo     = virtualCardRepo;
+        this.cardProgramRepo     = cardProgramRepo;
+        this.cardControlProfileRepo = cardControlProfileRepo;
         this.accountRepo         = accountRepo;
         this.authorizationRepo   = authorizationRepo;
         this.ledger              = ledger;
         this.authHoldPostingRule = authHoldPostingRule;
+        this.controlEvaluator    = controlEvaluator;
         this.idGen               = idGen;
     }
 
@@ -96,6 +111,31 @@ public class CardAuthorizationService {
             log.warn("Card auth decline: no active card for cardTokenId={} issuerId={} authorizationId={}",
                     req.cardTokenId(), issuerId, req.authorizationId());
             return new IssuerAuthResponse(DECISION_DECLINED, REASON_CARD_NOT_FOUND);
+        }
+
+        LedgerAccount ownerAccount = accountRepo.findById(card.ownerAccountId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Owner account not found for card: " + card.cardId()));
+        CardProgram program = null;
+        if (card.programId() != null && !card.programId().isBlank()) {
+            program = cardProgramRepo
+                    .findByIdForMerchant(card.programId(), ownerAccount.merchantId(), ownerAccount.mode())
+                    .orElse(null);
+            if (program == null) {
+                return saveDecisionOrReplay(
+                        issuerId, req, card, null, DECISION_DECLINED, REASON_CARD_PROGRAM_NOT_FOUND);
+            }
+            if (program.status() != CardProgramStatus.ACTIVE) {
+                return saveDecisionOrReplay(
+                        issuerId, req, card, null, DECISION_DECLINED, REASON_CARD_PROGRAM_NOT_ACTIVE);
+            }
+        }
+        var cardControls = cardControlProfileRepo
+                .findByCardIdForMerchant(card.cardId(), ownerAccount.merchantId(), ownerAccount.mode());
+        CardControlEvaluation controlDecision = controlEvaluator.evaluate(card, program, cardControls, req);
+        if (!controlDecision.approved()) {
+            return saveDecisionOrReplay(
+                    issuerId, req, card, null, DECISION_DECLINED, controlDecision.declineReason());
         }
 
         LedgerAccount cardAccount = accountRepo.findByIdForUpdate(card.vccAccountId())
@@ -169,6 +209,11 @@ public class CardAuthorizationService {
                     DECISION_APPROVED.equals(decision)
                             ? CardAuthorizationStatus.AUTHORIZED
                             : CardAuthorizationStatus.DECLINED,
+                    BigDecimal.ZERO,
+                    null,
+                    null,
+                    BigDecimal.ZERO,
+                    null,
                     Instant.now()));
         if (inserted) {
             return new IssuerAuthResponse(decision, declineReason);

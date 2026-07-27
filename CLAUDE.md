@@ -16,6 +16,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - `docs/planning/rag-assistant-plan.md`: RAG support assistant plan.
 - `docs/planning/payment-operations-agent-plan.md`: payment operations agent plan.
 - `docs/planning/multi-rail-iso8583-iso20022-plan.md`: Phase MR — ISO8583 card rail, ISO 20022 bank rail, VCC product, ledger integration milestone tracker.
+- `docs/planning/reusable-fee-engine-plan.md`: reusable PPC9/gateway fee engine boundary, rule model, snapshots, and FE roadmap.
 - `docs/engineering/development-guide.md`: engineering docs index.
 - `docs/engineering/connector-development.md`: connector implementation workflow.
 - `docs/engineering/testing-strategy.md`: test coverage and placement rules.
@@ -27,7 +28,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
   - `common/`: shared utilities — error model, ID generation (`com.masonx.common`), tenant context.
   - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
   - `gateway-service/`: payment gateway — intents, providers, routing, webhooks, sharding, Kafka workers, Redis hot path, projections, subscriptions, disputes, audit log (`com.masonx.paygateway`).
-  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, VirtualCard / VCC issuer, Kafka settlement consumer (`com.masonx.virtualaccount`).
+  - `virtual-account-service/`: double-entry ledger, VA accounts, balance management, prepaid card program platform (card programs, issuer partners/adapters, cardholders, card lifecycle, controls, clearing/settlement reconciliation), Kafka settlement consumer (`com.masonx.virtualaccount`).
   - `rail-service/`: ISO 8583 card rail and ISO 20022 bank rail client — canonical payment model, Netty/jPOS adapters, rail router, settlement event publisher, reconciliation API (`com.masonx.rail`).
   - `rail-simulator/`: two-sided network simulator — card-network-sim (Netty TCP, port 9091) and bank-rail-sim (HTTP, port 9090).
 - `ai-service/`: optional top-level Python AI coprocessor for RAG, model orchestration, embeddings, and evals. It is not a Maven module and must not own payment, connector, routing, ledger, approval, tenant, or credential state.
@@ -75,9 +76,25 @@ Phase MR (Multi-Rail) is now complete (MR0–MR5):
 
 See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 
+Provider connectors added since MR: Flutterwave (TEST hosted checkout, verified) and Paystack (TEST hosted checkout; sandbox verification blocked on Paystack account activation).
+
+Phase PPC (Prepaid Card Program Platform) extends the ledger-backed VCC foundation into a sponsor-bank-compatible program-manager model. MasonXPay is the card-program/program-manager layer, not the licensed issuer; the rail simulator is the first issuer adapter. PPC1–PPC6 are complete; PPC7–PPC8 are substantially delivered:
+
+- PPC1: issuer partner / card program / cardholder model, tenant+mode scoped, with active-program/active-cardholder gates on card creation.
+- PPC2: `IssuerCardProviderService` adapter boundary + dispatcher; `RAIL_SIM` adapter owns simulator card-token/PAN behavior.
+- PPC3: lifecycle APIs (withdraw, lock, unlock, logical close, terminate), expanded card statuses, transition guards.
+- PPC4: program/card JSON controls evaluated before balance checks, deterministic decline reasons, daily velocity.
+- PPC5: internal auth-reversal endpoint, idempotent hold-release postings, cumulative release tracking, opt-in stale-hold expiry worker.
+- PPC6: clearing/refund/original-credit ingestion — auth matching, settlement journals, clearing-event records, conservative parking, cumulative refund protection.
+- PPC7 (partial): issuer settlement-report ingestion + report-vs-clearing-vs-ledger reconciliation summaries; EXTERNAL system-of-record balance reconciliation still open.
+- PPC8 (partial): dashboard `Issuing` shell — Programs, Cardholders, Cards, Controls, Authorization history, Settlement views; merchant-safe exception actions still deferred.
+
+See `docs/planning/prepaid-card-program-platform-plan.md` and `docs/planning/reusable-fee-engine-plan.md`.
+
 Next likely work:
 
-- Phase RAG (next): docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
+- Phase PPC remainder: PPC9 reusable fee-engine foundation for prepaid issuing and later gateway-service adoption (versioned rules, expression matching, assessment snapshots, visible/hidden fee outputs, ledger posting hooks); finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
+- Phase RAG: docs-backed support assistant — vector DB foundation, ingestion pipeline, answer API, dashboard assistant UI, framework bakeoff, evals, and production hardening. See `docs/planning/rag-assistant-plan.md`.
 - Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
 - Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
@@ -101,7 +118,7 @@ Follow the test pyramid for feature work:
 - Unit tests are the primary correctness layer for deterministic business logic: routing, capability matching, retry decisions, validators, state transitions, security helpers, and mapping edge cases.
 - Integration tests cover module boundaries: repositories, migrations, controllers, auth/tenant scope, transaction behavior, outbox writes, and simulator-backed provider flows.
 - E2E/smoke tests are limited to critical merchant/customer journeys: hosted checkout, payment links, connector preview, dashboard capability/routing configuration, and webhook delivery.
-- Prefer Mason Simulator for payment-flow tests that do not specifically need Stripe, Square, Braintree, or Mollie behavior.
+- Prefer Mason Simulator for payment-flow tests that do not specifically need a real provider's behavior (Stripe, Square, Braintree, Mollie, Flutterwave, Paystack).
 - Do not mark a feature complete only because an E2E path works; business rules still need unit or integration coverage.
 - Do not claim test success unless the command actually ran.
 
@@ -117,6 +134,7 @@ Keep tests modular:
 
 - Java: 4-space indent, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.common` (common), `com.masonx.contracts` (contracts).
 - TypeScript/React: 2-space indent, PascalCase components, camelCase functions, `@/` imports.
+- Frontend display: never use raw internal IDs as the primary label for human-facing controls, tables, cards, or selections when a name, description, masked identifier, provider label, email, reference, or other human-readable field is available. IDs may appear as secondary monospace metadata, detail copy, or debug/admin context.
 - Business logic out of controllers. Comments only when intent is non-obvious. No broad `catch (Exception)` without a clear fallback and logging strategy.
 - Add or update tests for business logic, state transitions, auth boundaries, routing, webhooks, and bug fixes.
 

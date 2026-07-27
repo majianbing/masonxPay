@@ -2,6 +2,8 @@ package com.masonx.virtualaccount.vcc;
 
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthRequest;
 import com.masonx.virtualaccount.vcc.dto.IssuerAuthResponse;
+import com.masonx.virtualaccount.vcc.dto.IssuerAuthReversalRequest;
+import com.masonx.virtualaccount.vcc.dto.IssuerAuthReversalResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,13 +30,22 @@ public class IssuerAuthController {
     static final String ISSUER_RAIL_SIM = "RAIL_SIM";
 
     private final CardAuthorizationService authorizationService;
+    private final CardAuthorizationLifecycleService lifecycleService;
 
-    public IssuerAuthController(CardAuthorizationService authorizationService) {
+    public IssuerAuthController(CardAuthorizationService authorizationService,
+                                CardAuthorizationLifecycleService lifecycleService) {
         this.authorizationService = authorizationService;
+        this.lifecycleService = lifecycleService;
     }
 
     @PostMapping("/authorize")
     public ResponseEntity<IssuerAuthResponse> authorize(@Valid @RequestBody IssuerAuthRequest req) {
         return ResponseEntity.ok(authorizationService.authorize(ISSUER_RAIL_SIM, req));
+    }
+
+    @PostMapping("/reverse-authorization")
+    public ResponseEntity<IssuerAuthReversalResponse> reverseAuthorization(
+            @Valid @RequestBody IssuerAuthReversalRequest req) {
+        return ResponseEntity.ok(lifecycleService.reverse(ISSUER_RAIL_SIM, req));
     }
 }

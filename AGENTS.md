@@ -29,6 +29,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - High-throughput payment core plan: `docs/planning/high-throughput-payment-core-plan.md`
 - Multi-rail ISO 8583 / ISO 20022 plan: `docs/planning/multi-rail-iso8583-iso20022-plan.md`
 - Ledger completeness plan: `docs/planning/ledger-completeness-plan.md`
+- Reusable fee engine plan: `docs/planning/reusable-fee-engine-plan.md`
 - RAG support assistant plan: `docs/planning/rag-assistant-plan.md`
 - Payment operations agent plan: `docs/planning/payment-operations-agent-plan.md`
 - Detailed development guide: `docs/engineering/development-guide.md`
@@ -96,6 +97,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 
 - Java: 4-space indentation, constructor injection, DTOs at API boundaries. Root packages: `com.masonx.paygateway` (gateway-service), `com.masonx.virtualaccount` (virtual-account-service), `com.masonx.rail` (rail-service), `com.masonx.railsim` (rail-simulator), `com.masonx.common`, `com.masonx.contracts`.
 - TypeScript/React: 2-space indentation, PascalCase components, camelCase functions, `@/` imports.
+- Frontend display: never use raw internal IDs as the primary label for human-facing controls, tables, cards, or selections when a name, description, masked identifier, provider label, email, reference, or other human-readable field is available. IDs may appear as secondary monospace metadata, detail copy, or debug/admin context.
 - Keep business logic out of controllers.
 - Add comments only when intent is non-obvious: a hidden constraint, a subtle invariant, a workaround for a known bug, or behavior that would surprise a reader. Do not explain what the code does; well-named identifiers already do that.
 - Avoid broad `catch (Exception)` blocks unless there is a clear fallback and logging strategy.

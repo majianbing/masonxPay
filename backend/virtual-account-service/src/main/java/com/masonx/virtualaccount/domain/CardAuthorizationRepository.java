@@ -6,6 +6,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -60,6 +63,146 @@ public class CardAuthorizationRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    public Optional<CardAuthorization> findByIssuerIdAndAuthorizationIdForUpdate(String issuerId,
+                                                                                 String authorizationId) {
+        var rows = jdbc.query("""
+                SELECT * FROM card_authorization
+                WHERE issuer_id = ? AND authorization_id = ?
+                FOR UPDATE
+                """, ROW_MAPPER, issuerId, authorizationId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public List<CardAuthorization> findAuthorizedBeforeForUpdate(Instant before, int limit) {
+        return jdbc.query("""
+                SELECT * FROM card_authorization
+                WHERE status = 'AUTHORIZED'
+                  AND hold_event_id IS NOT NULL
+                  AND created_at < ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+                """, ROW_MAPPER, before, limit);
+    }
+
+    public Optional<CardAuthorization> findExactOpenHoldMatchForUpdate(String cardId, String currency,
+                                                                       BigDecimal amount) {
+        var rows = jdbc.query("""
+                SELECT * FROM card_authorization
+                WHERE card_id = ?
+                  AND currency = ?
+                  AND decision = 'APPROVED'
+                  AND status = 'AUTHORIZED'
+                  AND hold_event_id IS NOT NULL
+                  AND amount - released_amount - settled_amount = ?
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE
+                """, ROW_MAPPER, cardId, currency, amount);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public Optional<CardAuthorization> findLinkedOpenHoldForUpdate(String issuerId, String authorizationId,
+                                                                   String cardId) {
+        var rows = jdbc.query("""
+                SELECT * FROM card_authorization
+                WHERE issuer_id = ?
+                  AND authorization_id = ?
+                  AND card_id = ?
+                  AND decision = 'APPROVED'
+                  AND status = 'AUTHORIZED'
+                  AND hold_event_id IS NOT NULL
+                  AND amount - released_amount - settled_amount > 0
+                FOR UPDATE
+                """, ROW_MAPPER, issuerId, authorizationId, cardId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public boolean hasOpenHoldForCard(String cardId, String currency) {
+        Boolean exists = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM card_authorization
+                    WHERE card_id = ?
+                      AND currency = ?
+                      AND decision = 'APPROVED'
+                      AND status = 'AUTHORIZED'
+                      AND hold_event_id IS NOT NULL
+                      AND amount - released_amount - settled_amount > 0
+                )
+                """, Boolean.class, cardId, currency);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public void recordHoldRelease(String authId,
+                                  BigDecimal releasedAmount,
+                                  CardAuthorizationStatus status,
+                                  String releaseReason,
+                                  Instant releasedAt) {
+        jdbc.update("""
+                UPDATE card_authorization
+                SET released_amount = ?,
+                    status = ?::card_authorization_status,
+                    release_reason = ?,
+                    released_at = ?,
+                    updated_at = now()
+                WHERE auth_id = ?
+                """, releasedAmount, status.name(), releaseReason, releasedAt, authId);
+    }
+
+    public void recordClearingSettlement(String authId,
+                                         BigDecimal settledAmount,
+                                         CardAuthorizationStatus status,
+                                         Instant settledAt) {
+        jdbc.update("""
+                UPDATE card_authorization
+                SET settled_amount = ?,
+                    status = ?::card_authorization_status,
+                    settled_at = ?,
+                    updated_at = now()
+                WHERE auth_id = ?
+                """, settledAmount, status.name(), settledAt, authId);
+    }
+
+    public AuthorizationVelocity authorizedVelocitySince(String cardId, String currency, Instant since) {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count
+                FROM card_authorization
+                WHERE card_id = ?
+                  AND currency = ?
+                  AND decision = 'APPROVED'
+                  AND status = 'AUTHORIZED'
+                  AND created_at >= ?
+                """, (rs, __) -> new AuthorizationVelocity(
+                rs.getBigDecimal("amount"),
+                rs.getLong("count")), cardId, currency, since);
+    }
+
+    public List<CardAuthorization> findByMerchant(String merchantId, String mode, int page, int size) {
+        return jdbc.query("""
+                SELECT auth.*
+                FROM card_authorization auth
+                JOIN virtual_card card ON card.card_id = auth.card_id
+                JOIN ledger_account owner ON owner.ledger_account_id = card.owner_account_id
+                WHERE owner.merchant_id = ?
+                  AND owner.mode = ?::va_mode
+                ORDER BY auth.created_at DESC
+                LIMIT ?
+                OFFSET ?
+                """, ROW_MAPPER, merchantId, mode, size, (long) page * size);
+    }
+
+    public long countByMerchant(String merchantId, String mode) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM card_authorization auth
+                JOIN virtual_card card ON card.card_id = auth.card_id
+                JOIN ledger_account owner ON owner.ledger_account_id = card.owner_account_id
+                WHERE owner.merchant_id = ?
+                  AND owner.mode = ?::va_mode
+                """, Long.class, merchantId, mode);
+        return count != null ? count : 0;
+    }
+
     private static final RowMapper<CardAuthorization> ROW_MAPPER = (rs, __) -> new CardAuthorization(
             rs.getString("auth_id"),
             rs.getString("issuer_id"),
@@ -73,5 +216,13 @@ public class CardAuthorizationRepository {
             rs.getString("decline_reason"),
             rs.getString("hold_event_id"),
             CardAuthorizationStatus.valueOf(rs.getString("status")),
+            rs.getBigDecimal("released_amount"),
+            rs.getString("release_reason"),
+            rs.getTimestamp("released_at") != null ? rs.getTimestamp("released_at").toInstant() : null,
+            rs.getBigDecimal("settled_amount"),
+            rs.getTimestamp("settled_at") != null ? rs.getTimestamp("settled_at").toInstant() : null,
             rs.getTimestamp("created_at").toInstant());
+
+    public record AuthorizationVelocity(BigDecimal amount, long count) {
+    }
 }

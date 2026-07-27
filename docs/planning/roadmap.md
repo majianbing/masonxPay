@@ -265,6 +265,27 @@ See [multi-rail ISO8583 ISO 20022 plan](multi-rail-iso8583-iso20022-plan.md).
 
 ---
 
+## Phase PPC — Prepaid Card Program Platform
+
+Phase PPC extends the existing ledger-backed VCC foundation into a sponsor-bank-compatible prepaid card platform. MasonXPay acts as the program manager/card platform layer, not the licensed issuer bank. The first issuer adapter is the existing rail simulator path; future issuer-bank or issuer-processor partners plug in behind the same adapter boundary.
+
+See [prepaid card program platform plan](prepaid-card-program-platform-plan.md).
+
+| # | Item | Status | Detail |
+|---|---|---|---|
+| PPC0 | **Baseline audit and naming** | [ ] | Align docs and naming around funded prepaid cards, issuer adapters, card programs, and program-manager boundaries. |
+| PPC1 | **Program and cardholder model** | [x] | Issuer partner, card program, and cardholder schema/domain/repository/API layers are complete; card creation now requires active program and active cardholder gates. |
+| PPC2 | **Issuer adapter abstraction** | [x] | Issuer-card provider interface, dispatcher, and `RAIL_SIM` adapter are implemented; simulator card-token/PAN behavior now lives behind the adapter boundary. |
+| PPC3 | **Lifecycle APIs** | [x] | Withdraw, lock, unlock, logical close, terminate, expanded statuses, and transition guards are implemented for simulator-backed cards; logical close currently rejects open holds instead of entering a pending close state. |
+| PPC4 | **Controls and authorization policy** | [x] | Program/card JSON controls are evaluated before balance checks with deterministic decline reasons and daily velocity checks; MCC/category controls wait for richer issuer auth payload fields. |
+| PPC5 | **Authorization reversal and hold expiry** | [x] | Added internal auth-reversal endpoint, idempotent hold-release postings, cumulative release tracking, and disabled-by-default stale hold expiry worker. |
+| PPC6 | **Clearing and refund ingestion** | [x] | Clearing presentment matches linked issuer authorizations or conservative simulator exact holds, posts settlement journals, records clearing events, parks no-auth/mismatch/missing-original cases, and supports refund/original-credit posting with cumulative refund protection. |
+| PPC7 | **Settlement and reconciliation** | [~] | Issuer settlement report ingestion now reconciles report lines against clearing events and exposes report-vs-clearing-vs-ledger-posted summary deltas by merchant/mode/program/date/currency; EXTERNAL system-of-record balance reconciliation remains. |
+| PPC8 | **Dashboard and operations** | [~] | Dashboard navigation now has product/domain groups and an `Issuing` shell; Programs, Cardholders, Cards, Controls, Authorization history, and Settlement report/summary views are operational. Merchant-safe exception actions remain deferred behind a scoped ops contract. |
+| PPC9 | **Fee schedules and economics** | [ ] | Build the reusable fee-engine foundation for prepaid issuing and later gateway-service adoption: versioned fee schedules, expression-based rule matching, fee assessment snapshots, visible/hidden fee outputs, and ledger posting hooks. See [reusable fee engine plan](reusable-fee-engine-plan.md). |
+
+---
+
 ## Phase R — Financial Reconciliation
 
 Settlement file reconciliation and real-time dual-stream monitoring at 1–10M transactions/day. Phase R is entirely additive — it builds on the existing Kafka event stream, `payment_requests` table, and provider response storage without touching the authorization path. It is also the foundation that Phase N settlement processing will extend.

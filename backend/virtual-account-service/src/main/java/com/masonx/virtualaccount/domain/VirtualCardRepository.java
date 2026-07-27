@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.domain;
 
+import com.masonx.common.tenant.Mode;
 import com.masonx.virtualaccount.domain.constant.VirtualCardStatus;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,12 +22,26 @@ public class VirtualCardRepository {
     }
 
     public void save(VirtualCard card) {
-        jdbc.update("""
+        jdbc.update(insertSql(), insertArgs(card));
+    }
+
+    public void saveIfAbsent(VirtualCard card) {
+        jdbc.update(insertSql() + " ON CONFLICT (card_id) DO NOTHING", insertArgs(card));
+    }
+
+    private static String insertSql() {
+        return """
                 INSERT INTO virtual_card (
                     card_id, card_token_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
+                    program_id, issuer_partner_id, cardholder_id,
+                    external_issuer_card_id, external_card_token,
                     status, spending_limit, currency, expiry
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
-                """,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
+                """;
+    }
+
+    private static Object[] insertArgs(VirtualCard card) {
+        return new Object[]{
                 card.cardId(),
                 card.cardTokenId(),
                 card.maskedPan(),
@@ -34,10 +49,15 @@ public class VirtualCardRepository {
                 card.vccAccountId(),
                 card.holdAccountId(),
                 card.ownerAccountId(),
+                card.programId(),
+                card.issuerPartnerId(),
+                card.cardholderId(),
+                card.externalIssuerCardId(),
+                card.externalCardToken(),
                 card.status().name(),
                 card.spendingLimit(),
                 card.currency(),
-                card.expiry() != null ? Date.valueOf(card.expiry()) : null);
+                card.expiry() != null ? Date.valueOf(card.expiry()) : null};
     }
 
     public Optional<VirtualCard> findById(String cardId) {
@@ -71,25 +91,27 @@ public class VirtualCardRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    /** Returns the total number of cards linked to the given merchant. */
-    public long countByMerchantId(String merchantId) {
+    /** Returns the total number of cards linked to the given merchant and mode. */
+    public long countByMerchantIdAndMode(String merchantId, Mode mode) {
         Long count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM virtual_card vc
                 JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
-                """, Long.class, merchantId);
+                  AND a.mode = ?::va_mode
+                """, Long.class, merchantId, mode.name());
         return count != null ? count : 0L;
     }
 
-    /** Lists cards linked to the given merchant, paginated by LIMIT/OFFSET. */
-    public List<VirtualCard> findByMerchantId(String merchantId, int page, int size) {
+    /** Lists cards linked to the given merchant and mode, paginated by LIMIT/OFFSET. */
+    public List<VirtualCard> findByMerchantIdAndMode(String merchantId, Mode mode, int page, int size) {
         return jdbc.query("""
                 SELECT vc.* FROM virtual_card vc
                 JOIN ledger_account a ON vc.owner_account_id = a.ledger_account_id
                 WHERE a.merchant_id = ?
+                  AND a.mode = ?::va_mode
                 ORDER BY vc.created_at DESC
                 LIMIT ? OFFSET ?
-                """, ROW_MAPPER, merchantId, size, (long) page * size);
+                """, ROW_MAPPER, merchantId, mode.name(), size, (long) page * size);
     }
 
     public void updateStatus(String cardId, VirtualCardStatus status) {
@@ -108,6 +130,11 @@ public class VirtualCardRepository {
                 rs.getString("vcc_account_id"),
                 rs.getString("hold_account_id"),
                 rs.getString("owner_account_id"),
+                rs.getString("program_id"),
+                rs.getString("issuer_partner_id"),
+                rs.getString("cardholder_id"),
+                rs.getString("external_issuer_card_id"),
+                rs.getString("external_card_token"),
                 VirtualCardStatus.valueOf(rs.getString("status")),
                 rs.getBigDecimal("spending_limit"),
                 rs.getString("currency"),

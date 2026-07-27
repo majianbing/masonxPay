@@ -5,6 +5,11 @@ import java.math.BigDecimal;
 public record VccResponse(
         String     cardId,
         String     cardTokenId,
+        String     programId,
+        String     issuerPartnerId,
+        String     cardholderId,
+        String     externalIssuerCardId,
+        String     externalCardToken,
         String     maskedPan,
         String     bin,
         String     status,

@@ -7,6 +7,19 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorFromBody(status: number, statusText: string, body: unknown) {
+  let parsed = body;
+  if (typeof body === 'string') {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      parsed = { title: statusText, detail: body };
+    }
+  }
+  const data = parsed as { title?: string; detail?: string; message?: string } | null;
+  return new ApiError(status, data?.title ?? statusText, data?.detail ?? data?.message);
+}
+
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let onTokenRefreshFailed: (() => void) | null = null;
@@ -91,7 +104,7 @@ export async function apiFetchForm<T>(
       if (isAuthRejected(retry.status)) rejectAuthSession(retry.status);
       if (!retry.ok) {
         const retryJson = await retry.json().catch(() => null);
-        throw new ApiError(retry.status, retryJson?.title ?? retry.statusText, retryJson?.detail);
+        throw apiErrorFromBody(retry.status, retry.statusText, retryJson);
       }
       if (retry.status === 204) return undefined as T;
       return retry.json();
@@ -100,7 +113,7 @@ export async function apiFetchForm<T>(
   }
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, json?.title ?? res.statusText, json?.detail);
+  if (!res.ok) throw apiErrorFromBody(res.status, res.statusText, json);
   return json as T;
 }
 
@@ -132,7 +145,7 @@ export async function apiFetch<T>(
       if (isAuthRejected(retry.status)) rejectAuthSession(retry.status);
       if (!retry.ok) {
         const retryJson = await retry.json().catch(() => null);
-        throw new ApiError(retry.status, retryJson?.title ?? retry.statusText, retryJson?.detail);
+        throw apiErrorFromBody(retry.status, retry.statusText, retryJson);
       }
       if (retry.status === 204) return undefined as T;
       return retry.json();
@@ -144,7 +157,7 @@ export async function apiFetch<T>(
 
   const json = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, json?.title ?? res.statusText, json?.detail);
+    throw apiErrorFromBody(res.status, res.statusText, json);
   }
   return json as T;
 }

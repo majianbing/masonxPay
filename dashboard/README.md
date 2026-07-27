@@ -10,12 +10,19 @@ Next.js 15 merchant portal for the MasonXPay payment gateway.
 | `/payments` | Paginated payment list — filter by status, provider, method, date, connector label |
 | `/payments/[id]` | Payment detail — attempts, metadata, refund actions |
 | `/refunds` | Refunds list with search and date filters |
+| `/disputes` | Dispute case list |
+| `/payment-links` | Create and share hosted payment links |
+| `/issuing/programs` | Prepaid card program create/list operations |
+| `/issuing/cardholders` | Cardholder create/list operations |
+| `/issuing/cards` | Card create/list, fund/withdraw, lifecycle, and controls operations |
+| `/issuing/authorizations` | Merchant-scoped card authorization history |
+| `/issuing/settlement` | Issuer settlement reports and reconciliation summary |
+| `/virtual-account` | Merchant VA ledger balances |
 | `/connectors` | Add/manage payment provider accounts (Stripe, Square, Braintree, Mollie, Flutterwave, Paystack, Mason Simulator) |
 | `/connectors/[id]/preview` | Live TEST checkout preview for a single connector |
 | `/routing/policies` | Versioned route-policy list, publish/archive actions |
 | `/routing/policies/new` | Create a route-policy draft |
 | `/routing/policies/[id]` | View/edit a route policy, audit history, dry-run simulation |
-| `/payment-links` | Create and share hosted payment links |
 | `/developers/api-keys` | Create/revoke API key pairs |
 | `/developers/webhooks` | Webhook endpoints + delivery logs |
 | `/developers/logs` | API request/response log viewer |
@@ -56,4 +63,4 @@ Set `E2E_BASE_URL` to test another dashboard URL. The saved auth state is ignore
 - **Mode toggle** — TEST / LIVE toggled in the top bar; all API calls pass `mode` as a query param
 - **MFA warning banner** — shown on every dashboard page when `user.mfaEnabled === false`; dismissible per session via `sessionStorage`
 - **SDK integration** — the hosted pay page and connector preview use `@gateway/browser` (`GatewayEmbedded.mountCheckout()`); no provider-specific JSX anywhere in the dashboard
-- **Sidebar** — collapsible groups (Developers, Settings); auto-expands the active group on load
+- **Sidebar** — collapsible product/domain groups. Top-level dashboard entries stay limited to Overview/Analytics plus grouped areas: Payments, Billing, Issuing, Treasury, Operations, Platform, Developers, and Settings. The active group auto-expands on load.

@@ -159,8 +159,17 @@ public class CardSettlementPostingRule {
      * lineage back to the original sale for audit rather than literally undoing it.
      */
     public List<LedgerPostingCommand> buildRefund(RefundEvent event) {
-        throw new UnsupportedOperationException(
-                "CARD_REFUND posting not yet implemented — see class javadoc");
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
+        RailSettlementEvent railEvent = event.event();
+        return List.of(new LedgerPostingCommand(txId, List.of(
+                new AccountingEntryDraft(event.receivableAccount().ledgerAccountId(), Direction.DEBIT,
+                        railEvent.amount(), railEvent.asset(), event.eventId()),
+                new AccountingEntryDraft(event.cardAccount().ledgerAccountId(), Direction.CREDIT,
+                        railEvent.amount(), railEvent.asset(), event.eventId())
+        ), TransactionType.REFUND, "Card refund " + railEvent.maskedPan(), railEvent.railPaymentId(),
+                accountingDateResolver.fromInstant(railEvent.settledAt()),
+                event.cardAccount().mode(), event.cardAccount().orgId(),
+                event.cardAccount().merchantId()));
     }
 
     /**
@@ -168,13 +177,21 @@ public class CardSettlementPostingRule {
      * no prior authorization or hold at all: {@code DR CARD_NETWORK_RECEIVABLE /
      * CR PREPAID_CARD}, no hold account touched.
      *
-     * <p><b>Open design question:</b> unlike a refund, this is not backed by a matching
-     * prior debit — it needs its own risk/velocity controls before going live (out of
-     * scope for this interface pass).
+     * <p>Production original credits still need risk/velocity controls before a LIVE
+     * issuer program enables them.
      */
     public List<LedgerPostingCommand> buildCredit(CreditEvent event) {
-        throw new UnsupportedOperationException(
-                "CARD_CREDIT posting not yet implemented — needs risk/velocity design first");
+        String txId = idGen.generate(MasonXIdPrefix.LEDGER_RAIL_TRANSACTION.prefix());
+        RailSettlementEvent railEvent = event.event();
+        return List.of(new LedgerPostingCommand(txId, List.of(
+                new AccountingEntryDraft(event.receivableAccount().ledgerAccountId(), Direction.DEBIT,
+                        railEvent.amount(), railEvent.asset(), event.eventId()),
+                new AccountingEntryDraft(event.cardAccount().ledgerAccountId(), Direction.CREDIT,
+                        railEvent.amount(), railEvent.asset(), event.eventId())
+        ), TransactionType.CORRECTION, "Card original credit " + railEvent.maskedPan(), railEvent.railPaymentId(),
+                accountingDateResolver.fromInstant(railEvent.settledAt()),
+                event.cardAccount().mode(), event.cardAccount().orgId(),
+                event.cardAccount().merchantId()));
     }
 
     // CARD_CLEARING_PRESENTMENT intentionally has no build* method here. Per

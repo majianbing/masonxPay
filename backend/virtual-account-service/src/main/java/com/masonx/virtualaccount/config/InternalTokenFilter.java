@@ -54,6 +54,11 @@ public class InternalTokenFilter extends OncePerRequestFilter {
     private boolean requiresInternalAuth(String uri) {
         return uri.startsWith("/internal/")
                 || uri.startsWith("/v1/va/accounts")
-                || uri.startsWith("/v1/ledger/");
+                || uri.startsWith("/v1/ledger/")
+                || uri.startsWith("/v1/vcc/")
+                || uri.startsWith("/v1/card-programs")
+                || uri.startsWith("/v1/cardholders")
+                || uri.startsWith("/v1/issuer-partners")
+                || uri.startsWith("/v1/card-settlement-reports");
     }
 }

@@ -277,7 +277,8 @@ class PostingRulesTest {
     private static VirtualCard card() {
         return new VirtualCard(
                 "card_1", "ctok_abc123", "999999****1234", "999999",
-                "ac_card", "ac_hold", "ac_owner", VirtualCardStatus.ACTIVE,
+                "ac_card", "ac_hold", "ac_owner", "cprog_1", "ip_1", "ch_1",
+                "railsim_ctok_abc123", "ctok_abc123", VirtualCardStatus.ACTIVE,
                 null, "USD", LocalDate.of(2027, 1, 1), Instant.now(), Instant.now());
     }
 

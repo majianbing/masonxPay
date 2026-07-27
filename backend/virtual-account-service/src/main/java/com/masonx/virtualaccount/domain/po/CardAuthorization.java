@@ -23,6 +23,11 @@ public record CardAuthorization(
         String declineReason,    // null when approved
         String holdEventId,      // ledger source_event_id of the hold; null when no hold posted
         CardAuthorizationStatus status,
+        BigDecimal releasedAmount,
+        String releaseReason,
+        Instant releasedAt,
+        BigDecimal settledAmount,
+        Instant settledAt,
         Instant createdAt
 ) {
 }
