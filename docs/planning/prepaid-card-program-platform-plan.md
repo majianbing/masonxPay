@@ -612,6 +612,8 @@ Acceptance:
 - Card reads, lists, controls, funding, withdrawal, and lifecycle mutations must be scoped by merchant and TEST/LIVE mode. Current card mode is derived from the linked owner ledger account until a future schema-hardening migration adds explicit card-mode composite constraints.
 - MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
 - Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
+- Card creation requires a caller-supplied idempotency key. `virtual-account-service` reserves stable local card/account IDs before the issuer call, sends a deterministic issuer idempotency key derived from merchant/mode/client key, and commits local account/card/request-state writes atomically after the issuer succeeds.
+- Issuer lifecycle mutations keep issuer calls outside database transactions. If the issuer succeeds but local status persistence fails, the service records an open issuer reconciliation task so retry/reconciliation can converge local state with issuer state.
 
 ## Open Questions
 
@@ -620,7 +622,5 @@ Acceptance:
 - Which fee trigger should be implemented first: card creation fee, transaction fee, FX fee, or settlement-only fee assessment?
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?
-- Real issuer adapters require a create-card idempotency redesign: caller-supplied stable idempotency/client reference, atomic local persistence around account/card writes, and reconciliation handling for issuer-success/local-failure cases.
-- Real issuer lifecycle mutations require explicit partial-failure reconciliation when issuer state changes but local status persistence fails.
 - Should `CREATED` cards be closable locally before issuer activation, or should all post-issuer-create abandoned cards move through `TERMINATED`?
 - Should VCC-specific code names remain as legacy implementation names, or should a later phase rename packages and DTOs toward generic prepaid-card terminology?

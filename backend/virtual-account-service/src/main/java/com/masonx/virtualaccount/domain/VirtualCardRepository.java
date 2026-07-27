@@ -22,14 +22,26 @@ public class VirtualCardRepository {
     }
 
     public void save(VirtualCard card) {
-        jdbc.update("""
+        jdbc.update(insertSql(), insertArgs(card));
+    }
+
+    public void saveIfAbsent(VirtualCard card) {
+        jdbc.update(insertSql() + " ON CONFLICT (card_id) DO NOTHING", insertArgs(card));
+    }
+
+    private static String insertSql() {
+        return """
                 INSERT INTO virtual_card (
                     card_id, card_token_id, masked_pan, bin, vcc_account_id, hold_account_id, owner_account_id,
                     program_id, issuer_partner_id, cardholder_id,
                     external_issuer_card_id, external_card_token,
                     status, spending_limit, currency, expiry
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::va_virtual_card_status, ?, ?, ?)
-                """,
+                """;
+    }
+
+    private static Object[] insertArgs(VirtualCard card) {
+        return new Object[]{
                 card.cardId(),
                 card.cardTokenId(),
                 card.maskedPan(),
@@ -45,7 +57,7 @@ public class VirtualCardRepository {
                 card.status().name(),
                 card.spendingLimit(),
                 card.currency(),
-                card.expiry() != null ? Date.valueOf(card.expiry()) : null);
+                card.expiry() != null ? Date.valueOf(card.expiry()) : null};
     }
 
     public Optional<VirtualCard> findById(String cardId) {

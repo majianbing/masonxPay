@@ -2,7 +2,10 @@ package com.masonx.virtualaccount.vcc;
 
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
+import com.masonx.virtualaccount.domain.CardCreateRequestRepository;
+import com.masonx.virtualaccount.domain.CardCreateRequestRepository.CardCreateRequest;
 import com.masonx.virtualaccount.domain.CardControlProfileRepository;
+import com.masonx.virtualaccount.domain.CardIssuerReconciliationRepository;
 import com.masonx.virtualaccount.domain.CardProgramRepository;
 import com.masonx.virtualaccount.domain.CardholderRepository;
 import com.masonx.virtualaccount.domain.IssuerPartnerRepository;
@@ -33,6 +36,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -45,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,10 +67,13 @@ class VirtualCardServiceTest {
     private static final String PROGRAM_ID = "cprog_1";
     private static final String ISSUER_PARTNER_ID = "ip_1";
     private static final String CARDHOLDER_ID = "ch_1";
+    private static final String CREATE_KEY = "client-create-1";
 
     @Mock VirtualCardRepository virtualCardRepo;
     @Mock CardProgramRepository cardProgramRepo;
     @Mock CardControlProfileRepository cardControlProfileRepo;
+    @Mock CardCreateRequestRepository cardCreateRequestRepo;
+    @Mock CardIssuerReconciliationRepository cardIssuerReconciliationRepo;
     @Mock CardholderRepository cardholderRepo;
     @Mock IssuerPartnerRepository issuerPartnerRepo;
     @Mock LedgerAccountRepository accountRepo;
@@ -71,17 +81,20 @@ class VirtualCardServiceTest {
     @Mock IssuerCardProviderDispatcher issuerCards;
     @Mock IssuerCardProviderService issuerCardProvider;
     @Mock SnowflakeIdGenerator idGen;
+    TransactionOperations transactionOperations = new ImmediateTransactionOperations();
 
     VirtualCardService service;
 
     @BeforeEach
     void setUp() {
         service = new VirtualCardService(virtualCardRepo, cardProgramRepo, cardControlProfileRepo,
+                cardCreateRequestRepo, cardIssuerReconciliationRepo,
                 cardholderRepo, issuerPartnerRepo,
                 accountRepo, ledger, issuerCards, idGen,
                 new VccFundingPostingRule(idGen),
                 new VccCloseSweepPostingRule(idGen),
-                new VccWithdrawPostingRule(idGen));
+                new VccWithdrawPostingRule(idGen),
+                transactionOperations);
     }
 
     @Test
@@ -273,6 +286,26 @@ class VirtualCardServiceTest {
     }
 
     @Test
+    void lockCard_records_reconciliation_when_local_update_fails_after_issuer_success() {
+        when(virtualCardRepo.findById(CARD_ID)).thenReturn(Optional.of(card()));
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(issuerPartnerRepo.findByIdForMerchant(ISSUER_PARTNER_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(issuerPartner(IssuerPartnerStatus.ACTIVE)));
+        when(issuerCards.require(IssuerPartnerType.RAIL_SIM)).thenReturn(issuerCardProvider);
+        when(issuerCardProvider.lockCard("railsim_ctok_abc123", "merchant-request", "issuer_card_lock:" + CARD_ID))
+                .thenReturn(new com.masonx.virtualaccount.issuer.IssuerCardResult(
+                        "railsim_ctok_abc123", IssuerCardStatus.LOCKED));
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(virtualCardRepo).updateStatus(CARD_ID, VirtualCardStatus.LOCKED);
+
+        assertThatThrownBy(() -> service.lockCard(CARD_ID, MERCHANT_ID, "merchant-request"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("database unavailable");
+
+        verify(cardIssuerReconciliationRepo).upsertOpen(any());
+    }
+
+    @Test
     void unlockCard_calls_issuer_adapter_and_marks_active() {
         when(virtualCardRepo.findById(CARD_ID)).thenReturn(
                 Optional.of(card(VirtualCardStatus.LOCKED)), Optional.of(card(VirtualCardStatus.ACTIVE)));
@@ -344,23 +377,25 @@ class VirtualCardServiceTest {
                 .thenReturn(Optional.of(issuerPartner(IssuerPartnerStatus.ACTIVE)));
         when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VIRTUAL_CARD.prefix()))
                 .thenReturn(CARD_ID);
-        when(issuerCards.require(IssuerPartnerType.RAIL_SIM)).thenReturn(issuerCardProvider);
-        when(issuerCardProvider.createCard(any())).thenReturn(issuerCard());
         when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VCC_ACCOUNT.prefix()))
                 .thenReturn(VCC_ACCOUNT_ID, HOLD_ACCOUNT_ID);
+        when(cardCreateRequestRepo.find(MERCHANT_ID, Mode.TEST, CREATE_KEY))
+                .thenReturn(Optional.of(createRequest("PROCESSING")));
+        when(issuerCards.require(IssuerPartnerType.RAIL_SIM)).thenReturn(issuerCardProvider);
+        when(issuerCardProvider.createCard(any())).thenReturn(issuerCard());
 
         var response = service.createCard(new CreateVccRequest(
-                MERCHANT_ID, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
+                MERCHANT_ID, null, CREATE_KEY, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
                 "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1)));
 
         ArgumentCaptor<LedgerAccount> accountCaptor = ArgumentCaptor.forClass(LedgerAccount.class);
-        verify(accountRepo, times(2)).save(accountCaptor.capture());
+        verify(accountRepo, times(2)).saveIfAbsent(accountCaptor.capture());
         assertThat(accountCaptor.getAllValues())
                 .extracting(LedgerAccount::ledgerAccountType)
                 .containsExactly(LedgerAccountType.PREPAID_CARD, LedgerAccountType.PREPAID_CARD_HOLD);
 
         ArgumentCaptor<VirtualCard> cardCaptor = ArgumentCaptor.forClass(VirtualCard.class);
-        verify(virtualCardRepo).save(cardCaptor.capture());
+        verify(virtualCardRepo).saveIfAbsent(cardCaptor.capture());
         assertThat(cardCaptor.getValue().vccAccountId()).isEqualTo(VCC_ACCOUNT_ID);
         assertThat(cardCaptor.getValue().holdAccountId()).isEqualTo(HOLD_ACCOUNT_ID);
         assertThat(cardCaptor.getValue().programId()).isEqualTo(PROGRAM_ID);
@@ -373,8 +408,10 @@ class VirtualCardServiceTest {
 
         ArgumentCaptor<CreateIssuerCardCommand> commandCaptor = ArgumentCaptor.forClass(CreateIssuerCardCommand.class);
         verify(issuerCardProvider).createCard(commandCaptor.capture());
-        assertThat(commandCaptor.getValue().idempotencyKey()).isEqualTo("issuer_card_create:" + CARD_ID);
+        assertThat(commandCaptor.getValue().idempotencyKey()).startsWith("issuer_card_create:");
+        assertThat(commandCaptor.getValue().idempotencyKey()).doesNotContain(CARD_ID);
         assertThat(commandCaptor.getValue().issuerPartnerType()).isEqualTo(IssuerPartnerType.RAIL_SIM);
+        verify(cardCreateRequestRepo).markSucceeded(MERCHANT_ID, Mode.TEST, CREATE_KEY);
     }
 
     @Test
@@ -384,7 +421,7 @@ class VirtualCardServiceTest {
                 .thenReturn(Optional.of(cardProgram(CardProgramStatus.DRAFT, "USD")));
 
         assertThatThrownBy(() -> service.createCard(new CreateVccRequest(
-                MERCHANT_ID, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
+                MERCHANT_ID, null, CREATE_KEY, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
                 "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("program in status");
@@ -404,7 +441,7 @@ class VirtualCardServiceTest {
                 .thenReturn(Optional.of(cardholder(CardholderKycStatus.PENDING)));
 
         assertThatThrownBy(() -> service.createCard(new CreateVccRequest(
-                MERCHANT_ID, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
+                MERCHANT_ID, null, CREATE_KEY, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
                 "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("KYC status");
@@ -424,17 +461,22 @@ class VirtualCardServiceTest {
                 .thenReturn(Optional.of(cardholder(CardholderKycStatus.ACTIVE)));
         when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VIRTUAL_CARD.prefix()))
                 .thenReturn(CARD_ID);
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VCC_ACCOUNT.prefix()))
+                .thenReturn(VCC_ACCOUNT_ID, HOLD_ACCOUNT_ID);
+        when(cardCreateRequestRepo.find(MERCHANT_ID, Mode.TEST, CREATE_KEY))
+                .thenReturn(Optional.of(createRequest("PROCESSING")));
         when(issuerCards.require(IssuerPartnerType.RAIL_SIM))
                 .thenThrow(new IllegalStateException("No issuer card provider configured for: RAIL_SIM"));
 
         assertThatThrownBy(() -> service.createCard(new CreateVccRequest(
-                MERCHANT_ID, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
+                MERCHANT_ID, null, CREATE_KEY, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
                 "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("No issuer card provider");
 
         verify(accountRepo, never()).save(any());
         verify(virtualCardRepo, never()).save(any());
+        verify(cardCreateRequestRepo).markFailed(eq(MERCHANT_ID), eq(Mode.TEST), eq(CREATE_KEY), any());
     }
 
     private static VirtualCard card() {
@@ -529,6 +571,18 @@ class VirtualCardServiceTest {
                 IssuerCardStatus.ACTIVE);
     }
 
+    private static CardCreateRequest createRequest(String status) {
+        return new CardCreateRequest(
+                MERCHANT_ID,
+                Mode.TEST,
+                CREATE_KEY,
+                CARD_ID,
+                VCC_ACCOUNT_ID,
+                HOLD_ACCOUNT_ID,
+                status,
+                null);
+    }
+
     private static LedgerAccount vccAccount(BigDecimal balance) {
         return new LedgerAccount(
                 VCC_ACCOUNT_ID,
@@ -582,5 +636,12 @@ class VirtualCardServiceTest {
                 NormalBalance.CREDIT,
                 new BigDecimal("100.00"),
                 LedgerAccountStatus.ACTIVE);
+    }
+
+    private static final class ImmediateTransactionOperations implements TransactionOperations {
+        @Override
+        public <T> T execute(TransactionCallback<T> action) {
+            return action.doInTransaction(new SimpleTransactionStatus());
+        }
     }
 }

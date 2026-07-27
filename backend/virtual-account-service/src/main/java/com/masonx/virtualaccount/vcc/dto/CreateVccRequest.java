@@ -2,7 +2,7 @@ package com.masonx.virtualaccount.vcc.dto;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -15,6 +15,7 @@ import java.time.LocalDate;
 public record CreateVccRequest(
         @NotBlank String merchantId,
         String mode,
+        @NotBlank @Size(max = 128) String idempotencyKey,
         @NotBlank String ownerAccountId,  // existing WALLET account that will fund the card
         @NotBlank String programId,
         @NotBlank String cardholderId,
@@ -29,6 +30,6 @@ public record CreateVccRequest(
                             String currency,
                             BigDecimal spendingLimit,
                             LocalDate expiry) {
-        this(merchantId, null, ownerAccountId, programId, cardholderId, currency, spendingLimit, expiry);
+        this(merchantId, null, "legacy-create-card", ownerAccountId, programId, cardholderId, currency, spendingLimit, expiry);
     }
 }

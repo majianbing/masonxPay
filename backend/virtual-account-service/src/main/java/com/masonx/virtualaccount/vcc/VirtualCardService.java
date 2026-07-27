@@ -3,6 +3,10 @@ package com.masonx.virtualaccount.vcc;
 import com.masonx.common.id.MasonXIdPrefix;
 import com.masonx.common.id.SnowflakeIdGenerator;
 import com.masonx.common.tenant.Mode;
+import com.masonx.virtualaccount.domain.CardCreateRequestRepository;
+import com.masonx.virtualaccount.domain.CardCreateRequestRepository.CardCreateRequest;
+import com.masonx.virtualaccount.domain.CardIssuerReconciliationRepository;
+import com.masonx.virtualaccount.domain.CardIssuerReconciliationRepository.CardIssuerReconciliationTask;
 import com.masonx.virtualaccount.domain.CardProgramRepository;
 import com.masonx.virtualaccount.domain.CardControlProfileRepository;
 import com.masonx.virtualaccount.domain.CardholderRepository;
@@ -33,6 +37,7 @@ import com.masonx.virtualaccount.vcc.dto.VccResponse;
 import com.masonx.virtualaccount.vcc.dto.WithdrawVccRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -50,6 +55,8 @@ public class VirtualCardService {
     private final VirtualCardRepository virtualCardRepo;
     private final CardProgramRepository cardProgramRepo;
     private final CardControlProfileRepository cardControlProfileRepo;
+    private final CardCreateRequestRepository cardCreateRequestRepo;
+    private final CardIssuerReconciliationRepository cardIssuerReconciliationRepo;
     private final CardholderRepository cardholderRepo;
     private final IssuerPartnerRepository issuerPartnerRepo;
     private final LedgerAccountRepository     accountRepo;
@@ -59,10 +66,13 @@ public class VirtualCardService {
     private final VccFundingPostingRule fundingPostingRule;
     private final VccCloseSweepPostingRule closeSweepPostingRule;
     private final VccWithdrawPostingRule withdrawPostingRule;
+    private final TransactionOperations transactionOperations;
 
     public VirtualCardService(VirtualCardRepository virtualCardRepo,
                                CardProgramRepository cardProgramRepo,
                                CardControlProfileRepository cardControlProfileRepo,
+                               CardCreateRequestRepository cardCreateRequestRepo,
+                               CardIssuerReconciliationRepository cardIssuerReconciliationRepo,
                                CardholderRepository cardholderRepo,
                                IssuerPartnerRepository issuerPartnerRepo,
                                LedgerAccountRepository accountRepo,
@@ -71,10 +81,13 @@ public class VirtualCardService {
                                SnowflakeIdGenerator idGen,
                                VccFundingPostingRule fundingPostingRule,
                                VccCloseSweepPostingRule closeSweepPostingRule,
-                               VccWithdrawPostingRule withdrawPostingRule) {
+                               VccWithdrawPostingRule withdrawPostingRule,
+                               TransactionOperations transactionOperations) {
         this.virtualCardRepo = virtualCardRepo;
         this.cardProgramRepo = cardProgramRepo;
         this.cardControlProfileRepo = cardControlProfileRepo;
+        this.cardCreateRequestRepo = cardCreateRequestRepo;
+        this.cardIssuerReconciliationRepo = cardIssuerReconciliationRepo;
         this.cardholderRepo = cardholderRepo;
         this.issuerPartnerRepo = issuerPartnerRepo;
         this.accountRepo     = accountRepo;
@@ -84,6 +97,7 @@ public class VirtualCardService {
         this.fundingPostingRule = fundingPostingRule;
         this.closeSweepPostingRule = closeSweepPostingRule;
         this.withdrawPostingRule = withdrawPostingRule;
+        this.transactionOperations = transactionOperations;
     }
 
     /**
@@ -128,82 +142,98 @@ public class VirtualCardService {
                     + cardholder.kycStatus());
         }
 
+        String clientKey = requireCreateIdempotencyKey(req.idempotencyKey());
+        CardCreateRequest createRequest = reserveCreateRequest(req.merchantId(), ownerAccount.mode(), clientKey);
+        if ("SUCCEEDED".equals(createRequest.status())) {
+            return toCreateResponse(getCard(createRequest.cardId(), req.merchantId(), ownerAccount.mode()));
+        }
+
         LocalDate expiry = req.expiry() != null ? req.expiry() : LocalDate.now().plusYears(1);
-        String cardId = idGen.generate(MasonXIdPrefix.VIRTUAL_CARD.prefix());
-        CreateIssuerCardResult issuerCard = issuerCards.require(issuerPartner.adapterType())
-                .createCard(new CreateIssuerCardCommand(
-                        issuerCreateIdempotencyKey(cardId),
-                        req.merchantId(),
+        CreateIssuerCardResult issuerCard;
+        try {
+            issuerCard = issuerCards.require(issuerPartner.adapterType())
+                    .createCard(new CreateIssuerCardCommand(
+                            issuerCreateIdempotencyKey(req.merchantId(), ownerAccount.mode(), clientKey),
+                            req.merchantId(),
+                            ownerAccount.mode(),
+                            program.programId(),
+                            program.issuerPartnerId(),
+                            issuerPartner.adapterType(),
+                            cardholder.cardholderId(),
+                            req.currency(),
+                            expiry));
+        } catch (RuntimeException ex) {
+            cardCreateRequestRepo.markFailed(req.merchantId(), ownerAccount.mode(), clientKey, ex.getMessage());
+            throw ex;
+        }
+
+        try {
+            return transactionOperations.execute(status -> {
+                LedgerAccount vccAccount = new LedgerAccount(
+                        createRequest.vccAccountId(),
                         ownerAccount.mode(),
+                        LedgerAccountRole.TENANT,
+                        ownerAccount.orgId(),
+                        req.merchantId(),
+                        null,
+                        LedgerAccountType.PREPAID_CARD,
+                        req.currency(),
+                        AssetClass.FIAT,
+                        2,
+                        NormalBalance.CREDIT,
+                        BigDecimal.ZERO,
+                        LedgerAccountStatus.ACTIVE);
+                accountRepo.saveIfAbsent(vccAccount);
+
+                LedgerAccount holdAccount = new LedgerAccount(
+                        createRequest.holdAccountId(),
+                        ownerAccount.mode(),
+                        LedgerAccountRole.TENANT,
+                        ownerAccount.orgId(),
+                        req.merchantId(),
+                        null,
+                        LedgerAccountType.PREPAID_CARD_HOLD,
+                        req.currency(),
+                        AssetClass.FIAT,
+                        2,
+                        NormalBalance.CREDIT,
+                        BigDecimal.ZERO,
+                        LedgerAccountStatus.ACTIVE);
+                accountRepo.saveIfAbsent(holdAccount);
+
+                Instant now = Instant.now();
+                VirtualCard card = new VirtualCard(
+                        createRequest.cardId(),
+                        issuerCard.cardTokenId(),
+                        issuerCard.maskedPan(),
+                        issuerCard.bin(),
+                        createRequest.vccAccountId(),
+                        createRequest.holdAccountId(),
+                        req.ownerAccountId(),
                         program.programId(),
                         program.issuerPartnerId(),
-                        issuerPartner.adapterType(),
                         cardholder.cardholderId(),
+                        issuerCard.externalIssuerCardId(),
+                        issuerCard.externalCardToken(),
+                        VirtualCardStatus.ACTIVE,
+                        req.spendingLimit(),
                         req.currency(),
-                        expiry));
+                        issuerCard.expiry(),
+                        now,
+                        now);
+                virtualCardRepo.saveIfAbsent(card);
+                cardCreateRequestRepo.markSucceeded(req.merchantId(), ownerAccount.mode(), clientKey);
 
-        // Create the ring-fenced PREPAID_CARD account for available funds.
-        String vccAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
-        LedgerAccount vccAccount = new LedgerAccount(
-                vccAccountId,
-                ownerAccount.mode(),
-                LedgerAccountRole.TENANT,
-                ownerAccount.orgId(),
-                req.merchantId(),
-                null,
-                LedgerAccountType.PREPAID_CARD,
-                req.currency(),
-                AssetClass.FIAT,
-                2,
-                NormalBalance.CREDIT,
-                BigDecimal.ZERO,
-                LedgerAccountStatus.ACTIVE);
-        accountRepo.save(vccAccount);
-
-        // Create the paired hold account for authorized-but-unsettled funds.
-        String holdAccountId = idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix());
-        LedgerAccount holdAccount = new LedgerAccount(
-                holdAccountId,
-                ownerAccount.mode(),
-                LedgerAccountRole.TENANT,
-                ownerAccount.orgId(),
-                req.merchantId(),
-                null,
-                LedgerAccountType.PREPAID_CARD_HOLD,
-                req.currency(),
-                AssetClass.FIAT,
-                2,
-                NormalBalance.CREDIT,
-                BigDecimal.ZERO,
-                LedgerAccountStatus.ACTIVE);
-        accountRepo.save(holdAccount);
-
-        VirtualCard card = new VirtualCard(
-                cardId,
-                issuerCard.cardTokenId(),
-                issuerCard.maskedPan(),
-                issuerCard.bin(),
-                vccAccountId,
-                holdAccountId,
-                req.ownerAccountId(),
-                program.programId(),
-                program.issuerPartnerId(),
-                cardholder.cardholderId(),
-                issuerCard.externalIssuerCardId(),
-                issuerCard.externalCardToken(),
-                VirtualCardStatus.ACTIVE,
-                req.spendingLimit(),
-                req.currency(),
-                issuerCard.expiry(),
-                Instant.now(),
-                Instant.now());
-        virtualCardRepo.save(card);
-
-        return new CreateVccResponse(
-                cardId, issuerCard.cardTokenId(), program.programId(), program.issuerPartnerId(),
-                cardholder.cardholderId(), issuerCard.externalIssuerCardId(), issuerCard.externalCardToken(),
-                issuerCard.oneTimeTestPan(), issuerCard.maskedPan(), issuerCard.bin(),
-                req.currency(), issuerCard.expiry() != null ? issuerCard.expiry().toString() : null);
+                return new CreateVccResponse(
+                        createRequest.cardId(), issuerCard.cardTokenId(), program.programId(), program.issuerPartnerId(),
+                        cardholder.cardholderId(), issuerCard.externalIssuerCardId(), issuerCard.externalCardToken(),
+                        issuerCard.oneTimeTestPan(), issuerCard.maskedPan(), issuerCard.bin(),
+                        req.currency(), issuerCard.expiry() != null ? issuerCard.expiry().toString() : null);
+            });
+        } catch (RuntimeException ex) {
+            cardCreateRequestRepo.markFailed(req.merchantId(), ownerAccount.mode(), clientKey, ex.getMessage());
+            throw ex;
+        }
     }
 
     /**
@@ -337,9 +367,12 @@ public class VirtualCardService {
             throw new IllegalStateException("Cannot lock card in status: " + card.status());
         }
 
-        issuerCards.require(requireIssuerPartner(card, owned.ownerAccount()).adapterType())
-                .lockCard(requireExternalIssuerCardId(card), reason, "issuer_card_lock:" + cardId);
-        virtualCardRepo.updateStatus(cardId, VirtualCardStatus.LOCKED);
+        IssuerPartner issuerPartner = requireIssuerPartner(card, owned.ownerAccount());
+        String idempotencyKey = "issuer_card_lock:" + cardId;
+        issuerCards.require(issuerPartner.adapterType())
+                .lockCard(requireExternalIssuerCardId(card), reason, idempotencyKey);
+        commitIssuerLifecycleMutation(owned, issuerPartner, "LOCK", VirtualCardStatus.LOCKED, reason, idempotencyKey,
+                () -> virtualCardRepo.updateStatus(cardId, VirtualCardStatus.LOCKED));
         return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
@@ -357,9 +390,12 @@ public class VirtualCardService {
             throw new IllegalStateException("Cannot unlock card in status: " + card.status());
         }
 
-        issuerCards.require(requireIssuerPartner(card, owned.ownerAccount()).adapterType())
-                .unlockCard(requireExternalIssuerCardId(card), "issuer_card_unlock:" + cardId);
-        virtualCardRepo.updateStatus(cardId, VirtualCardStatus.ACTIVE);
+        IssuerPartner issuerPartner = requireIssuerPartner(card, owned.ownerAccount());
+        String idempotencyKey = "issuer_card_unlock:" + cardId;
+        issuerCards.require(issuerPartner.adapterType())
+                .unlockCard(requireExternalIssuerCardId(card), idempotencyKey);
+        commitIssuerLifecycleMutation(owned, issuerPartner, "UNLOCK", VirtualCardStatus.ACTIVE, null, idempotencyKey,
+                () -> virtualCardRepo.updateStatus(cardId, VirtualCardStatus.ACTIVE));
         return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
@@ -386,13 +422,18 @@ public class VirtualCardService {
             throw new IllegalStateException("Cannot terminate card with remaining balance or open hold: " + cardId);
         }
 
-        issuerCards.require(requireIssuerPartner(card, owned.ownerAccount()).adapterType())
-                .terminateCard(requireExternalIssuerCardId(card), reason, "issuer_card_terminate:" + cardId);
-        virtualCardRepo.updateStatus(cardId, VirtualCardStatus.TERMINATED);
-        accountRepo.updateStatus(card.vccAccountId(), LedgerAccountStatus.CLOSED);
-        if (holdAccount != null) {
-            accountRepo.updateStatus(holdAccount.ledgerAccountId(), LedgerAccountStatus.CLOSED);
-        }
+        IssuerPartner issuerPartner = requireIssuerPartner(card, owned.ownerAccount());
+        String idempotencyKey = "issuer_card_terminate:" + cardId;
+        issuerCards.require(issuerPartner.adapterType())
+                .terminateCard(requireExternalIssuerCardId(card), reason, idempotencyKey);
+        commitIssuerLifecycleMutation(owned, issuerPartner, "TERMINATE", VirtualCardStatus.TERMINATED, reason,
+                idempotencyKey, () -> {
+                    virtualCardRepo.updateStatus(cardId, VirtualCardStatus.TERMINATED);
+                    accountRepo.updateStatus(card.vccAccountId(), LedgerAccountStatus.CLOSED);
+                    if (holdAccount != null) {
+                        accountRepo.updateStatus(holdAccount.ledgerAccountId(), LedgerAccountStatus.CLOSED);
+                    }
+                });
         return getCard(cardId, merchantId, owned.ownerAccount().mode());
     }
 
@@ -442,6 +483,58 @@ public class VirtualCardService {
                         "Card not found or not owned by merchant: " + cardId));
         assertRequestedMode(ownerAccount, mode);
         return new OwnedCard(card, ownerAccount);
+    }
+
+    private CardCreateRequest reserveCreateRequest(String merchantId, Mode mode, String idempotencyKey) {
+        CardCreateRequest request = new CardCreateRequest(
+                merchantId,
+                mode,
+                idempotencyKey,
+                idGen.generate(MasonXIdPrefix.VIRTUAL_CARD.prefix()),
+                idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix()),
+                idGen.generate(MasonXIdPrefix.VCC_ACCOUNT.prefix()),
+                "PROCESSING",
+                null);
+        cardCreateRequestRepo.insertIfAbsent(request);
+        return cardCreateRequestRepo.find(merchantId, mode, idempotencyKey)
+                .orElseThrow(() -> new IllegalStateException("Card create request reservation failed"));
+    }
+
+    private static String requireCreateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotencyKey is required");
+        }
+        return idempotencyKey.trim();
+    }
+
+    private void commitIssuerLifecycleMutation(OwnedCard owned,
+                                               IssuerPartner issuerPartner,
+                                               String action,
+                                               VirtualCardStatus targetStatus,
+                                               String reason,
+                                               String idempotencyKey,
+                                               Runnable localMutation) {
+        try {
+            transactionOperations.execute(status -> {
+                localMutation.run();
+                return null;
+            });
+        } catch (RuntimeException ex) {
+            VirtualCard card = owned.card();
+            cardIssuerReconciliationRepo.upsertOpen(new CardIssuerReconciliationTask(
+                    lifecycleReconciliationTaskId(card.cardId(), action, idempotencyKey),
+                    owned.ownerAccount().merchantId(),
+                    owned.ownerAccount().mode(),
+                    card.cardId(),
+                    issuerPartner.issuerPartnerId(),
+                    requireExternalIssuerCardId(card),
+                    action,
+                    targetStatus.name(),
+                    reason,
+                    idempotencyKey,
+                    ex.getMessage()));
+            throw ex;
+        }
     }
 
     private void assertRequestedMode(LedgerAccount ownerAccount, String requestedMode) {
@@ -504,6 +597,22 @@ public class VirtualCardService {
                 card.expiry() != null ? card.expiry().toString() : null);
     }
 
+    private static CreateVccResponse toCreateResponse(VccResponse response) {
+        return new CreateVccResponse(
+                response.cardId(),
+                response.cardTokenId(),
+                response.programId(),
+                response.issuerPartnerId(),
+                response.cardholderId(),
+                response.externalIssuerCardId(),
+                response.externalCardToken(),
+                null,
+                response.maskedPan(),
+                response.bin(),
+                response.currency(),
+                response.expiry());
+    }
+
     private static String fundEventId(String cardId, String idempotencyKey) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -528,8 +637,22 @@ public class VirtualCardService {
         }
     }
 
-    private static String issuerCreateIdempotencyKey(String cardId) {
-        return "issuer_card_create:" + cardId;
+    private static String issuerCreateIdempotencyKey(String merchantId, Mode mode, String idempotencyKey) {
+        return "issuer_card_create:" + stableHash(merchantId + ":" + mode.name() + ":" + idempotencyKey, 40);
+    }
+
+    private static String lifecycleReconciliationTaskId(String cardId, String action, String idempotencyKey) {
+        return "cir_" + stableHash(cardId + ":" + action + ":" + idempotencyKey, 40);
+    }
+
+    private static String stableHash(String input, int length) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash).substring(0, length);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest unavailable", e);
+        }
     }
 
     private record OwnedCard(VirtualCard card, LedgerAccount ownerAccount) {

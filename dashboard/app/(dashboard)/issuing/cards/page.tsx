@@ -150,10 +150,11 @@ export default function IssuingCardsPage() {
   }, [controlsQuery.data?.controlsJson]);
 
   const createCard = useMutation({
-    mutationFn: () => apiFetch<CreatedCard>(`/api/v1/merchants/${activeMerchantId}/va/cards`, {
+    mutationFn: ({ idempotencyKey }: { idempotencyKey: string }) => apiFetch<CreatedCard>(`/api/v1/merchants/${activeMerchantId}/va/cards`, {
       method: 'POST',
       body: JSON.stringify({
         mode,
+        idempotencyKey,
         ownerAccountId: selectedOwnerAccountId,
         programId: selectedProgramId,
         cardholderId: selectedCardholderId,
@@ -247,7 +248,7 @@ export default function IssuingCardsPage() {
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!activeMerchantId || !selectedOwnerAccountId || !selectedProgramId || !selectedCardholderId) return;
-    createCard.mutate();
+    createCard.mutate({ idempotencyKey: `dashboard-create-${activeMerchantId}-${crypto.randomUUID()}` });
   }
 
   if (!activeMerchantId) {
