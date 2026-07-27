@@ -548,6 +548,7 @@ Status: [~]
 - [x] Add a card-program settlement reconciliation summary with issuer report, matched clearing, ledger-posted, exception, and delta totals by settlement date/currency.
 - [ ] Reconcile authorization, clearing, ledger postings, and issuer settlement totals as a deeper line-to-journal accounting view.
 - [ ] Reconcile MasonXPay ledger balances against issuer processor accounts or program funding balances when `systemOfRecord = EXTERNAL`.
+- [ ] Add a real-issuer reconciliation processor/admin action for `card_issuer_reconciliation_task`; simulator mode only records the durable task abstraction.
 
 Acceptance:
 
@@ -613,7 +614,7 @@ Acceptance:
 - MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
 - Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 - Card creation requires a caller-supplied idempotency key. `virtual-account-service` reserves stable local card/account IDs before the issuer call, sends a deterministic issuer idempotency key derived from merchant/mode/client key, and commits local account/card/request-state writes atomically after the issuer succeeds.
-- Issuer lifecycle mutations keep issuer calls outside database transactions. If the issuer succeeds but local status persistence fails, the service records an open issuer reconciliation task so retry/reconciliation can converge local state with issuer state.
+- Issuer lifecycle mutations keep issuer calls outside database transactions. If the issuer succeeds but local status persistence fails, the service records an open issuer reconciliation task. `RAIL_SIM` stops at this durable abstraction; real issuer/LIVE readiness requires a worker or admin action that fetches issuer state, applies an idempotent local correction, and marks the task resolved or failed.
 
 ## Open Questions
 
