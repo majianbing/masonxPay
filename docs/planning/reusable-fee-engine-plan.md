@@ -369,7 +369,7 @@ Prepaid FE5 must reuse the existing `LedgerFacade` and net-zero posting-rule pat
 
 Credit-side account mapping should reuse existing platform fee account types where applicable, such as `PLATFORM_FEE_RECEIVABLE` and `FEE_INCOME`.
 
-Debit-side funding source is event-specific and must be decided before FE5 implementation. Candidate sources include merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account. The first implementation should explicitly document the debit source for `CARD_CREATE` and `CARD_CLEARING` before posting fees.
+Debit-side funding source is event-specific. `CARD_CREATE` fees debit the merchant `WALLET` and credit platform `FEE_INCOME`, because the card may not have a funded prepaid balance yet and card creation is a merchant/program commercial event. `CARD_CLEARING` fees remain deferred until cardholder-balance impact, settlement timing, and merchant disclosure behavior are explicitly designed.
 
 ## Roadmap
 
@@ -403,29 +403,30 @@ Status: [x]
 
 ### FE3 - Prepaid Schedule Persistence
 
-Status: [ ]
+Status: [x]
 
-- Add `virtual-account-service` tables for prepaid fee schedules and immutable versions.
-- Scope by merchant/mode and optional card program/BIN/channel.
-- Add service APIs for internal/admin seed or management, not merchant dashboard UI yet.
+- [x] Add `virtual-account-service` tables for prepaid fee schedules and immutable versions.
+- [x] Scope by merchant/mode and optional card program/BIN/channel.
+- [x] Add internal service cutpoints for seed/management; merchant dashboard UI remains out of scope.
 
 ### FE4 - Prepaid Assessment Snapshots
 
-Status: [ ]
+Status: [x]
 
-- Add prepaid fee assessment and assessment-line persistence.
-- Store sanitized context snapshots and matched rule versions.
-- Add service tests for immutable historical interpretation.
+- [x] Add prepaid fee assessment and assessment-line persistence.
+- [x] Store sanitized context snapshots, matched rule versions, visible/hidden totals, and per-line rounding metadata.
+- [x] Add service tests for immutable historical interpretation, no-schedule behavior, and unsafe context rejection.
 
 ### FE5 - Prepaid Ledger Posting Hooks
 
-Status: [ ]
+Status: [~]
 
-- Post fee ledger entries from persisted assessments.
-- Use stable event-based idempotency keys.
-- Reuse `LedgerFacade` and PostingRule net-zero infrastructure; credit platform fee accounts such as `PLATFORM_FEE_RECEIVABLE` / `FEE_INCOME` where appropriate.
-- Decide and document debit funding source per trigger before implementation.
-- Start with one narrow trigger, preferably card creation or clearing, before auth-time balance-impacting fees.
+- [x] Post `CARD_CREATE` fee ledger entries from persisted assessments.
+- [x] Use stable event-based idempotency keys: `fee:{merchantId}:{mode}:{eventType}:{eventId}`.
+- [x] Reuse `LedgerFacade` and PostingRule net-zero infrastructure.
+- [x] Debit merchant `WALLET` and credit platform `FEE_INCOME` for card creation fees.
+- [ ] Add `CARD_CLEARING` posting hook after balance-impacting fee behavior is designed.
+- [ ] Keep auth-time fees deferred until authorization available-balance impact is intentionally modeled.
 
 ### FE6 - Gateway-Service Adoption
 
@@ -452,7 +453,8 @@ Status: [ ]
 ## Resolved Decisions
 
 - Expression library: use Google AviatorScript (`https://github.com/killme2008/aviatorscript`) first, wrapped behind a `FeeExpressionEvaluator` abstraction so the rest of the engine is not coupled to Aviator APIs.
-- First prepaid persisted triggers: start with `CARD_CREATE` and `CARD_CLEARING`.
+- First prepaid ledger posting trigger: start with `CARD_CREATE`; keep `CARD_CLEARING` as the next prepaid integration point after settlement/balance-impact behavior is settled.
+- `CARD_CREATE` fee posting debit source: merchant `WALLET`. Credit source: platform `FEE_INCOME`.
 - Fee currency: use the prepaid-card account currency/card currency as the fee currency. If transaction currency differs and conversion is required, leave an FX abstraction cutpoint and fail explicitly in the current stage instead of silently calculating an incorrect fee.
 - Rounding: first-pass percentage fees round each component with `HALF_UP` to the fee currency/account asset scale, and snapshots persist the raw and rounded calculation details.
 - Initial seed fee examples: card creation fee is `1.00 USD` per card; authorization-style fee rule is `1% + 0.10 USD`. Actual auth-time charging can remain deferred until balance-impacting authorization behavior is intentionally designed.
@@ -462,4 +464,4 @@ Status: [ ]
 
 - Once both prepaid issuing and gateway-service use cases are active, should fee schedule persistence remain service-local with a shared schema shape, or move to a centrally owned economics/fee persistence service?
 - Which fee categories need compliance disclosure controls before LIVE use?
-- For `CARD_CREATE` and `CARD_CLEARING`, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account?
+- For `CARD_CLEARING`, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account, and should the fee be charged at clearing, settlement, or statement time?

@@ -24,6 +24,9 @@ import com.masonx.virtualaccount.domain.po.CardProgram;
 import com.masonx.virtualaccount.domain.po.Cardholder;
 import com.masonx.virtualaccount.domain.po.IssuerPartner;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.fee.AssessPrepaidFeeCommand;
+import com.masonx.virtualaccount.fee.PrepaidFeeAssessmentService;
+import com.masonx.virtualaccount.fee.PrepaidFeePostingService;
 import com.masonx.virtualaccount.issuer.CreateIssuerCardCommand;
 import com.masonx.virtualaccount.issuer.CreateIssuerCardResult;
 import com.masonx.virtualaccount.issuer.IssuerCardProviderDispatcher;
@@ -47,6 +50,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 
 @Service
@@ -66,6 +70,8 @@ public class VirtualCardService {
     private final VccFundingPostingRule fundingPostingRule;
     private final VccCloseSweepPostingRule closeSweepPostingRule;
     private final VccWithdrawPostingRule withdrawPostingRule;
+    private final PrepaidFeeAssessmentService prepaidFeeAssessmentService;
+    private final PrepaidFeePostingService prepaidFeePostingService;
     private final TransactionOperations transactionOperations;
 
     public VirtualCardService(VirtualCardRepository virtualCardRepo,
@@ -82,6 +88,8 @@ public class VirtualCardService {
                                VccFundingPostingRule fundingPostingRule,
                                VccCloseSweepPostingRule closeSweepPostingRule,
                                VccWithdrawPostingRule withdrawPostingRule,
+                               PrepaidFeeAssessmentService prepaidFeeAssessmentService,
+                               PrepaidFeePostingService prepaidFeePostingService,
                                TransactionOperations transactionOperations) {
         this.virtualCardRepo = virtualCardRepo;
         this.cardProgramRepo = cardProgramRepo;
@@ -97,6 +105,8 @@ public class VirtualCardService {
         this.fundingPostingRule = fundingPostingRule;
         this.closeSweepPostingRule = closeSweepPostingRule;
         this.withdrawPostingRule = withdrawPostingRule;
+        this.prepaidFeeAssessmentService = prepaidFeeAssessmentService;
+        this.prepaidFeePostingService = prepaidFeePostingService;
         this.transactionOperations = transactionOperations;
     }
 
@@ -222,6 +232,7 @@ public class VirtualCardService {
                         now,
                         now);
                 virtualCardRepo.saveIfAbsent(card);
+                assessAndPostCardCreateFee(req, ownerAccount, program, cardholder, issuerCard, createRequest.cardId(), now);
                 cardCreateRequestRepo.markSucceeded(req.merchantId(), ownerAccount.mode(), clientKey);
 
                 return new CreateVccResponse(
@@ -234,6 +245,33 @@ public class VirtualCardService {
             cardCreateRequestRepo.markFailed(req.merchantId(), ownerAccount.mode(), clientKey, ex.getMessage());
             throw ex;
         }
+    }
+
+    private void assessAndPostCardCreateFee(CreateVccRequest req,
+                                            LedgerAccount ownerAccount,
+                                            CardProgram program,
+                                            Cardholder cardholder,
+                                            CreateIssuerCardResult issuerCard,
+                                            String cardId,
+                                            Instant occurredAt) {
+        prepaidFeeAssessmentService.assessAndPersist(new AssessPrepaidFeeCommand(
+                req.merchantId(),
+                ownerAccount.mode(),
+                "CARD_CREATE",
+                cardId,
+                program.programId(),
+                cardId,
+                issuerCard.bin(),
+                "VIRTUAL",
+                Map.of(
+                        "cardCurrency", req.currency(),
+                        "accountCurrency", ownerAccount.asset(),
+                        "cardholderId", cardholder.cardholderId(),
+                        "issuerPartnerId", program.issuerPartnerId(),
+                        "fundingWalletId", ownerAccount.ledgerAccountId()),
+                occurredAt
+        )).ifPresent(snapshot -> prepaidFeePostingService.postAssessmentFeesFromWallet(
+                snapshot, ownerAccount.ledgerAccountId()));
     }
 
     /**

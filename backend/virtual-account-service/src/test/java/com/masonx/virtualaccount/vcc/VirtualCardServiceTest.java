@@ -21,7 +21,13 @@ import com.masonx.virtualaccount.domain.po.CardProgram;
 import com.masonx.virtualaccount.domain.po.Cardholder;
 import com.masonx.virtualaccount.domain.po.IssuerPartner;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessment;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentLine;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentSnapshot;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.fee.AssessPrepaidFeeCommand;
+import com.masonx.virtualaccount.fee.PrepaidFeeAssessmentService;
+import com.masonx.virtualaccount.fee.PrepaidFeePostingService;
 import com.masonx.virtualaccount.issuer.CreateIssuerCardCommand;
 import com.masonx.virtualaccount.issuer.CreateIssuerCardResult;
 import com.masonx.virtualaccount.issuer.IssuerCardProviderDispatcher;
@@ -50,6 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -81,6 +88,8 @@ class VirtualCardServiceTest {
     @Mock IssuerCardProviderDispatcher issuerCards;
     @Mock IssuerCardProviderService issuerCardProvider;
     @Mock SnowflakeIdGenerator idGen;
+    @Mock PrepaidFeeAssessmentService prepaidFeeAssessmentService;
+    @Mock PrepaidFeePostingService prepaidFeePostingService;
     TransactionOperations transactionOperations = new ImmediateTransactionOperations();
 
     VirtualCardService service;
@@ -94,7 +103,11 @@ class VirtualCardServiceTest {
                 new VccFundingPostingRule(idGen),
                 new VccCloseSweepPostingRule(idGen),
                 new VccWithdrawPostingRule(idGen),
+                prepaidFeeAssessmentService,
+                prepaidFeePostingService,
                 transactionOperations);
+        lenient().when(prepaidFeeAssessmentService.assessAndPersist(any()))
+                .thenReturn(Optional.empty());
     }
 
     @Test
@@ -415,6 +428,43 @@ class VirtualCardServiceTest {
     }
 
     @Test
+    void createCard_postsCardCreateFeeWhenAssessmentMatches() {
+        when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
+        when(cardProgramRepo.findByIdForMerchant(PROGRAM_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(cardProgram(CardProgramStatus.ACTIVE, "USD")));
+        when(cardholderRepo.findByIdForMerchant(CARDHOLDER_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(cardholder(CardholderKycStatus.ACTIVE)));
+        when(issuerPartnerRepo.findByIdForMerchant(ISSUER_PARTNER_ID, MERCHANT_ID, Mode.TEST))
+                .thenReturn(Optional.of(issuerPartner(IssuerPartnerStatus.ACTIVE)));
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VIRTUAL_CARD.prefix()))
+                .thenReturn(CARD_ID);
+        when(idGen.generate(com.masonx.common.id.MasonXIdPrefix.VCC_ACCOUNT.prefix()))
+                .thenReturn(VCC_ACCOUNT_ID, HOLD_ACCOUNT_ID);
+        when(cardCreateRequestRepo.find(MERCHANT_ID, Mode.TEST, CREATE_KEY))
+                .thenReturn(Optional.of(createRequest("PROCESSING")));
+        when(issuerCards.require(IssuerPartnerType.RAIL_SIM)).thenReturn(issuerCardProvider);
+        when(issuerCardProvider.createCard(any())).thenReturn(issuerCard());
+        PrepaidFeeAssessmentSnapshot snapshot = feeSnapshot();
+        when(prepaidFeeAssessmentService.assessAndPersist(any())).thenReturn(Optional.of(snapshot));
+
+        service.createCard(new CreateVccRequest(
+                MERCHANT_ID, null, CREATE_KEY, OWNER_ACCOUNT_ID, PROGRAM_ID, CARDHOLDER_ID,
+                "USD", new BigDecimal("100.00"), LocalDate.of(2027, 1, 1)));
+
+        ArgumentCaptor<AssessPrepaidFeeCommand> feeCommandCaptor =
+                ArgumentCaptor.forClass(AssessPrepaidFeeCommand.class);
+        verify(prepaidFeeAssessmentService).assessAndPersist(feeCommandCaptor.capture());
+        assertThat(feeCommandCaptor.getValue().eventType()).isEqualTo("CARD_CREATE");
+        assertThat(feeCommandCaptor.getValue().eventId()).isEqualTo(CARD_ID);
+        assertThat(feeCommandCaptor.getValue().programId()).isEqualTo(PROGRAM_ID);
+        assertThat(feeCommandCaptor.getValue().bin()).isEqualTo("999999");
+        assertThat(feeCommandCaptor.getValue().context())
+                .containsEntry("fundingWalletId", OWNER_ACCOUNT_ID)
+                .containsEntry("cardholderId", CARDHOLDER_ID);
+        verify(prepaidFeePostingService).postAssessmentFeesFromWallet(snapshot, OWNER_ACCOUNT_ID);
+    }
+
+    @Test
     void createCard_rejects_inactive_program() {
         when(accountRepo.findById(OWNER_ACCOUNT_ID)).thenReturn(Optional.of(ownerAccount()));
         when(cardProgramRepo.findByIdForMerchant(PROGRAM_ID, MERCHANT_ID, Mode.TEST))
@@ -581,6 +631,45 @@ class VirtualCardServiceTest {
                 HOLD_ACCOUNT_ID,
                 status,
                 null);
+    }
+
+    private static PrepaidFeeAssessmentSnapshot feeSnapshot() {
+        Instant now = Instant.now();
+        PrepaidFeeAssessment assessment = new PrepaidFeeAssessment(
+                "feeas_1",
+                MERCHANT_ID,
+                Mode.TEST,
+                "CARD_CREATE",
+                CARD_ID,
+                PROGRAM_ID,
+                CARD_ID,
+                "fees_1",
+                1,
+                "{}",
+                "[]",
+                "{\"USD\":1.00}",
+                "{}",
+                now);
+        PrepaidFeeAssessmentLine line = new PrepaidFeeAssessmentLine(
+                1L,
+                "feeas_1",
+                MERCHANT_ID,
+                Mode.TEST,
+                "create-card",
+                1,
+                "Create card",
+                "fixed",
+                "card_create_fixed",
+                "MERCHANT_VISIBLE",
+                "USD",
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                "HALF_UP",
+                2,
+                "{}",
+                now);
+        return new PrepaidFeeAssessmentSnapshot(assessment, List.of(line));
     }
 
     private static LedgerAccount vccAccount(BigDecimal balance) {

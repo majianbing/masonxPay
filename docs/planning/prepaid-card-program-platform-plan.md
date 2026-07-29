@@ -587,8 +587,8 @@ Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine
 
 - [x] FE0: finalize reusable fee-engine boundary and expression-library decision.
 - [x] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
-- [ ] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
-- [ ] FE5: add prepaid-card ledger posting hooks from persisted assessments using stable event-based idempotency keys.
+- [x] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
+- [~] FE5: card creation fees now post from persisted assessments using stable event-based idempotency keys; clearing/settlement fee posting remains deferred.
 - [ ] FE6-FE7: defer gateway adoption and dashboard/admin preview until the prepaid foundation is proven.
 
 Acceptance:
@@ -617,13 +617,14 @@ Acceptance:
 - MasonXPay core remains non-PCI. Raw PAN/CVV must not enter `virtual-account-service`; any future PAN/expiry access belongs behind a separate PCI vault boundary. First-stage PAN simulation can live on the rail/issuer simulator side.
 - Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 - Card creation requires a caller-supplied idempotency key. `virtual-account-service` reserves stable local card/account IDs before the issuer call, sends a deterministic issuer idempotency key derived from merchant/mode/client key, and commits local account/card/request-state writes atomically after the issuer succeeds.
+- Card creation fee posting uses the persisted reusable fee assessment, debits merchant `WALLET`, credits platform `FEE_INCOME`, and deduplicates ledger posting with `fee:{merchantId}:{mode}:CARD_CREATE:{cardId}`. No active fee schedule means no fee is posted.
 - Issuer lifecycle mutations keep issuer calls outside database transactions. If the issuer succeeds but local status persistence fails, the service records an open issuer reconciliation task. `RAIL_SIM` stops at this durable abstraction; real issuer/LIVE readiness requires a worker or admin action that fetches issuer state, applies an idempotent local correction, and marks the task resolved or failed.
 
 ## Open Questions
 
 - Should withdraw allow partial available-balance withdrawal while holds remain open?
 - Should single-use cards close immediately after authorization approval, after clearing, or after settlement?
-- Which fee trigger should be implemented first: card creation fee, transaction fee, FX fee, or settlement-only fee assessment?
+- For clearing/transaction fees, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or merchant fee receivable, and should the fee be charged at clearing, settlement, or statement time?
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?
 - Should `CREATED` cards be closable locally before issuer activation, or should all post-issuer-create abandoned cards move through `TERMINATED`?

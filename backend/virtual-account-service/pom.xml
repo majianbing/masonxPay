@@ -27,6 +27,11 @@
             <artifactId>contracts</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.masonx</groupId>
+            <artifactId>fee-engine</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- Web + validation + health -->
         <dependency>
