@@ -50,6 +50,26 @@ public class PrepaidFeeScheduleRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    public List<PrepaidFeeSchedule> listForMerchant(String merchantId, Mode mode, int page, int size) {
+        return jdbc.query("""
+                SELECT * FROM prepaid_fee_schedule
+                WHERE merchant_id = ?
+                  AND mode = ?::va_mode
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """, SCHEDULE_MAPPER, merchantId, mode.name(), size, (long) page * size);
+    }
+
+    public long countForMerchant(String merchantId, Mode mode) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM prepaid_fee_schedule
+                WHERE merchant_id = ?
+                  AND mode = ?::va_mode
+                """, Long.class, merchantId, mode.name());
+        return count != null ? count : 0L;
+    }
+
     public void saveVersion(PrepaidFeeScheduleVersion version) {
         jdbc.update("""
                 INSERT INTO prepaid_fee_schedule_version (
@@ -117,6 +137,17 @@ public class PrepaidFeeScheduleRepository {
                 bin,
                 channel);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public List<PrepaidFeeScheduleVersion> listVersions(String scheduleId, String merchantId, Mode mode) {
+        return jdbc.query("""
+                SELECT v.*
+                FROM prepaid_fee_schedule_version v
+                WHERE v.schedule_id = ?
+                  AND v.merchant_id = ?
+                  AND v.mode = ?::va_mode
+                ORDER BY v.version DESC
+                """, VERSION_MAPPER, scheduleId, merchantId, mode.name());
     }
 
     private static String jsonOrDefault(String json, String fallback) {

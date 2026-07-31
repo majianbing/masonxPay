@@ -583,13 +583,14 @@ Dashboard API Boundary:
 
 Status: [~]
 
-Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine-plan.md). PPC9 is the prepaid-card adoption path for that shared module; gateway-service can later reuse the same stateless compute engine with its own payment/refund/settlement persistence.
+Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine-plan.md). PPC9 is the prepaid-card adoption path for that shared module; gateway-service now has a first assess-only adoption path for payment confirmation economics using its own persistence.
 
 - [x] FE0: finalize reusable fee-engine boundary and expression-library decision.
 - [x] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
 - [x] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
-- [~] FE5: card creation fees now post from persisted assessments using stable event-based idempotency keys; clearing/settlement fee posting remains deferred.
-- [ ] FE6-FE7: defer gateway adoption and dashboard/admin preview until the prepaid foundation is proven.
+- [x] FE5: card creation and matched clearing fees now post from persisted assessments using stable event-based idempotency keys.
+- [x] FE7: add prepaid issuing fee schedule/preview/assessment dashboard tooling under `Issuing -> Fees`, with LIVE activation blocked pending platform admin/compliance workflow.
+- [~] FE6: gateway-service now records assess-only `PAYMENT_CONFIRM` fee snapshots using local gateway tables; gateway admin tooling, refund/capture/settlement contexts, and money-moving effects remain deferred.
 
 Acceptance:
 
@@ -618,13 +619,14 @@ Acceptance:
 - Simulator mode should first emulate issuer/processor-side card identities and PAN behavior inside the rail/issuer simulator boundary. Processor-side cardholder accounts and program funding mirrors can be added later when PPC7 reconciliation needs them.
 - Card creation requires a caller-supplied idempotency key. `virtual-account-service` reserves stable local card/account IDs before the issuer call, sends a deterministic issuer idempotency key derived from merchant/mode/client key, and commits local account/card/request-state writes atomically after the issuer succeeds.
 - Card creation fee posting uses the persisted reusable fee assessment, debits merchant `WALLET`, credits platform `FEE_INCOME`, and deduplicates ledger posting with `fee:{merchantId}:{mode}:CARD_CREATE:{cardId}`. No active fee schedule means no fee is posted.
+- Matched clearing fee posting uses the persisted reusable fee assessment, debits merchant `WALLET`, credits platform `FEE_INCOME`, and deduplicates ledger posting with `fee:{merchantId}:{mode}:CARD_CLEARING:{railEventId}`. Parked or duplicate clearing events do not assess fees.
 - Issuer lifecycle mutations keep issuer calls outside database transactions. If the issuer succeeds but local status persistence fails, the service records an open issuer reconciliation task. `RAIL_SIM` stops at this durable abstraction; real issuer/LIVE readiness requires a worker or admin action that fetches issuer state, applies an idempotent local correction, and marks the task resolved or failed.
 
 ## Open Questions
 
 - Should withdraw allow partial available-balance withdrawal while holds remain open?
 - Should single-use cards close immediately after authorization approval, after clearing, or after settlement?
-- For clearing/transaction fees, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or merchant fee receivable, and should the fee be charged at clearing, settlement, or statement time?
+- Auth-time transaction fees remain deferred until available-balance impact and cardholder disclosure behavior are intentionally modeled.
 - Hidden FX spread and similar platform-hidden economics need per-jurisdiction legal/compliance review before any LIVE card program uses them.
 - Should a suspended card ever have a reinstatement workflow, and if so what approvals and audit evidence are required?
 - Should `CREATED` cards be closable locally before issuer activation, or should all post-issuer-create abandoned cards move through `TERMINATED`?

@@ -25,6 +25,7 @@ import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentLine;
 import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentSnapshot;
 import com.masonx.virtualaccount.domain.po.PrepaidFeeSchedule;
 import com.masonx.virtualaccount.domain.po.PrepaidFeeScheduleVersion;
+import com.masonx.virtualaccount.vcc.dto.PagedResult;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,6 +99,8 @@ public class PrepaidFeeAssessmentService {
         requireText(command.merchantId(), "merchantId");
         requireText(command.name(), "name");
         Mode mode = command.mode() != null ? command.mode() : Mode.TEST;
+        PrepaidFeeScheduleStatus status = command.status() != null ? command.status() : PrepaidFeeScheduleStatus.DRAFT;
+        rejectLiveActivation(mode, status);
         PrepaidFeeSchedule schedule = new PrepaidFeeSchedule(
                 idGenerator.generate(MasonXIdPrefix.FEE_SCHEDULE.prefix()),
                 command.merchantId(),
@@ -106,11 +109,32 @@ public class PrepaidFeeAssessmentService {
                 blankToNull(command.bin()),
                 blankToNull(command.channel()),
                 command.name(),
-                command.status() != null ? command.status() : PrepaidFeeScheduleStatus.DRAFT,
+                status,
                 null,
                 null);
         scheduleRepository.save(schedule);
         return schedule;
+    }
+
+    public PagedResult<PrepaidFeeSchedule> listSchedules(String merchantId, Mode mode, int page, int size) {
+        requireText(merchantId, "merchantId");
+        Mode scopedMode = requireMode(mode);
+        int safePage = Math.max(page, 0);
+        int cappedSize = Math.min(Math.max(size, 1), 100);
+        long total = scheduleRepository.countForMerchant(merchantId, scopedMode);
+        List<PrepaidFeeSchedule> content = scheduleRepository.listForMerchant(
+                merchantId, scopedMode, safePage, cappedSize);
+        return new PagedResult<>(content, safePage, cappedSize, total,
+                (int) Math.ceil(total / (double) cappedSize));
+    }
+
+    public List<PrepaidFeeScheduleVersion> listVersions(String scheduleId, String merchantId, Mode mode) {
+        requireText(scheduleId, "scheduleId");
+        requireText(merchantId, "merchantId");
+        Mode scopedMode = requireMode(mode);
+        scheduleRepository.findByIdForMerchant(scheduleId, merchantId, scopedMode)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Fee schedule not found"));
+        return scheduleRepository.listVersions(scheduleId, merchantId, scopedMode);
     }
 
     @Transactional
@@ -121,6 +145,8 @@ public class PrepaidFeeAssessmentService {
             throw badRequest("version must be positive");
         }
         Mode mode = requireMode(command.mode());
+        PrepaidFeeScheduleStatus status = command.status() != null ? command.status() : PrepaidFeeScheduleStatus.ACTIVE;
+        rejectLiveActivation(mode, status);
         scheduleRepository.findByIdForMerchant(command.scheduleId(), command.merchantId(), mode)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Fee schedule not found"));
         PrepaidFeeScheduleVersion version = new PrepaidFeeScheduleVersion(
@@ -128,7 +154,7 @@ public class PrepaidFeeAssessmentService {
                 command.merchantId(),
                 mode,
                 command.version(),
-                command.status() != null ? command.status() : PrepaidFeeScheduleStatus.ACTIVE,
+                status,
                 requireCurrency(command.feeCurrency()),
                 command.feeScale(),
                 (command.roundingMode() != null ? command.roundingMode() : RoundingMode.HALF_UP).name(),
@@ -137,7 +163,7 @@ public class PrepaidFeeAssessmentService {
                 toJson(command.rules() != null ? command.rules() : List.of()),
                 toJson(command.metadata() != null ? command.metadata() : Map.of()),
                 null,
-                command.status() == PrepaidFeeScheduleStatus.ACTIVE || command.status() == null ? Instant.now() : null);
+                status == PrepaidFeeScheduleStatus.ACTIVE ? Instant.now() : null);
         scheduleRepository.saveVersion(version);
         return version;
     }
@@ -192,6 +218,52 @@ public class PrepaidFeeAssessmentService {
             return assessmentRepository.findByEvent(command.merchantId(), mode, command.eventType(), command.eventId());
         }
         return Optional.of(snapshot);
+    }
+
+    public FeeAssessment preview(PreviewPrepaidFeeCommand command) {
+        requireText(command.merchantId(), "merchantId");
+        Mode mode = requireMode(command.mode());
+        Map<String, Object> context = new LinkedHashMap<>();
+        Map<String, Object> supplied = command.context() != null ? command.context() : Map.of();
+        for (Map.Entry<String, Object> entry : supplied.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                throw badRequest("Fee context key must not be blank");
+            }
+            if (FORBIDDEN_CONTEXT_KEYS.contains(key)) {
+                throw badRequest("Unsafe fee context key is not allowed: " + key);
+            }
+            if (!PREPAID_SCHEMA.contains(key)) {
+                throw badRequest("Unknown prepaid fee context key: " + key);
+            }
+            context.put(key, normalizeValue(entry.getValue()));
+        }
+        context.put("merchantId", command.merchantId());
+        context.put("mode", mode.name());
+        FeeScheduleVersion schedule = new FeeScheduleVersion(
+                command.scheduleId() != null && !command.scheduleId().isBlank()
+                        ? command.scheduleId()
+                        : "preview",
+                command.version() > 0 ? command.version() : 1,
+                requireCurrency(command.feeCurrency()),
+                command.feeScale(),
+                command.roundingMode() != null ? command.roundingMode() : RoundingMode.HALF_UP,
+                command.rules() != null ? command.rules() : List.of(),
+                command.metadata() != null ? command.metadata() : Map.of());
+        return assess(schedule, context);
+    }
+
+    public PagedResult<PrepaidFeeAssessmentSnapshot> listAssessments(
+            String merchantId, Mode mode, int page, int size) {
+        requireText(merchantId, "merchantId");
+        Mode scopedMode = requireMode(mode);
+        int safePage = Math.max(page, 0);
+        int cappedSize = Math.min(Math.max(size, 1), 100);
+        long total = assessmentRepository.countForMerchant(merchantId, scopedMode);
+        List<PrepaidFeeAssessmentSnapshot> content = assessmentRepository.listForMerchant(
+                merchantId, scopedMode, safePage, cappedSize);
+        return new PagedResult<>(content, safePage, cappedSize, total,
+                (int) Math.ceil(total / (double) cappedSize));
     }
 
     private FeeAssessment assess(FeeScheduleVersion schedule, Map<String, Object> context) {
@@ -306,6 +378,12 @@ public class PrepaidFeeAssessmentService {
 
     private static ResponseStatusException badRequest(String message) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private static void rejectLiveActivation(Mode mode, PrepaidFeeScheduleStatus status) {
+        if (mode == Mode.LIVE && status == PrepaidFeeScheduleStatus.ACTIVE) {
+            throw badRequest("LIVE fee schedule activation requires platform admin/compliance approval");
+        }
     }
 
     private String toJson(Object value) {

@@ -369,7 +369,7 @@ Prepaid FE5 must reuse the existing `LedgerFacade` and net-zero posting-rule pat
 
 Credit-side account mapping should reuse existing platform fee account types where applicable, such as `PLATFORM_FEE_RECEIVABLE` and `FEE_INCOME`.
 
-Debit-side funding source is event-specific. `CARD_CREATE` fees debit the merchant `WALLET` and credit platform `FEE_INCOME`, because the card may not have a funded prepaid balance yet and card creation is a merchant/program commercial event. `CARD_CLEARING` fees remain deferred until cardholder-balance impact, settlement timing, and merchant disclosure behavior are explicitly designed.
+Debit-side funding source is event-specific. `CARD_CREATE` fees debit the merchant `WALLET` and credit platform `FEE_INCOME`, because the card may not have a funded prepaid balance yet and card creation is a merchant/program commercial event. `CARD_CLEARING` fees also debit the merchant `WALLET` and credit platform `FEE_INCOME` at matched clearing time, leaving cardholder prepaid balance behavior unchanged.
 
 ## Roadmap
 
@@ -419,35 +419,43 @@ Status: [x]
 
 ### FE5 - Prepaid Ledger Posting Hooks
 
-Status: [~]
+Status: [x]
 
 - [x] Post `CARD_CREATE` fee ledger entries from persisted assessments.
 - [x] Use stable event-based idempotency keys: `fee:{merchantId}:{mode}:{eventType}:{eventId}`.
 - [x] Reuse `LedgerFacade` and PostingRule net-zero infrastructure.
 - [x] Debit merchant `WALLET` and credit platform `FEE_INCOME` for card creation fees.
-- [ ] Add `CARD_CLEARING` posting hook after balance-impacting fee behavior is designed.
-- [ ] Keep auth-time fees deferred until authorization available-balance impact is intentionally modeled.
+- [x] Add `CARD_CLEARING` posting hook after successful matched clearing.
+- [x] Keep auth-time fees deferred until authorization available-balance impact is intentionally modeled.
 
 ### FE6 - Gateway-Service Adoption
 
-Status: [ ]
+Status: [~]
 
-- Add gateway fee schedule persistence and snapshots after prepaid foundation proves the reusable engine.
-- Reuse `fee-engine` calculation types without sharing gateway persistence or payment workflow ownership.
+- [x] Add gateway-owned fee schedule/version tables and immutable fee assessment/line snapshots.
+- [x] Register gateway fee tables as ShardingSphere single tables.
+- [x] Reuse `fee-engine` calculation types without sharing gateway persistence or payment workflow ownership.
+- [x] Add assess-only `PAYMENT_CONFIRM` hook after successful provider/rail payment finalization.
+- [x] Keep the hook best-effort and non-mutating for payment amount, provider charge amount, ledger movement, and settlement accounting.
+- [ ] Add gateway fee management/preview tooling when product requirements are clearer.
+- [ ] Add gateway `CAPTURE`, `REFUND`, `DISPUTE`, and `PROVIDER_SETTLEMENT` fee contexts when those economics are ready.
+- [ ] Decide when gateway fee assessments become money-moving settlement/ledger effects instead of advisory economics snapshots.
 
 ### FE7 - Dashboard/Admin Preview
 
-Status: [ ]
+Status: [x]
 
-- Add validation/preview tooling before any merchant-facing configuration UI.
-- Show matched rules, fee lines, visible/hidden totals, and context fields.
-- Keep LIVE activation behind admin/compliance controls.
+- [x] Add validation/preview tooling before broader merchant-facing fee configuration.
+- [x] Show matched rules, fee lines, visible/hidden totals, and context fields.
+- [x] Add schedule/version list and recent assessment review for prepaid issuing.
+- [x] Keep LIVE activation behind admin/compliance controls by blocking merchant-dashboard LIVE activation.
 
 ## Test Strategy
 
 - Unit tests for expression matching, missing fields, fixed fees, percentage fees, visibility totals, rule ordering, and invalid config.
 - Service tests in `virtual-account-service` for schedule version selection, snapshot immutability, and ledger idempotency.
-- Later gateway tests for payment/refund/capture fee contexts.
+- Gateway service tests for no-schedule behavior, active schedule assessment snapshots, and unsafe context rejection.
+- Later gateway tests for refund/capture/dispute/settlement fee contexts.
 - No E2E dashboard dependency for FE1-FE2.
 
 ## Resolved Decisions
@@ -455,13 +463,14 @@ Status: [ ]
 - Expression library: use Google AviatorScript (`https://github.com/killme2008/aviatorscript`) first, wrapped behind a `FeeExpressionEvaluator` abstraction so the rest of the engine is not coupled to Aviator APIs.
 - First prepaid ledger posting trigger: start with `CARD_CREATE`; keep `CARD_CLEARING` as the next prepaid integration point after settlement/balance-impact behavior is settled.
 - `CARD_CREATE` fee posting debit source: merchant `WALLET`. Credit source: platform `FEE_INCOME`.
+- `CARD_CLEARING` fee posting debit source: merchant `WALLET`. Credit source: platform `FEE_INCOME`. Charge timing: matched clearing time after the clearing ledger post succeeds, with cardholder prepaid balance unchanged.
 - Fee currency: use the prepaid-card account currency/card currency as the fee currency. If transaction currency differs and conversion is required, leave an FX abstraction cutpoint and fail explicitly in the current stage instead of silently calculating an incorrect fee.
 - Rounding: first-pass percentage fees round each component with `HALF_UP` to the fee currency/account asset scale, and snapshots persist the raw and rounded calculation details.
 - Initial seed fee examples: card creation fee is `1.00 USD` per card; authorization-style fee rule is `1% + 0.10 USD`. Actual auth-time charging can remain deferred until balance-impacting authorization behavior is intentionally designed.
 - Shared engine, local ownership first: the reusable `fee-engine` module owns computation only. Prepaid persistence starts in `virtual-account-service`; gateway persistence can adopt the same schema shape later without sharing payment/card workflow ownership.
+- First gateway adoption: `gateway-service` owns local fee tables and records assess-only `PAYMENT_CONFIRM` snapshots after successful provider/rail finalization. These snapshots do not change payment amount, provider charge amount, settlement, or ledger balances.
 
 ## Open Questions
 
-- Once both prepaid issuing and gateway-service use cases are active, should fee schedule persistence remain service-local with a shared schema shape, or move to a centrally owned economics/fee persistence service?
+- Once both prepaid issuing and gateway-service fee use cases mature, should fee schedule persistence remain service-local with a shared schema shape, or move to a centrally owned economics/fee persistence service?
 - Which fee categories need compliance disclosure controls before LIVE use?
-- For `CARD_CLEARING`, should the debit source be merchant `WALLET`, card `PREPAID_CARD`, or a merchant fee receivable account, and should the fee be charged at clearing, settlement, or statement time?

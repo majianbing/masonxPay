@@ -38,6 +38,30 @@ public class PrepaidFeeAssessmentRepository {
         return Optional.of(new PrepaidFeeAssessmentSnapshot(assessment, findLines(assessment.assessmentId())));
     }
 
+    public List<PrepaidFeeAssessmentSnapshot> listForMerchant(String merchantId, Mode mode, int page, int size) {
+        List<PrepaidFeeAssessment> assessments = jdbc.query("""
+                SELECT * FROM prepaid_fee_assessment
+                WHERE merchant_id = ?
+                  AND mode = ?::va_mode
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """, ASSESSMENT_MAPPER, merchantId, mode.name(), size, (long) page * size);
+        return assessments.stream()
+                .map(assessment -> new PrepaidFeeAssessmentSnapshot(
+                        assessment, findLines(assessment.assessmentId())))
+                .toList();
+    }
+
+    public long countForMerchant(String merchantId, Mode mode) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM prepaid_fee_assessment
+                WHERE merchant_id = ?
+                  AND mode = ?::va_mode
+                """, Long.class, merchantId, mode.name());
+        return count != null ? count : 0L;
+    }
+
     public boolean saveSnapshotIfAbsent(PrepaidFeeAssessment assessment, List<PrepaidFeeAssessmentLine> lines) {
         int inserted = jdbc.update("""
                 INSERT INTO prepaid_fee_assessment (

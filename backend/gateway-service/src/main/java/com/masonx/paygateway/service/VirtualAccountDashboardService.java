@@ -294,6 +294,69 @@ public class VirtualAccountDashboardService {
         return exchangeObject(uri, HttpMethod.POST, request);
     }
 
+    public ResponseEntity<Object> listPrepaidFeeSchedules(UUID merchantId, String mode, int page, int size) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/schedules")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .queryParam("page", Math.max(page, 0))
+                .queryParam("size", Math.min(Math.max(size, 1), 100))
+                .build(true)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
+    public ResponseEntity<Object> createPrepaidFeeSchedule(UUID merchantId, Map<String, Object> body) {
+        Map<String, Object> request = tenantScopedBody(merchantId, body);
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/schedules")
+                .build()
+                .toUri();
+        return exchangeObject(uri, HttpMethod.POST, request);
+    }
+
+    public ResponseEntity<Object> listPrepaidFeeScheduleVersions(
+            UUID merchantId, String scheduleId, String mode) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/schedules/{scheduleId}/versions")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .buildAndExpand(scheduleId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
+    public ResponseEntity<Object> publishPrepaidFeeScheduleVersion(
+            UUID merchantId, String scheduleId, Map<String, Object> body) {
+        Map<String, Object> request = tenantScopedBody(merchantId, body);
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/schedules/{scheduleId}/versions")
+                .buildAndExpand(scheduleId)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.POST, request);
+    }
+
+    public ResponseEntity<Object> previewPrepaidFee(UUID merchantId, Map<String, Object> body) {
+        Map<String, Object> request = tenantScopedBody(merchantId, body);
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/preview")
+                .build()
+                .toUri();
+        return exchangeObject(uri, HttpMethod.POST, request);
+    }
+
+    public ResponseEntity<Object> listPrepaidFeeAssessments(UUID merchantId, String mode, int page, int size) {
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/v1/prepaid-fees/assessments")
+                .queryParam("merchantId", merchantId)
+                .queryParam("mode", normalizedMode(mode))
+                .queryParam("page", Math.max(page, 0))
+                .queryParam("size", Math.min(Math.max(size, 1), 100))
+                .build(true)
+                .toUri();
+        return exchangeObject(uri, HttpMethod.GET, null);
+    }
+
     private ResponseEntity<Object> exchangeObject(URI uri, HttpMethod method, Map<String, Object> body) {
         try {
             ResponseEntity<Object> response = restTemplate.exchange(
