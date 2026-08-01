@@ -373,6 +373,8 @@ Debit-side funding source is event-specific. `CARD_CREATE` fees debit the mercha
 
 ## Roadmap
 
+Current milestone status as of 2026-08-01: FE0-FE5 and FE7 are complete, and FE6 has the first gateway-service adoption cutpoint implemented. The current implementation milestone is merge-ready after local backend tests and Docker infra rebuild verification. Remaining FE6 items are future gateway economics expansion, not blockers for the reusable fee-engine/prepaid PPC9 milestone.
+
 ### FE0 - Boundary and Documentation
 
 Status: [x]
@@ -457,6 +459,7 @@ Status: [x]
 - Gateway service tests for no-schedule behavior, active schedule assessment snapshots, and unsafe context rejection.
 - Later gateway tests for refund/capture/dispute/settlement fee contexts.
 - No E2E dashboard dependency for FE1-FE2.
+- Current Docker infra rebuild has been verified after adding `fee-engine/src` to the gateway-service Docker build context.
 
 ## Resolved Decisions
 

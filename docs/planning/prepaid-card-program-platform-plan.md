@@ -585,6 +585,8 @@ Status: [~]
 
 Detailed reusable design lives in [Reusable Fee Engine Plan](reusable-fee-engine-plan.md). PPC9 is the prepaid-card adoption path for that shared module; gateway-service now has a first assess-only adoption path for payment confirmation economics using its own persistence.
 
+Current milestone status as of 2026-08-01: the reusable fee-engine and prepaid-card PPC9 implementation scope is merge-ready. Gateway-service has an assess-only `PAYMENT_CONFIRM` adoption path; broader gateway fee admin tooling, additional gateway fee contexts, and money-moving gateway economics are intentionally deferred.
+
 - [x] FE0: finalize reusable fee-engine boundary and expression-library decision.
 - [x] FE1-FE2: add stateless fee-engine module with expression matching, fixed/percentage components, visible/hidden fee lines, and unit tests.
 - [x] FE3-FE4: add prepaid-card fee schedule persistence and immutable assessment snapshots in `virtual-account-service`.
