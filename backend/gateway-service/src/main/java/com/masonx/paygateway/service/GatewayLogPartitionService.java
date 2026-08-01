@@ -2,6 +2,7 @@ package com.masonx.paygateway.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import javax.sql.DataSource;
 
 /**
  * Manages 6-month range partitions for the gateway_logs table.
@@ -31,8 +33,8 @@ public class GatewayLogPartitionService {
 
     private final JdbcTemplate jdbc;
 
-    public GatewayLogPartitionService(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public GatewayLogPartitionService(@Qualifier("flywayDataSource") DataSource dataSource) {
+        this.jdbc = new JdbcTemplate(dataSource);
     }
 
     @Scheduled(cron = "0 0 1 1 * *") // 01:00 on the 1st of every month
