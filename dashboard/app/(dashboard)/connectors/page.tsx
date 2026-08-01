@@ -265,9 +265,9 @@ function ProviderPickerCard({
       type="button"
       onClick={onClick}
       className={[
-        'relative w-full text-left rounded-xl border-2 px-5 py-4 transition-all duration-150',
+        'relative w-full min-w-0 text-left rounded-xl border-2 px-5 py-4 transition-all duration-150',
         'hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500',
-        'flex items-center gap-5',
+        'flex items-start gap-4 sm:items-center sm:gap-5 overflow-hidden',
         selected
           ? 'border-indigo-500 bg-indigo-50/60 shadow-sm'
           : 'border-gray-200 bg-white hover:border-gray-300',
@@ -280,18 +280,18 @@ function ProviderPickerCard({
 
       {/* Name + tagline + method tags */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-semibold text-sm text-gray-900">{meta.label}</p>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="min-w-0 break-words font-semibold text-sm text-gray-900">{meta.label}</p>
           {meta.popular && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 uppercase tracking-wide">
+            <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 uppercase tracking-wide">
               Popular
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{meta.tagline}</p>
-        <div className="flex flex-wrap gap-1 mt-2">
+        <p className="min-w-0 break-words text-xs text-muted-foreground mt-0.5 leading-snug">{meta.tagline}</p>
+        <div className="flex min-w-0 flex-wrap gap-1 mt-2">
           {meta.methods.map((m) => (
-            <span key={m} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+            <span key={m} className="max-w-full break-words text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
               {m}
             </span>
           ))}
@@ -885,8 +885,9 @@ export default function ConnectorsPage() {
               </p>
             </DialogHeader>
 
-            <div className="flex flex-col gap-3 py-2">
-                  {selectableProviders.map((p) => (
+            <div className="min-w-0 overflow-y-auto pr-1 py-2">
+              <div className="flex min-w-0 flex-col gap-3">
+                {selectableProviders.map((p) => (
                 <ProviderPickerCard
                   key={p}
                   provider={p}
@@ -894,12 +895,15 @@ export default function ConnectorsPage() {
                   onClick={() => setSelectedProvider(p)}
                 />
               ))}
+              </div>
             </div>
 
             <DialogFooter className="pt-2">
               <Button variant="ghost" onClick={closeDialog}>Cancel</Button>
-              <Button onClick={confirmProvider}>
-                Continue with {PROVIDER_META[selectedProvider].label} →
+              <Button onClick={confirmProvider} className="min-w-0 max-w-full">
+                <span className="min-w-0 truncate">
+                  Continue with {PROVIDER_META[selectedProvider].label} →
+                </span>
               </Button>
             </DialogFooter>
           </DialogContent>

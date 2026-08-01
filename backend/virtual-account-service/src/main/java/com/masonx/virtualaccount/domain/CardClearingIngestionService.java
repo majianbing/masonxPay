@@ -15,10 +15,16 @@ import com.masonx.virtualaccount.domain.po.CardAuthorization;
 import com.masonx.virtualaccount.domain.po.CardClearingEvent;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.fee.AssessPrepaidFeeCommand;
+import com.masonx.virtualaccount.fee.PrepaidFeeAssessmentService;
+import com.masonx.virtualaccount.fee.PrepaidFeePostingService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 public class CardClearingIngestionService {
@@ -29,6 +35,8 @@ public class CardClearingIngestionService {
     private final LedgerAccountRepository accountRepo;
     private final LedgerFacade ledger;
     private final CardSettlementPostingRule cardSettlementPostingRule;
+    private final PrepaidFeeAssessmentService prepaidFeeAssessmentService;
+    private final PrepaidFeePostingService prepaidFeePostingService;
     private final SnowflakeIdGenerator idGen;
 
     public CardClearingIngestionService(VirtualCardRepository virtualCardRepo,
@@ -37,6 +45,8 @@ public class CardClearingIngestionService {
                                         LedgerAccountRepository accountRepo,
                                         LedgerFacade ledger,
                                         CardSettlementPostingRule cardSettlementPostingRule,
+                                        PrepaidFeeAssessmentService prepaidFeeAssessmentService,
+                                        PrepaidFeePostingService prepaidFeePostingService,
                                         SnowflakeIdGenerator idGen) {
         this.virtualCardRepo = virtualCardRepo;
         this.authorizationRepo = authorizationRepo;
@@ -44,6 +54,8 @@ public class CardClearingIngestionService {
         this.accountRepo = accountRepo;
         this.ledger = ledger;
         this.cardSettlementPostingRule = cardSettlementPostingRule;
+        this.prepaidFeeAssessmentService = prepaidFeeAssessmentService;
+        this.prepaidFeePostingService = prepaidFeePostingService;
         this.idGen = idGen;
     }
 
@@ -99,6 +111,7 @@ public class CardClearingIngestionService {
         if (!posted) {
             return CardClearingIngestionResult.duplicate();
         }
+        assessAndPostClearingFee(event, eventId, card, cardAccount);
 
         BigDecimal settledTotal = safeAmount(auth.settledAmount()).add(event.amount());
         authorizationRepo.recordClearingSettlement(
@@ -260,5 +273,47 @@ public class CardClearingIngestionService {
 
     private static BigDecimal safeAmount(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
+    }
+
+    private void assessAndPostClearingFee(RailSettlementEvent event,
+                                          String eventId,
+                                          VirtualCard card,
+                                          LedgerAccount cardAccount) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("cardCurrency", card.currency());
+        context.put("accountCurrency", cardAccount.asset());
+        context.put("transactionCurrency", event.asset());
+        context.put("purchaseCurrency", event.asset());
+        context.put("amount", event.amount());
+        context.put("transactionAmount", event.amount());
+        context.put("purchaseAmount", event.amount());
+        if ("USD".equalsIgnoreCase(event.asset())) {
+            context.put("amountUsd", event.amount());
+        }
+        context.put("isCrossCurrency", !event.asset().equalsIgnoreCase(card.currency()));
+        context.put("network", event.networkName());
+        context.put("rail", event.rail().name());
+        context.put("fundingWalletId", card.ownerAccountId());
+        context.put("cardholderId", card.cardholderId());
+        context.put("issuerPartnerId", card.issuerPartnerId());
+
+        try {
+            prepaidFeeAssessmentService.assessAndPersist(new AssessPrepaidFeeCommand(
+                    cardAccount.merchantId(),
+                    cardAccount.mode(),
+                    "CARD_CLEARING",
+                    eventId,
+                    card.programId(),
+                    card.cardId(),
+                    card.bin(),
+                    "VIRTUAL",
+                    context,
+                    event.settledAt()
+            )).ifPresent(snapshot -> prepaidFeePostingService.postAssessmentFeesFromWallet(
+                    snapshot, card.ownerAccountId()));
+        } catch (ResponseStatusException ex) {
+            throw new BusinessException("VA_FEE_ASSESSMENT_FAILED",
+                    "Fee assessment failed for clearing event " + eventId + ": " + ex.getReason());
+        }
     }
 }

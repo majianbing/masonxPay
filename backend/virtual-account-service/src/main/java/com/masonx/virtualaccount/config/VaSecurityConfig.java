@@ -29,6 +29,7 @@ public class VaSecurityConfig {
                         .requestMatchers("/v1/cardholders/**").hasRole("INTERNAL")
                         .requestMatchers("/v1/issuer-partners/**").hasRole("INTERNAL")
                         .requestMatchers("/v1/card-settlement-reports/**").hasRole("INTERNAL")
+                        .requestMatchers("/v1/prepaid-fees/**").hasRole("INTERNAL")
                         .anyRequest().permitAll()
                 )
                 .build();

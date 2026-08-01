@@ -7,17 +7,19 @@ WORKDIR /app
 COPY pom.xml .
 COPY common/pom.xml common/pom.xml
 COPY contracts/pom.xml contracts/pom.xml
+COPY fee-engine/pom.xml fee-engine/pom.xml
 COPY gateway-service/pom.xml gateway-service/pom.xml
 COPY virtual-account-service/pom.xml virtual-account-service/pom.xml
 COPY rail-service/pom.xml rail-service/pom.xml
 COPY rail-simulator/pom.xml rail-simulator/pom.xml
-RUN mvn -B -pl gateway-service -am dependency:go-offline
+RUN --mount=type=cache,target=/root/.m2 mvn -B -pl gateway-service -am dependency:go-offline -Dmaven.wagon.rto=60000 -Dmaven.wagon.http.retryHandler.count=5 -Dmaven.wagon.http.pool=false
 
-# Build only gateway-service and its reactor dependencies (common, contracts).
+# Build only gateway-service and its reactor dependencies.
 COPY common/src common/src
 COPY contracts/src contracts/src
+COPY fee-engine/src fee-engine/src
 COPY gateway-service/src gateway-service/src
-RUN mvn -B -pl gateway-service -am -DskipTests package
+RUN --mount=type=cache,target=/root/.m2 mvn -B -pl gateway-service -am -DskipTests package -Dmaven.wagon.rto=60000
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jdk-alpine

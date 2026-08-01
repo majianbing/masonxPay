@@ -12,6 +12,8 @@ import com.masonx.paygateway.domain.instrument.PaymentInstrumentRepository;
 import com.masonx.paygateway.domain.outbox.OutboxEvent;
 import com.masonx.paygateway.domain.outbox.OutboxEventRepository;
 import com.masonx.paygateway.domain.payment.*;
+import com.masonx.paygateway.fee.GatewayFeeAssessmentPort;
+import com.masonx.paygateway.fee.NoopGatewayFeeAssessmentPort;
 import com.masonx.paygateway.metrics.PaymentMetrics;
 import com.masonx.paygateway.domain.retry.ScheduledRetryOperation;
 import com.masonx.paygateway.web.TraceIdFilter;
@@ -76,6 +78,7 @@ public class PaymentIntentService {
     private final PaymentMetrics             metrics;
     private final ScheduledRetryService      scheduledRetryService;
     private final GatewayIdService           gatewayIdService;
+    private final GatewayFeeAssessmentPort   gatewayFeeAssessmentPort;
 
     @Value("${app.scheduled-retry.capture-delay-seconds:900}")
     private long captureRetryDelaySeconds;
@@ -103,7 +106,7 @@ public class PaymentIntentService {
         this(paymentIntentRepository, paymentRequestRepository, routingEngine, dispatcher, providerAccountService,
                 providerAccountRepository, paymentInstrumentRepository, paymentTokenService, retryOrchestrator,
                 objectMapper, outboxEventRepository, shardRegistryRepository, shardRouter, idempotencyCache,
-                txManager, metrics, scheduledRetryService, defaultGatewayIdService());
+                txManager, metrics, scheduledRetryService, defaultGatewayIdService(), new NoopGatewayFeeAssessmentPort());
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -124,7 +127,8 @@ public class PaymentIntentService {
                                 PlatformTransactionManager txManager,
                                 PaymentMetrics metrics,
                                 ScheduledRetryService scheduledRetryService,
-                                GatewayIdService gatewayIdService) {
+                                GatewayIdService gatewayIdService,
+                                GatewayFeeAssessmentPort gatewayFeeAssessmentPort) {
         this.paymentIntentRepository  = paymentIntentRepository;
         this.paymentRequestRepository = paymentRequestRepository;
         this.routingEngine            = routingEngine;
@@ -143,6 +147,7 @@ public class PaymentIntentService {
         this.metrics                  = metrics;
         this.scheduledRetryService    = scheduledRetryService;
         this.gatewayIdService         = gatewayIdService;
+        this.gatewayFeeAssessmentPort = gatewayFeeAssessmentPort;
     }
 
     private static GatewayIdService defaultGatewayIdService() {
@@ -400,6 +405,9 @@ public class PaymentIntentService {
             PaymentIntent saved = paymentIntentRepository.save(intent);
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
             PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+            if (finalResult != null && finalResult.success()) {
+                assessGatewayPaymentConfirmFee(saved, successfulAttempt(attempts));
+            }
 
             // Write outbox event in the same TX as the intent save — atomic
             writeOutboxEvent(saved.getMerchantId(), eventType, saved.getId(), response);
@@ -438,6 +446,9 @@ public class PaymentIntentService {
             PaymentIntent saved = paymentIntentRepository.save(intent);
             List<PaymentRequest> attempts = paymentRequestRepository.findByPaymentIntentId(saved.getId());
             PaymentIntentResponse response = PaymentIntentResponse.from(saved, attempts, objectMapper, null);
+            if (succeeded) {
+                assessGatewayPaymentConfirmFee(saved, successfulAttempt(attempts));
+            }
             String eventType = succeeded ? "payment_intent.succeeded" : "payment_intent.failed";
             writeOutboxEvent(saved.getMerchantId(), eventType, saved.getId(), response);
             metrics.recordIntentConfirmed(
@@ -515,6 +526,25 @@ public class PaymentIntentService {
                 "capture_failed",
                 "Provider capture call failed",
                 null));
+    }
+
+    private void assessGatewayPaymentConfirmFee(PaymentIntent intent, PaymentRequest successfulAttempt) {
+        try {
+            gatewayFeeAssessmentPort.assessPaymentConfirm(intent, successfulAttempt);
+        } catch (RuntimeException ex) {
+            log.warn("Gateway fee assessment failed for paymentIntentId={}: {}",
+                    intent.getId(), ex.getMessage());
+        }
+    }
+
+    private static PaymentRequest successfulAttempt(List<PaymentRequest> attempts) {
+        if (attempts == null || attempts.isEmpty()) {
+            return null;
+        }
+        return attempts.stream()
+                .filter(attempt -> attempt.getStatus() == PaymentRequestStatus.SUCCEEDED)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

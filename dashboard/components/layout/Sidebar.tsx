@@ -39,6 +39,7 @@ const nav = [
       { href: '/issuing/cards', label: 'Cards', icon: CreditCard },
       { href: '/issuing/authorizations', label: 'Authorizations', icon: ShieldCheck },
       { href: '/issuing/settlement', label: 'Settlement', icon: ListChecks },
+      { href: '/issuing/fees', label: 'Fees', icon: CircleDollarSign },
     ],
   },
   {

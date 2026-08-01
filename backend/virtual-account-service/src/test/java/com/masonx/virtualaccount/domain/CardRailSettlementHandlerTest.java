@@ -15,7 +15,13 @@ import com.masonx.virtualaccount.domain.ledger.LedgerPostingCommand;
 import com.masonx.virtualaccount.domain.ledger.posting.CardSettlementPostingRule;
 import com.masonx.virtualaccount.domain.ledger.posting.RailSettlementPostingRule;
 import com.masonx.virtualaccount.domain.po.LedgerAccount;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessment;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentLine;
+import com.masonx.virtualaccount.domain.po.PrepaidFeeAssessmentSnapshot;
 import com.masonx.virtualaccount.domain.po.VirtualCard;
+import com.masonx.virtualaccount.fee.AssessPrepaidFeeCommand;
+import com.masonx.virtualaccount.fee.PrepaidFeeAssessmentService;
+import com.masonx.virtualaccount.fee.PrepaidFeePostingService;
 import com.masonx.virtualaccount.inbound.InboxRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +51,8 @@ class CardRailSettlementHandlerTest {
     @Mock LedgerFacade          ledger;
     @Mock SettlementExceptionService settlementExceptions;
     @Mock InboxRepository inbox;
+    @Mock PrepaidFeeAssessmentService prepaidFeeAssessmentService;
+    @Mock PrepaidFeePostingService prepaidFeePostingService;
 
     CardRailSettlementHandler handler;
 
@@ -60,9 +68,10 @@ class CardRailSettlementHandlerTest {
     @BeforeEach
     void setUp() {
         SnowflakeIdGenerator idGen = new SnowflakeIdGenerator(0);
+        lenient().when(prepaidFeeAssessmentService.assessAndPersist(any())).thenReturn(Optional.empty());
         CardClearingIngestionService clearingIngestionService = new CardClearingIngestionService(
                 virtualCardRepo, authorizationRepo, clearingEventRepo, accountRepo, ledger,
-                new CardSettlementPostingRule(idGen), idGen);
+                new CardSettlementPostingRule(idGen), prepaidFeeAssessmentService, prepaidFeePostingService, idGen);
         handler = new CardRailSettlementHandler(
                 virtualCardRepo, clearingIngestionService, accountRepo, ledger,
                 new CardSettlementPostingRule(idGen), new RailSettlementPostingRule(idGen),
@@ -573,6 +582,42 @@ class CardRailSettlementHandlerTest {
     }
 
     @Test
+    void card_clearing_presentment_assesses_and_posts_fee_after_matched_clearing() {
+        VirtualCard testCard = card();
+        LedgerAccount cardAcct = cardAccount(new BigDecimal("300.00"));
+        LedgerAccount holdAcct = holdAccount(new BigDecimal("100.00"));
+        LedgerAccount rcvAcct = receivableAccount(RECEIVABLE_CARD_ACCT,
+                LedgerAccountType.CARD_NETWORK_RECEIVABLE, "VISA_SIM");
+        PrepaidFeeAssessmentSnapshot snapshot = feeSnapshot();
+
+        when(virtualCardRepo.findActiveByCardTokenId(CARD_TOKEN_ID)).thenReturn(Optional.of(testCard));
+        when(authorizationRepo.findExactOpenHoldMatchForUpdate("card_1", "USD", new BigDecimal("100.00")))
+                .thenReturn(Optional.of(cardAuthorization()));
+        when(accountRepo.findById(CARD_ACCT)).thenReturn(Optional.of(cardAcct));
+        when(accountRepo.findById(HOLD_ACCT)).thenReturn(Optional.of(holdAcct));
+        when(accountRepo.findExternalAccount("VISA_SIM", "USD", LedgerAccountType.CARD_NETWORK_RECEIVABLE))
+                .thenReturn(Optional.of(rcvAcct));
+        when(ledger.postAllIfNew(any(), eq("evt_test_001"), eq("rail-card-clearing"))).thenReturn(true);
+        when(prepaidFeeAssessmentService.assessAndPersist(any())).thenReturn(Optional.of(snapshot));
+
+        handler.handle(event(MoneyMovementType.CARD_CLEARING_PRESENTMENT, CARD_TOKEN_ID, MERCHANT_ID));
+
+        ArgumentCaptor<AssessPrepaidFeeCommand> feeCommandCaptor =
+                ArgumentCaptor.forClass(AssessPrepaidFeeCommand.class);
+        verify(prepaidFeeAssessmentService).assessAndPersist(feeCommandCaptor.capture());
+        assertThat(feeCommandCaptor.getValue().eventType()).isEqualTo("CARD_CLEARING");
+        assertThat(feeCommandCaptor.getValue().eventId()).isEqualTo("evt_test_001");
+        assertThat(feeCommandCaptor.getValue().programId()).isEqualTo("cprog_1");
+        assertThat(feeCommandCaptor.getValue().bin()).isEqualTo("999999");
+        assertThat(feeCommandCaptor.getValue().context())
+                .containsEntry("amount", new BigDecimal("100.00"))
+                .containsEntry("amountUsd", new BigDecimal("100.00"))
+                .containsEntry("network", "VISA_SIM")
+                .containsEntry("fundingWalletId", WALLET_ACCT);
+        verify(prepaidFeePostingService).postAssessmentFeesFromWallet(snapshot, WALLET_ACCT);
+    }
+
+    @Test
     void card_clearing_presentment_prefers_original_authorization_linkage() {
         VirtualCard testCard = card();
         LedgerAccount cardAcct = cardAccount(new BigDecimal("300.00"));
@@ -736,5 +781,44 @@ class CardRailSettlementHandlerTest {
                 "USD",
                 "MATCHED",
                 Instant.now());
+    }
+
+    private PrepaidFeeAssessmentSnapshot feeSnapshot() {
+        Instant now = Instant.now();
+        PrepaidFeeAssessment assessment = new PrepaidFeeAssessment(
+                "feeas_1",
+                MERCHANT_ID,
+                Mode.TEST,
+                "CARD_CLEARING",
+                "evt_test_001",
+                "cprog_1",
+                "card_1",
+                "fees_1",
+                1,
+                "{}",
+                "[]",
+                "{\"USD\":1.10}",
+                "{}",
+                now);
+        PrepaidFeeAssessmentLine line = new PrepaidFeeAssessmentLine(
+                1L,
+                "feeas_1",
+                MERCHANT_ID,
+                Mode.TEST,
+                "rule_clearing",
+                1,
+                "Clearing fee",
+                "clearing_percent",
+                "clearing_fee",
+                "MERCHANT_VISIBLE",
+                "USD",
+                new BigDecimal("100.00"),
+                new BigDecimal("1.10"),
+                new BigDecimal("1.10"),
+                "HALF_UP",
+                2,
+                "{}",
+                now);
+        return new PrepaidFeeAssessmentSnapshot(assessment, List.of(line));
     }
 }

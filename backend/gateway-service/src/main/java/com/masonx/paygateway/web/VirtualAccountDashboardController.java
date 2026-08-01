@@ -213,4 +213,58 @@ public class VirtualAccountDashboardController {
             @RequestBody(required = false) Map<String, Object> body) {
         return service.cardLifecycle(merchantId, cardId, action, body);
     }
+
+    @GetMapping("/prepaid-fees/schedules")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> listPrepaidFeeSchedules(
+            @PathVariable UUID merchantId,
+            @RequestParam(defaultValue = "TEST") String mode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.listPrepaidFeeSchedules(merchantId, mode, page, size);
+    }
+
+    @PostMapping("/prepaid-fees/schedules")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'CREATE')")
+    public ResponseEntity<Object> createPrepaidFeeSchedule(
+            @PathVariable UUID merchantId,
+            @RequestBody Map<String, Object> body) {
+        return service.createPrepaidFeeSchedule(merchantId, body);
+    }
+
+    @GetMapping("/prepaid-fees/schedules/{scheduleId}/versions")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> listPrepaidFeeScheduleVersions(
+            @PathVariable UUID merchantId,
+            @PathVariable String scheduleId,
+            @RequestParam(defaultValue = "TEST") String mode) {
+        return service.listPrepaidFeeScheduleVersions(merchantId, scheduleId, mode);
+    }
+
+    @PostMapping("/prepaid-fees/schedules/{scheduleId}/versions")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'CREATE')")
+    public ResponseEntity<Object> publishPrepaidFeeScheduleVersion(
+            @PathVariable UUID merchantId,
+            @PathVariable String scheduleId,
+            @RequestBody Map<String, Object> body) {
+        return service.publishPrepaidFeeScheduleVersion(merchantId, scheduleId, body);
+    }
+
+    @PostMapping("/prepaid-fees/preview")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> previewPrepaidFee(
+            @PathVariable UUID merchantId,
+            @RequestBody Map<String, Object> body) {
+        return service.previewPrepaidFee(merchantId, body);
+    }
+
+    @GetMapping("/prepaid-fees/assessments")
+    @PreAuthorize("@permissionEvaluator.hasPermission(authentication, #merchantId, 'PAYMENT', 'READ')")
+    public ResponseEntity<Object> listPrepaidFeeAssessments(
+            @PathVariable UUID merchantId,
+            @RequestParam(defaultValue = "TEST") String mode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.listPrepaidFeeAssessments(merchantId, mode, page, size);
+    }
 }

@@ -59,6 +59,7 @@ public class InternalTokenFilter extends OncePerRequestFilter {
                 || uri.startsWith("/v1/card-programs")
                 || uri.startsWith("/v1/cardholders")
                 || uri.startsWith("/v1/issuer-partners")
-                || uri.startsWith("/v1/card-settlement-reports");
+                || uri.startsWith("/v1/card-settlement-reports")
+                || uri.startsWith("/v1/prepaid-fees");
     }
 }

@@ -30,6 +30,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Reusable deterministic fee computation engine -->
+        <dependency>
+            <groupId>com.masonx</groupId>
+            <artifactId>fee-engine</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
