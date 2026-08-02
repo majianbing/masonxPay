@@ -1,15 +1,17 @@
 # AI Capabilities
 
-MasonXPay has two planned AI surfaces with different authority, data access, and users:
+MasonXPay has two AI surfaces at different delivery stages, with different authority, data access, and users:
 
-- The RAG support assistant answers product, integration, and operational usage questions from approved documentation and help content.
-- The payment operations agent investigates telemetry incidents, explains impact, and drafts routing-policy proposals for deterministic validation and human approval.
+- The RAG support assistant has a bootstrap docs-only implementation that answers product, integration, and operational usage questions from approved documentation and help content.
+- The planned payment operations agent will investigate telemetry incidents, explain impact, and draft routing-policy proposals for deterministic validation and human approval.
 
 Both surfaces are advisory. Neither surface may execute payment decisions, directly mutate payment configuration, bypass tenant/RBAC checks, or receive sensitive payment data.
 
 ## RAG Support Assistant
 
 The RAG assistant is a read-only knowledge assistant. It should answer questions such as how to configure connectors, create payment links, use SDKs, understand subscriptions, interpret route policies, and troubleshoot common dashboard flows.
+
+The current bootstrap implementation is not yet a production semantic-retrieval system. Its JSON backend ranks lexical token overlap, while its Qdrant and experimental LlamaIndex paths use deterministic token-hash vectors rather than a trained embedding model. The bootstrap validates service boundaries, metadata filtering, citations, refusals, and deployment integration. Semantic embeddings, measured retrieval quality, ranking improvements, feedback controls, and production hardening remain active work.
 
 The assistant retrieves from approved knowledge sources:
 
@@ -67,7 +69,7 @@ The architecture should support:
 
 Log model provider, model name, prompt/template version, redacted evidence references, model output, validator result, approver, and final applied config version. Run evaluations for incident classification, recommendation quality, policy validation, and explanation clarity before changing default models or prompts.
 
-The RAG assistant should also log source versions, chunk IDs, retrieved citations, refusal reasons, model/provider, prompt/template version, latency, and feedback signals. Evaluation sets should include golden usage questions, citation checks, stale-doc conflict cases, and refusal tests for sensitive-data questions.
+The RAG assistant should also log source versions, chunk IDs, retrieved citations, refusal reasons, model/provider, prompt/template version, latency, and, when implemented, feedback signals. Evaluation sets should include golden usage questions, citation checks, stale-doc conflict cases, and refusal tests for sensitive-data questions.
 
 ## Service Boundary
 
