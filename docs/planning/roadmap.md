@@ -165,22 +165,23 @@ See [subscription and recurring billing plan](subscription-recurring-billing-pla
 
 ## Phase RAG — Documentation Support Assistant
 
-MasonXPay should add a RAG support assistant as the first low-risk AI product surface. It answers product, integration, SDK, dashboard, routing, subscription, rail, and ledger questions from approved documentation and help content. It is read-only, citation-backed, and separate from the payment operations agent.
+MasonXPay has delivered a bootstrap RAG support assistant as its first low-risk AI product surface. It answers product, integration, SDK, dashboard, routing, subscription, rail, and ledger questions from approved documentation and help content. It is read-only, citation-backed, and separate from the planned payment operations agent. Framework evaluation and production hardening remain in progress.
 
-See [RAG support assistant plan](rag-assistant-plan.md).
+The current bootstrap does not use a semantic embedding model: the JSON backend is lexical, while Qdrant stores deterministic token-hash vectors. The existing golden suite validates governance behavior and required citations, not retrieval ranking quality. See the [RAG support assistant plan](rag-assistant-plan.md) for limitations, detailed status, acceptance criteria, and implementation history.
 
 Core safety rule: the RAG assistant does not read operational payment data or mutate configuration. It retrieves only allowlisted docs/help chunks and returns answers with citations. It must refuse unsupported questions and sensitive-data requests instead of inventing behavior.
 
-| # | Item | Status | Detail |
-|---|---|---|---|
-| RAG0 | **Safety and scope model** | [ ] | Define allowed sources, excluded sources, roles, sensitive-data refusals, and docs-only first-version boundary. |
-| RAG1 | **Vector database foundation** | [ ] | Add standalone vector DB to local Docker and deployment docs; define collection schema, metadata indexes, retention, backups, and security requirements. |
-| RAG2 | **Ingestion pipeline** | [ ] | Chunk approved docs, attach metadata, compute embeddings, upsert to vector DB, and track source git commit/version. |
-| RAG3 | **Answer API** | [ ] | Add AI service endpoint and gateway facade for question answering with citations, confidence/refusal fields, correlation IDs, and rate limits. |
-| RAG4 | **Dashboard assistant UI** | [ ] | Add a read-only assistant surface with citations, source links, feedback controls, and clear unsupported-answer states. |
-| RAG5 | **Framework bakeoff** | [ ] | Compare LlamaIndex, LangChain/LangGraph, and thin custom orchestration against a shared Qdrant-backed golden-question set. |
-| RAG6 | **Evals and auditability** | [ ] | Build golden usage questions, citation checks, sensitive-data refusal tests, stale-doc conflict tests, model/provider comparison reports, and prompt/template versioning. |
-| RAG7 | **Production hardening** | [ ] | Add auth between gateway and AI service, vector DB auth/TLS where supported, request budgets, provider fallbacks, no-external-AI mode, alerting, and operational runbooks. |
+| # | Item | Status |
+|---|---|---|
+| RAG0 | **Safety and scope model** | [x] |
+| RAG1 | **Vector database foundation** | [x] |
+| RAG2 | **Bootstrap ingestion and indexing** | [x] |
+| RAG3 | **Answer API** | [x] |
+| RAG4 | **Dashboard assistant UI and feedback** | [~] |
+| RAG5 | **Framework bakeoff** | [~] |
+| RAG6 | **Governance evals and auditability** | [x] |
+| RAG7 | **Production hardening** | [~] |
+| RAG8 | **Semantic retrieval quality** | [ ] |
 
 ---
 

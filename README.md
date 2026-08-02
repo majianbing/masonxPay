@@ -30,7 +30,7 @@ Hosted on Vercel + Render + Neon free tier. The first request may take around 30
 - High-throughput core: 64 logical payment shards, ShardingSphere-JDBC, Kafka outbox/workers, Redis hot path, and payment read projections.
 - Observability: Prometheus metrics, Grafana dashboards, Kafka JMX metrics, alert rules, and request tracing.
 - Benchmarks: k6 scenarios for create, confirm, refund, idempotency replay, get, and list flows.
-- AI assistant: an early-stage, budget-gated dashboard assistant scoped to approved docs, with a separate Python AI coprocessor (`ai-service/`) for embeddings and eval runs.
+- Documentation assistant: a bootstrap, budget-gated RAG experience backed by approved docs, citation/refusal handling, a gateway facade, Qdrant, and a separate Python AI coprocessor (`ai-service/`). Retrieval currently uses lexical matching and deterministic token-hash vectors rather than a semantic embedding model; retrieval-quality work, framework evaluation, feedback controls, and production security hardening remain in progress.
 
 ## Repository Layout
 

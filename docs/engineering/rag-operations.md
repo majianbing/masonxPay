@@ -41,7 +41,7 @@ Allowed content:
 
 - approved docs/help content
 - chunk metadata
-- deterministic local embeddings
+- deterministic local token-hash vectors in the bootstrap implementation; trained semantic embeddings are not yet used
 - citations and source-version metadata
 - optional future eval artifacts
 
@@ -107,7 +107,7 @@ Recommended production indexing workflow:
 3. Upsert to Qdrant with stable point IDs.
 4. Delete stale points not present in the current index.
 5. Query `/v1/rag/status` and verify expected `git_commit`, chunk count, source count, and backend.
-6. Run the golden-question eval suite when RAG6 exists.
+6. Run the golden-question eval suite (`python -m app.evaluate --repo-root .. --index-path <artifact> --report-path <report>`) and keep the versioned report with the release.
 7. Snapshot Qdrant.
 8. Promote the service version and index together.
 
@@ -133,5 +133,6 @@ Expected:
 ## Known Bootstrap Gaps
 
 - Embeddings are deterministic local hashing vectors, not semantic model embeddings.
-- Golden-question evals are not yet automated.
-- Dashboard build verification is still required in this branch because local `npm ci` previously hung.
+- Golden-question evals are not yet automated; they are a manual CLI step, not a CI gate.
+- The golden suite is a governance regression gate. Retrieval ranking quality, recall, and generated-answer groundedness are not measured. See RAG8 in the [RAG assistant plan](../planning/rag-assistant-plan.md).
+- The dashboard assistant is single-turn and has no answer-feedback controls or feedback persistence.
