@@ -59,6 +59,19 @@ docs/           Architecture, engineering guidance, planning, and archive
 Use Docker Compose. This is the supported local path and does not require local Java, Node, or PostgreSQL setup.
 
 ```bash
+./scripts/setup.sh
+```
+
+To start an optional stack profile through the setup script:
+
+```bash
+./scripts/setup.sh --profile ai
+./scripts/setup.sh --profile infra
+```
+
+The equivalent manual setup is:
+
+```bash
 cp .env.docker.example .env
 docker compose up --build
 ```
@@ -115,12 +128,12 @@ First build can take several minutes because Maven and Next.js dependencies are 
 docker compose logs -f
 
 # Follow backend logs
-docker compose logs -f backend
+docker compose logs -f gateway-service
 
 # Stop containers and keep data
 docker compose down
 
-# Stop containers and reset local data
+# Stop containers and reset all local persisted data
 docker compose down -v
 
 # Rebuild after code changes

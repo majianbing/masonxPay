@@ -5,6 +5,13 @@ Use Docker Compose as the default local path. It avoids requiring local Java, No
 ## Docker
 
 ```bash
+./scripts/setup.sh
+./scripts/setup.sh --profile infra
+```
+
+For the equivalent manual setup:
+
+```bash
 cp .env.docker.example .env
 docker compose up --build
 ```
@@ -15,7 +22,7 @@ Useful commands:
 
 ```bash
 docker compose logs -f
-docker compose logs -f backend
+docker compose logs -f gateway-service
 docker compose down
 docker compose down -v
 docker compose up --build

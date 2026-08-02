@@ -76,10 +76,11 @@ services:
     ports:
       - "9094:9094"
       - "7071:7071"
+    # Kafka CLI probes start a JVM on every interval; keep this steady-state check lightweight.
     healthcheck:
-      test: ["CMD-SHELL", "env -u KAFKA_OPTS /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9092"]
       interval: 10s
-      timeout: 5s
+      timeout: 2s
       retries: 12
 
   # ── Redis ──────────────────────────────────────────────────────────────────
@@ -190,7 +191,7 @@ services:
   # ── AI service (docs-only RAG assistant; profile: ai) ───────────────────────
   # Enable with: AI_ASSISTANT_ENABLED=true docker compose --profile ai up --build
   ai-service:
-    profiles: ["ai"]
+    profiles: ["ai", "infra"]
     build:
       context: .
       dockerfile: ai-service/Dockerfile
@@ -217,7 +218,7 @@ services:
       retries: 12
 
   qdrant:
-    profiles: ["ai"]
+    profiles: ["ai", "infra"]
     image: qdrant/qdrant:v1.12.5
     restart: unless-stopped
     volumes:

@@ -22,6 +22,8 @@ scrape_configs:
 
   - job_name: kafka-jmx
     metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 20s
     static_configs:
       - targets:
           - kafka:7071
