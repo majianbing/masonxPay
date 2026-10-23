@@ -28,6 +28,17 @@ The RAG assistant must not ingest or retrieve production logs, raw database rows
 
 ## Authority Boundary
 
+This section is the canonical statement of the AI safety and authority model (Phase AI0). Its executable form lives in `gateway-service` under `com.masonx.paygateway.ai.policy` (`AiAction`, `AiAuthority`, `AiDeploymentMode`, `AiSensitiveDataCategory`, `AiAuthorityPolicy`), and later AI phases must build on those types rather than restate the rules. If this text and the code disagree, fix both in the same change.
+
+| Stage | Decides | AI role |
+|---|---|---|
+| Payment authorize / decline / route / capture / refund | Deterministic gateway services and routing engine | None |
+| Incident detection | Deterministic detector over telemetry | May explain and enrich the candidate |
+| Investigation and recommendation | AI workflow over redacted evidence | Advisory draft |
+| Proposal validation | Deterministic validator | None |
+| Approval | Human with RBAC | None |
+| Applying and rolling back config | Deterministic workers and versioned routing config | None |
+
 AI may:
 
 - answer documentation-backed usage questions

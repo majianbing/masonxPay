@@ -235,7 +235,7 @@ Agent recommendation:
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| AI0 | **Safety and authority model** | [ ] | Define hard boundaries: AI is advisory; validator and human approval are mandatory; deterministic routing engine is the only runtime decision maker. |
+| AI0 | **Safety and authority model** | [x] | Complete: hard boundaries are defined in [AI capabilities](../architecture/ai-capabilities.md) and made executable in `gateway-service` (`com.masonx.paygateway.ai.policy`): `AiAction` tags every action ADVISORY or FORBIDDEN, `AiDeploymentMode` models external-redacted/external-restricted/internal-only/disabled, `AiSensitiveDataCategory` lists data that may never reach a model, and `AiAuthorityPolicy` enforces that forbidden actions throw, deployment mode never widens authority, and applied changes need both validator pass and human approval. Unit tests pin each rule. |
 | AI1 | **Traffic simulator and incident seeds** | [ ] | Generate synthetic payment traffic, provider degradation, latency spikes, retry storms, and regional/card-brand incidents for preview and benchmark environments. |
 | AI2 | **Telemetry-to-incident detector** | [ ] | Convert success-rate, latency, retry, failover, provider, country, currency, and card-brand metrics into structured incident candidates. |
 | AI3 | **Model-agnostic AI investigation workflow** | [ ] | Build provider adapters for OpenAI/ChatGPT, Claude, and Gemini; support configurable default/fallback models; summarize evidence, compare baseline vs current telemetry, explain impact, and draft routing-policy changes without applying them. |
