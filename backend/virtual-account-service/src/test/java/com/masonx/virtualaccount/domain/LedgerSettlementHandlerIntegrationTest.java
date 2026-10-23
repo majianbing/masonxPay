@@ -1,5 +1,6 @@
 package com.masonx.virtualaccount.domain;
 
+import org.junit.jupiter.api.Tag;
 import com.masonx.common.error.BusinessException;
 import com.masonx.common.tenant.MerchantId;
 import com.masonx.common.tenant.Mode;
@@ -38,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.kafka.bootstrap-servers=localhost:9999"
 })
 @ActiveProfiles("test")
+@Tag("integration")
 class LedgerSettlementHandlerIntegrationTest {
 
     @Autowired LedgerSettlementHandler handler;

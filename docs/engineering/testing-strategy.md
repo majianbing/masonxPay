@@ -57,6 +57,13 @@ Prefer Mason Simulator unless provider-specific sandbox behavior is the thing be
 
 Keep each test class focused on one behavior owner. Use local builders/helper methods before introducing shared fixtures.
 
+## Test Tiers And CI
+
+- Fast suite: `cd backend && mvn -B test -DexcludedGroups=integration`. This is what GitHub Actions runs on every push and pull request. It includes unit tests, the ArchUnit boundary rules in `gateway-service/src/test/java/com/masonx/paygateway/architecture`, and the migration-versus-ShardingSphere registry check in `ShardingSingleTableRegistryTest`.
+- Integration tier: classes annotated `@Tag("integration")` need Postgres, Kafka, or a Spring context against a real database. Run them locally with the Docker stack up: `cd backend && mvn -B test`.
+- ArchUnit rules encode written boundaries. A failing rule means the code crossed a boundary. `FreezingArchRule` is used only for rules with a pre-existing backlog; its store under `src/test/resources/archunit_store` is committed and may only shrink.
+- Reporting: quote Maven's own `BUILD` line and the Surefire `Tests run:` counts. A shell or pipeline exit status is not evidence that tests ran.
+
 ## Completion Rule
 
 Do not mark a phase or feature complete until the relevant test layer has passing coverage, or the remaining verification gap is explicitly documented in the phase tracker.
