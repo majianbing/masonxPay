@@ -163,12 +163,23 @@ Current implementation can use existing providers for local simulation. Adyen-st
 
 ### AI0: Safety and Authority Model
 
+Status: [x]
+
 Define hard boundaries:
 
-- AI is advisory.
-- Validator and human approval are mandatory.
-- Deterministic routing engine is the only runtime decision maker.
-- Sensitive data must be blocked before any model call.
+- [x] AI is advisory.
+- [x] Validator and human approval are mandatory.
+- [x] Deterministic routing engine is the only runtime decision maker.
+- [x] Sensitive data must be blocked before any model call.
+
+Delivered as the canonical [AI capabilities](../architecture/ai-capabilities.md) authority model plus an executable form in `gateway-service` under `com.masonx.paygateway.ai.policy`:
+
+- `AiAction`: closed catalog of actions, each tagged `ADVISORY` or `FORBIDDEN`. Payment authorize/decline/route/capture/refund, routing-rule mutation, applying or approving a change, tenant/mode/RBAC/validator bypass, arbitrary SQL/HTTP/filesystem, and sensitive-data reads are forbidden.
+- `AiDeploymentMode`: `external-redacted`, `external-restricted`, `internal-only`, `disabled`, with `disabled` as the parse default.
+- `AiSensitiveDataCategory`: data that must never reach a model, vector index, or AI audit record.
+- `AiAuthorityPolicy`: stateless guard. `requireAdvisory` throws a client-safe 403 `ai_authority_violation` for forbidden actions; `mayCallModel` never widens authority by deployment mode; `mayApplyChange` requires both validator pass and human approval.
+
+Later phases (AI3b redactor, AI4 validator, AI5 approval, AI6 execution) must call into this policy rather than restate it. Nothing is wired into a runtime path yet; the RAG assistant keeps its own enabled flag until AI3 introduces a shared deployment-mode setting.
 
 ### AI1: Traffic Simulator and Incident Seeds
 

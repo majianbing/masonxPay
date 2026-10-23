@@ -57,7 +57,7 @@ MasonXPay is a multi-provider payment gateway and payment operations platform. I
 - Phase MR (multi-rail infrastructure) MR0–MR5: complete. ISO 8583 card rail (Netty/jPOS), ISO 20022 bank rail (HTTP/JAXB), VCC product, ledger integration, VA Account APIs, gateway→rail bridge. See `docs/planning/multi-rail-iso8583-iso20022-plan.md`.
 - Phase LC (ledger completeness): complete — persisted journal headers (`va_transaction`), GL query APIs, effective-date account statements, and trial balance reporting. See `docs/planning/ledger-completeness-plan.md`.
 - Phase RAG (documentation support assistant): bootstrap implementation delivered. RAG0-RAG3 and RAG6 are complete for the docs-only baseline; RAG4 feedback controls, RAG5 framework evaluation, and RAG7 production hardening remain in progress; RAG8 semantic retrieval quality is planned. Current retrieval is lexical/token-hash based, not semantic. The assistant answers from approved docs/help content with citations and has no payment or configuration mutation authority.
-- Phase AI (payment operations agent): planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
+- Phase AI (payment operations agent): AI0 safety and authority model complete (`com.masonx.paygateway.ai.policy`); AI1-AI7 planned. AI analyzes, recommends, explains, and drafts config changes; validators, human approval, and deterministic routing remain authoritative.
 
 ## Commands
 

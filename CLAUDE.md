@@ -48,7 +48,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 - Search/read views: Postgres projection tables now; OpenSearch remains an optional future adapter if search outgrows Postgres, not state authority.
 - Runtime routing: deterministic rules and service logic.
 - Advanced orchestration: Phase O adds payment instruments, account capability checks, route policies, route simulation, and outcome-aware retry/fallback. `docs/planning/payment-orchestration-routing-retry-plan.md` is the durable status tracker.
-- AI capabilities: advisory only, and they must stay that way. The RAG assistant has a bootstrap docs-only implementation that answers from approved docs/help content and does not read operational payment data. The payment operations agent is still planned; it investigates and proposes, validators and humans approve, and deterministic workers execute.
+- AI capabilities: advisory only, and they must stay that way. The RAG assistant has a bootstrap docs-only implementation that answers from approved docs/help content and does not read operational payment data. The payment operations agent has its safety and authority model (AI0) in code under `com.masonx.paygateway.ai.policy`; the workflow itself is still planned. It investigates and proposes, validators and humans approve, and deterministic workers execute.
 - AI service placement: `ai-service/` is a top-level Python service, not part of `backend/`. The Java gateway remains the policy gate for identity, tenant scope, TEST/LIVE mode scope, RBAC, approval state, and payment-domain mutation.
 
 ## Current Track
@@ -96,7 +96,7 @@ Next likely work:
 
 - Phase PPC remainder: PPC9 reusable fee-engine foundation has FE1-FE2 complete (stateless module, Aviator expression matching, fixed/percentage calculation, rounding, validation); next is prepaid schedule persistence and assessment snapshots. Also finish PPC7 EXTERNAL reconciliation and PPC8 ops actions; PPC0 naming cleanup. Create-card idempotency/atomicity and issuer lifecycle partial-failure reconciliation are now covered in the prepaid-card service foundation.
 - Phase RAG: docs-backed support assistant — bootstrap delivered. RAG0-RAG3 and RAG6 are complete: allowlisted sources, audience filtering, refusals, Qdrant ingestion with stable chunk/point IDs, gateway facade with budgets and audit, and a governance eval suite. Retrieval is lexical/token-hash, not semantic. Remaining: RAG4 feedback controls, RAG5 framework comparison, RAG7 production hardening (vector DB auth/TLS, alerting, runbooks), and RAG8 semantic retrieval quality (embedding baseline, recall@k/MRR/nDCG, chunking, hybrid/rerank, groundedness). See `docs/planning/rag-assistant-plan.md`.
-- Phase AI: model-agnostic payment operations agent — telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
+- Phase AI: model-agnostic payment operations agent — AI0 authority model done; next are telemetry-to-incident detection, investigation workflow, policy change proposals, human approval, deterministic execution. See `docs/planning/payment-operations-agent-plan.md`.
 - Phase 15 (deferred): platform maturity — rate limiting, platform admin UI, API versioning strategy. Lower priority.
 - Phase O: O6 optional portable-card support only when cross-PSP portability becomes a real requirement.
 

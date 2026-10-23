@@ -439,11 +439,6 @@ Remaining:
 - [ ] Add support for portable vault tokens behind `PaymentInstrument`.
 - [ ] Add network-token capability flags without assuming direct Visa/Mastercard access.
 
-### AI Later: Advisory Control Plane `[ ]`
+### AI Later: Advisory Control Plane
 
-Remaining:
-
-- [ ] Analyze provider health, approval rate, latency, cost, and fallback outcomes.
-- [ ] Recommend route-policy changes.
-- [ ] Draft policy diffs.
-- [ ] Require deterministic validation and human approval before publication.
+Tracked as Phase AI in [payment operations agent plan](payment-operations-agent-plan.md); the authority model (AI0) is complete and incident detection, investigation, proposal validation, approval, and execution (AI1-AI7) remain open there. This plan no longer keeps a separate checklist.
