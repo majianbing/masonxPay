@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.Properties;
 
@@ -33,6 +34,9 @@ import java.util.Properties;
 public class DataSourceConfig {
 
     private static final int PAYMENT_SHARD_COUNT = 64;
+
+    /** Logical tables routed by the sharding rule; everything else must be a registered single table. */
+    static final Set<String> SHARDED_LOGICAL_TABLES = Set.of("payment_intents", "payment_requests");
 
     @Bean
     @ConfigurationProperties("spring.datasource")
@@ -102,7 +106,7 @@ public class DataSourceConfig {
         return new SingleRuleConfiguration(singleTables(), "ds_0");
     }
 
-    private Collection<String> singleTables() {
+    static Collection<String> singleTables() {
         List<String> tables = new ArrayList<>(List.of(
                 "ds_0.admin_audit_logs",
                 "ds_0.merchant_audit_logs",
@@ -117,9 +121,10 @@ public class DataSourceConfig {
                 "ds_0.gateway_logs_2025_h2",
                 "ds_0.gateway_logs_2026_h1",
                 "ds_0.gateway_logs_2026_h2",
-                "ds_0.gateway_logs_legacy",
                 "ds_0.customer_payment_methods",
                 "ds_0.customers",
+                "ds_0.disputes",
+                "ds_0.dispute_evidence_files",
                 "ds_0.invite_tokens",
                 "ds_0.merchant_users",
                 "ds_0.merchants",

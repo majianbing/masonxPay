@@ -1,5 +1,6 @@
 package com.masonx.paygateway.web;
 
+import org.junit.jupiter.api.Tag;
 import com.masonx.paygateway.security.rbac.GatewayPermissionEvaluator;
 import com.masonx.paygateway.service.WebhookDeliveryService;
 import com.masonx.paygateway.service.WebhookEndpointService;
@@ -31,6 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @WithMockUser
+@Tag("integration")
 class WebhookEndpointControllerIntegrationTest {
 
     static {

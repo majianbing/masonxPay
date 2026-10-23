@@ -1,5 +1,6 @@
 package com.masonx.paygateway.web;
 
+import org.junit.jupiter.api.Tag;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.BillingCustomer;
 import com.masonx.paygateway.domain.billing.BillingCustomerRepository;
@@ -48,6 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Tag("integration")
 class PublicSubscriptionCheckoutControllerIntegrationTest {
 
     static {

@@ -1,0 +1,3 @@
+#
+#Fri Oct 23 16:38:54 GMT+08:00 2026
+no\ classes\ that\ are\ annotated\ with\ @RestController\ should\ depend\ on\ classes\ that\ are\ assignable\ to\ org.springframework.data.repository.Repository,\ because\ business\ logic\ and\ persistence\ belong\ in\ services;\ pre-existing\ violations\ are\ frozen,\ new\ ones\ fail=bc1717c4-9bf5-4921-9a68-241da9ba6d11

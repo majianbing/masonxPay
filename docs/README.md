@@ -41,5 +41,5 @@ This directory separates durable architecture, engineering guidance, active plan
 
 - `../README.md`: public setup and project overview.
 - `../AGENTS.md`: concise coding-agent guide and hard rules.
-- `../CLAUDE.md`: concise project skeleton for Claude-style assistants.
+- `../CLAUDE.md`: imports `AGENTS.md` and adds Claude-specific session notes.
 - `../SECURITY.md`: security policy and vulnerability reporting.

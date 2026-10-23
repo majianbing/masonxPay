@@ -1,5 +1,6 @@
 package com.masonx.paygateway.web;
 
+import org.junit.jupiter.api.Tag;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.masonx.paygateway.domain.apikey.ApiKeyMode;
 import com.masonx.paygateway.domain.billing.BillingIntervalUnit;
@@ -43,6 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @WithMockUser
+@Tag("integration")
 class SubscriptionControllerIntegrationTest {
 
     static {
