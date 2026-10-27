@@ -88,6 +88,11 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- ShardingSphere-JDBC (Phase H1 logical table sharding foundation) -->
         <dependency>
@@ -163,7 +168,7 @@
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
-            <version>7.4</version>
+            <version>8.1</version>
         </dependency>
 
         <!-- Dotenv -->

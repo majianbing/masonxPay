@@ -1,6 +1,6 @@
 # Backend Guide
 
-Backend code is Java 21, Spring Boot, Maven, and package root `com.masonx.paygateway`.
+Backend code is Java 25, Spring Boot 3.5, Maven, and package root `com.masonx.paygateway`.
 
 ## Style
 
@@ -60,6 +60,15 @@ com.masonx.virtualaccount
 The backend is a modular monolith. Payment/refund state transitions, provider adapters, routing, webhook delivery, outbox/Kafka workers, projections, Redis hot path, identity/access, billing, and dashboard/API entrypoints each own one concern.
 
 Cross-module calls should go through services/interfaces or outbox events. Do not shortcut into another module's repositories or internals.
+
+## Threading
+
+All services run on JDK 25 with `spring.threads.virtual.enabled=true`, so Tomcat request handling, `@Scheduled` jobs, `@Async` methods, and Kafka listener poll loops each run on a virtual thread. JDK 24+ (JEP 491) removed carrier pinning inside `synchronized`, which is what made this safe for the PostgreSQL JDBC driver and the few `synchronized` blocks in the codebase.
+
+- Do not add platform thread pools (`ThreadPoolTaskExecutor`, `Executors.newFixedThreadPool`). Use `SimpleAsyncTaskExecutor` with `setVirtualThreads(true)` and a `concurrencyLimit` when a downstream needs protection.
+- The Hikari pool is the real concurrency cap for database work. Virtual threads make it cheap to have thousands of in-flight requests; size `maximum-pool-size` to the database, not to the request volume.
+- Avoid `ThreadLocal` caches for heavyweight objects; a virtual thread is short-lived and there can be many of them. Scoped values or request-scoped beans fit better.
+- Custom Kafka listener container factories must set a virtual-thread `listenerTaskExecutor` themselves; Boot only does it for its default factory.
 
 ## Transaction Rules
 

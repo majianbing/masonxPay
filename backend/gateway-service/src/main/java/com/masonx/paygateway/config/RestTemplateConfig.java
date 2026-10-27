@@ -16,8 +16,8 @@ public class RestTemplateConfig {
     @Bean
     public RestTemplate webhookRestTemplate(RestTemplateBuilder builder) {
         return builder
-                .setConnectTimeout(Duration.ofSeconds(5))
-                .setReadTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofSeconds(5))
+                .readTimeout(Duration.ofSeconds(10))
                 .errorHandler(new NoOpResponseErrorHandler())
                 .build();
     }
@@ -25,8 +25,8 @@ public class RestTemplateConfig {
     @Bean
     public RestTemplate aiAssistantRestTemplate(RestTemplateBuilder builder, AiAssistantProperties properties) {
         return builder
-                .setConnectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
-                .setReadTimeout(Duration.ofMillis(properties.readTimeoutMs()))
+                .connectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
+                .readTimeout(Duration.ofMillis(properties.readTimeoutMs()))
                 .errorHandler(new NoOpResponseErrorHandler())
                 .build();
     }
@@ -34,8 +34,8 @@ public class RestTemplateConfig {
     @Bean
     public RestTemplate virtualAccountRestTemplate(RestTemplateBuilder builder) {
         return builder
-                .setConnectTimeout(Duration.ofSeconds(2))
-                .setReadTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(2))
+                .readTimeout(Duration.ofSeconds(5))
                 .errorHandler(new NoOpResponseErrorHandler())
                 .build();
     }

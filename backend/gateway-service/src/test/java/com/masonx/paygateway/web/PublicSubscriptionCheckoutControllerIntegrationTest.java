@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -58,31 +58,31 @@ class PublicSubscriptionCheckoutControllerIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private SubscriptionCheckoutLinkRepository checkoutLinkRepository;
 
-    @MockBean
+    @MockitoBean
     private SubscriptionRepository subscriptionRepository;
 
-    @MockBean
+    @MockitoBean
     private SubscriptionItemRepository itemRepository;
 
-    @MockBean
+    @MockitoBean
     private BillingCustomerRepository customerRepository;
 
-    @MockBean
+    @MockitoBean
     private MerchantRepository merchantRepository;
 
-    @MockBean
+    @MockitoBean
     private ProviderAccountRepository providerAccountRepository;
 
-    @MockBean
+    @MockitoBean
     private CredentialsCodec credentialsCodec;
 
-    @MockBean
+    @MockitoBean
     private RoutingEngine routingEngine;
 
-    @MockBean
+    @MockitoBean
     private BraintreePaymentProviderService braintreePaymentProviderService;
 
     @Test
