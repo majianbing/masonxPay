@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,9 +43,9 @@ class InvoiceControllerIntegrationTest {
 
     @Autowired MockMvc mockMvc;
 
-    @MockBean SubscriptionInvoiceService invoiceService;
-    @MockBean InvoicePaymentService paymentService;
-    @MockBean GatewayPermissionEvaluator permissionEvaluator;
+    @MockitoBean SubscriptionInvoiceService invoiceService;
+    @MockitoBean InvoicePaymentService paymentService;
+    @MockitoBean GatewayPermissionEvaluator permissionEvaluator;
 
     private UUID merchantId;
     private UUID invoiceId;

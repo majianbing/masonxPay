@@ -164,7 +164,7 @@ Benchmark outputs are written to `bench/results/`. See [bench/README.md](bench/R
 
 | Layer | Technology |
 |-------|------------|
-| Backend | Java 21, Spring Boot 3.2, Spring Security, Spring Data JPA |
+| Backend | Java 25, Spring Boot 3.5, Spring Security, Spring Data JPA |
 | Database | PostgreSQL, Flyway, ShardingSphere-JDBC |
 | Async | Apache Kafka, Spring Kafka, transactional outbox |
 | Hot path | Redis, Redisson |

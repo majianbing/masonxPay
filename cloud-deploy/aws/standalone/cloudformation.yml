@@ -34,7 +34,7 @@ Parameters:
     Default: t3.medium
     AllowedValues: [t3.medium, t3.large, t3.xlarge]
     Description: >
-      t3.medium = 2 vCPU / 4 GB — minimum for Java 21 + Postgres + Next.js +
+      t3.medium = 2 vCPU / 4 GB — minimum for Java 25 + Postgres + Next.js +
       Prometheus + Grafana + postgres-exporter, with headroom for the Maven
       and Next.js builds on first boot.
 

@@ -11,6 +11,9 @@ spring:
   threads:
     virtual:
       enabled: true
+  task:
+    execution:
+      mode: force
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:paygateway}
     username: ${DB_USERNAME:postgres}

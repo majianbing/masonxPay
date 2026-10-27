@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: rail-simulator
+  threads:
+    virtual:
+      enabled: true
 
 railsim:
   # ISO 8583 TCP server port (card-network-sim)

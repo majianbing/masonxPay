@@ -1,6 +1,6 @@
 # Virtual Account service image. Build context is ./backend (the reactor root).
 # ── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21 AS builder
+FROM maven:3.9-eclipse-temurin-25 AS builder
 WORKDIR /app
 
 # All module poms are needed for the reactor to parse; only the
@@ -23,7 +23,7 @@ COPY virtual-account-service/src virtual-account-service/src
 RUN mvn -B -pl virtual-account-service -am -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine
+FROM eclipse-temurin:25-jdk-alpine
 WORKDIR /app
 
 COPY --from=builder /app/virtual-account-service/target/*.jar app.jar

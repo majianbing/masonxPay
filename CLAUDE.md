@@ -24,7 +24,7 @@ MasonXPay is a Java/Spring Boot and Next.js payment operations platform. It supp
 
 ## Modules
 
-- `backend/`: Maven multi-module reactor (Java 21, Spring Boot 3.2). Sub-modules:
+- `backend/`: Maven multi-module reactor (Java 25, Spring Boot 3.5). Sub-modules:
   - `common/`: shared utilities — error model, ID generation (`com.masonx.common`), tenant context.
   - `contracts/`: shared event contracts — `EventEnvelope`, settlement DTOs, `RailSettlementEvent`, `RailPaymentResolvedEvent` (`com.masonx.contracts`).
   - `fee-engine/`: reusable stateless fee calculation engine for prepaid issuing and gateway economics (`com.masonx.feeengine`).

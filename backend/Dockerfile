@@ -1,5 +1,5 @@
 # ── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21 AS builder
+FROM maven:3.9-eclipse-temurin-25 AS builder
 WORKDIR /app
 
 # Cache dependencies layer — all module poms are needed for the reactor to parse,
@@ -22,7 +22,7 @@ COPY gateway-service/src gateway-service/src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -pl gateway-service -am -DskipTests package -Dmaven.wagon.rto=60000
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine
+FROM eclipse-temurin:25-jdk-alpine
 WORKDIR /app
 
 # Bootable artifact is the gateway-service module jar

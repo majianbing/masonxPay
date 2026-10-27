@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -28,6 +29,10 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory);
         factory.setBatchListener(true);
         factory.setConcurrency(properties.getConsumerConcurrency());
+        // Mirror Boot's default listener factory: each consumer poll loop runs on a virtual thread.
+        SimpleAsyncTaskExecutor listenerExecutor = new SimpleAsyncTaskExecutor("gateway-log-kafka-");
+        listenerExecutor.setVirtualThreads(true);
+        factory.getContainerProperties().setListenerTaskExecutor(listenerExecutor);
         return factory;
     }
 }

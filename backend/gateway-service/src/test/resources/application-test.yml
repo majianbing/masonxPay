@@ -23,6 +23,9 @@ gateway:
     node-id: 2
 
 app:
+  encryption:
+    # Test-only AES key (base64 of 32 fixed bytes). Never reuse outside the test profile.
+    key: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
   jwt:
     secret: test-secret-key-that-is-at-least-256-bits-long-for-testing-purposes
     access-token-expiry-ms: 3600000

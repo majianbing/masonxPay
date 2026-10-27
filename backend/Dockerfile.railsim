@@ -1,6 +1,6 @@
 # Rail simulator image. Build context is ./backend (the reactor root).
 # ── Stage 1: Build ──────────────────────────────────────────────────────────
-FROM maven:3.9-eclipse-temurin-21 AS builder
+FROM maven:3.9-eclipse-temurin-25 AS builder
 WORKDIR /app
 
 COPY pom.xml .
@@ -19,7 +19,7 @@ COPY rail-simulator/src rail-simulator/src
 RUN mvn -B -pl rail-simulator -am -DskipTests package
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jdk-alpine
+FROM eclipse-temurin:25-jdk-alpine
 WORKDIR /app
 
 COPY --from=builder /app/rail-simulator/target/*.jar app.jar
